@@ -2,6 +2,32 @@
 
 Updated 2026-09-11.
 
+## Milestone 0 status
+
+Exit criteria from the roadmap: packaged launch, independent pet and workspace windows, a measured voice/runtime recommendation, and a documented minimum Mac. **Milestone 0 is not closed.** Every gate that can be automated has now been run. The rest need a person, paid provider access, or features that aren't built.
+
+### Closed
+
+| Gate | Evidence |
+| --- | --- |
+| Packaged launch | Unsigned arm64 package passes the Playwright smoke suite, including restart and the SQLite history. [Packaged launch](#packaged-launch--2026-09-11) |
+| Independent pet and workspace windows | Same packaged run: two windows, card hidden at launch, anchor placement, drag with pinned and unpinned card, restart restore. |
+| Skin contract with two silhouettes | Cloud and Sprout geometry, hit regions and workspace anchor pass contract and renderer tests. [Skin geometry](#skin-geometry-evidence) |
+| Idle resource budget, no repaint loop | Idle about 0.25% of one core, about 155 MiB physical footprint, no repaint loop in three runs. [Resource budget](RESOURCE-BUDGET.md) |
+| Local voice runtimes measured | Pocket TTS and whisper.cpp + Silero VAD, standalone. [Pocket](../benchmarks/voice/RESULTS.md), [transcription](../benchmarks/voice/TRANSCRIPTION.md) |
+| Minimum Mac documented | **Provisional:** Apple silicon, 8 GB, macOS 12 or newer; 16 GB recommended for local voice. Verified on one M2 Pro only. [Minimum hardware](RESOURCE-BUDGET.md#minimum-hardware-provisional) |
+
+### Still open
+
+| Gate | Why it's open |
+| --- | --- |
+| Manual desktop checks | Click-through, focus, drag, stacking, Spaces and fullscreen, displays, mixed Retina, menu actions, shortcut, capture permission and one note save. Only a person can do these. **Waiting on the user:** [manual checks](MANUAL-CHECKS.md). |
+| Cloud voice auditions (ElevenLabs, Cartesia) | These need the user's own keys and paid calls, so they were not run. The voice recommendation stays provisional (Pocket local by default) until they are done or explicitly dropped. |
+| Voice listening assessment | Nobody has listened to Pocket's output and judged clarity or character fit yet. Needs a person. |
+| Voice in the app | Commit `c501449` wires hold-to-talk in the development app. Nobody has done a real spoken turn with a physical microphone yet, and the voice runtimes are not bundled in the package. |
+| Hand pointing and drawing | Not built. Only static hand anchors exist. |
+| Minimum hardware on lower-end Macs | No M1 or 8 GB Mac tested, so the minimum stays provisional. |
+
 ## Verified
 
 ### Packaged launch — 2026-09-11
@@ -23,9 +49,11 @@ What that run covers, inside the packaged app:
 - A restart that restores the pet position, skin and pin. No renderer errors across both launches.
 - **SQLite history in the packaged main process.** The profile contained `edi.sqlite` with the `runs`, `tool_calls` and `notes` tables, schema version 1, in WAL mode. Both launches ran the startup recovery (`recoverInterrupted`) on that file. Recovery only ran on an empty history here. Recovering a genuinely interrupted run is covered by `packages/storage` tests, not by the package.
 
-Not covered by the packaged run: a live model request, credential migration, the notes tool and approval card, the status bubble and custom menu (`pnpm test:character` runs against the development app only), and anything that needs a person at the Mac. No paid requests or real keys were used. The user separately confirmed live OpenRouter responses in the development app.
+Not covered by the packaged run: a live model request, credential migration, the notes tool and approval card, the status bubble and custom menu (`pnpm test:character` runs against the development app only), and anything that needs a person at the Mac (see [manual checks](MANUAL-CHECKS.md)). No paid requests or real keys were used. The user separately confirmed live OpenRouter responses in the development app.
 
-Test host: Apple M2 Pro, 16 GB RAM, macOS 26.5.2. This is not a minimum-hardware claim.
+A later package, built from the working tree at `0688522` (which includes `ed046f9`, screen context) plus another session's uncommitted contracts changes, also passed the same smoke suite. Its packaged main process applied the new migration: schema version 2, with the `runs.screens` column. Commit `c501449` (hold-to-talk) landed afterwards and has not been packaged or smoke-tested here.
+
+Test host: Apple M2 Pro, 16 GB RAM, macOS 26.5.2. This is not a minimum-hardware claim; see the [resource budget](RESOURCE-BUDGET.md).
 
 ## Open gates
 
@@ -38,9 +66,9 @@ Character interaction update: click and Command–Shift–E now share the listen
 The bubble's listening-bars variant has reduced-motion support but is not selected in production until microphone capture is implemented. No microphone access or spoken greeting was added. The status-bubble screenshot was visually checked. The 2026-09-11 package includes this interaction change, but the bubble and menu tests run against the development app only.
 
 - Validate moving/pointing hands and physical display changes. Workspace placement now consumes skin anchors; motion during presentation remains pending.
-- Manual click-through, focus/dismissal, dragging, stacking, Retina coordinates, Spaces/fullscreen, display changes, and capture permission behavior.
+- Manual click-through, focus/dismissal, dragging, stacking, Retina coordinates, Spaces/fullscreen, display changes, and capture permission behavior. Now a numbered checklist: [manual checks](MANUAL-CHECKS.md).
 - Pocket screening is complete; app playback, interruption, listening assessment, local transcription, and comparable cloud auditions remain open. Additional downloads and paid auditions require explicit scope.
-- Minimum hardware and idle resource budget based on measurements.
+- ~~Minimum hardware and idle resource budget based on measurements.~~ Measured on this host; the minimum is provisional. See [resource budget](RESOURCE-BUDGET.md).
 
 The app is unsigned, not notarized, and uses the default Electron icon. Local development testing only; unsigned builds may trigger Keychain prompts.
 

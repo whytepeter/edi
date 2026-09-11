@@ -15,6 +15,8 @@ Each check takes a few minutes. Fill in the result fields as you go. A failure w
    ```
 
 3. Wait for Edi to appear near the bottom-right corner of your main display. The card stays hidden at launch.
+
+   The packaged app does not bundle local voice yet, so clicking or holding Edi shows a "voice unavailable" bubble and never opens the microphone. Hold-to-talk in `pnpm dev` (commit `c501449`) needs its own check with a real microphone and is not covered here.
 4. Fill in this header once:
 
 | Field | Value |
