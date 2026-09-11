@@ -1,5 +1,11 @@
 import { z } from 'zod';
-export { placeCard, clampWindow, type Rect } from './window-placement';
+export {
+  placeCard,
+  placeSpeechBubble,
+  placeContextMenu,
+  clampWindow,
+  type Rect,
+} from './window-placement';
 export {
   skinGeometrySchema,
   skinGeometry,
@@ -53,6 +59,12 @@ export const screenPointSchema = z
   })
   .strict();
 export const petDragThreshold = 6;
+
+/** What the status bubble beside the character shows. Listening requires a live microphone. */
+export const statusBubbleStateSchema = z.enum(['unavailable', 'thinking', 'listening']);
+export type StatusBubbleState = z.infer<typeof statusBubbleStateSchema>;
+export const bubbleSideSchema = z.enum(['left', 'right']);
+export type BubbleSide = z.infer<typeof bubbleSideSchema>;
 export const settingsSchema = z.object({
   skin: skinSchema,
   pinned: z.boolean(),
@@ -74,7 +86,13 @@ export const commandSchema = z.discriminatedUnion('type', [
       action: z.enum(['conversation', 'content', 'stop', 'sleep', 'quit', 'dismiss']),
     })
     .strict(),
-  z.object({ type: z.literal('character-menu') }).strict(),
+  z
+    .object({
+      type: z.literal('character-menu'),
+      /** Pointer position of the right-click, so the menu opens under the cursor. */
+      point: screenPointSchema.optional(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('configure-agent'),
@@ -85,12 +103,12 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('disconnect-agent') }).strict(),
   z.object({ type: z.literal('ask-agent'), prompt: z.string().trim().min(1).max(8000) }).strict(),
   z.object({ type: z.literal('stop-agent') }).strict(),
-  z.object({ type: z.literal('show-workspace') }),
-  z.object({ type: z.literal('hide-workspace') }),
-  z.object({ type: z.literal('apply-skin'), skin: skinSchema }),
-  z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }),
-  z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }),
-  z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }),
+  z.object({ type: z.literal('show-workspace') }).strict(),
+  z.object({ type: z.literal('hide-workspace') }).strict(),
+  z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
+  z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
+  z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
+  z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),
   z
     .object({
       type: z.literal('pet-drag'),

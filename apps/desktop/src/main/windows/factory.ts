@@ -1,6 +1,12 @@
 import { BrowserWindow, screen, type BrowserWindowConstructorOptions } from 'electron';
 import { join } from 'node:path';
-import { clampWindow, desktopPetSize } from '@edi/contracts';
+import {
+  clampWindow,
+  desktopPetSize,
+  type BubbleSide,
+  type SkinId,
+  type StatusBubbleState,
+} from '@edi/contracts';
 
 /** Renderer entry points. One bundle serves all of them, selected by `?surface=`. */
 export type Surface = 'workspace' | 'pet' | 'voice-status' | 'character-menu';
@@ -9,6 +15,17 @@ export const cardSize = {
   compact: { width: 408, height: 480 },
   expanded: { width: 740, height: 650 },
 } as const;
+
+/** Transparent inset around bubbles and menus so their soft shadows are not clipped. */
+export const floatingMargin = 8;
+
+/** Window sizes include `floatingMargin` on every side. */
+export const statusBubbleSize: Record<StatusBubbleState, { width: number; height: number }> = {
+  unavailable: { width: 160, height: 52 },
+  thinking: { width: 88, height: 52 },
+  listening: { width: 92, height: 52 },
+};
+export const characterMenuSize = { width: 200, height: 178 } as const;
 
 const isolated = { contextIsolation: true, sandbox: true, nodeIntegration: false } as const;
 const withBridge = { ...isolated, preload: join(__dirname, '../preload/index.js') };
@@ -20,13 +37,14 @@ const floating: BrowserWindowConstructorOptions = {
   alwaysOnTop: true,
 };
 
-function loadSurface(win: BrowserWindow, surface: Surface) {
+function loadSurface(win: BrowserWindow, surface: Surface, params: Record<string, string> = {}) {
+  const query = { surface, ...params };
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
   if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/?surface=${surface}`);
+    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/?${new URLSearchParams(query)}`);
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'), { query: { surface } });
+    void win.loadFile(join(__dirname, '../renderer/index.html'), { query });
   }
   return win;
 }
@@ -67,25 +85,29 @@ export function createPetWindow(saved: { x: number; y: number } | null) {
   return loadSurface(win, 'pet');
 }
 
-export function createVoiceStatusWindow() {
+export interface StatusBubbleOptions {
+  state: StatusBubbleState;
+  side: BubbleSide;
+  skin: SkinId;
+}
+
+export function createStatusBubbleWindow({ state, side, skin }: StatusBubbleOptions) {
   const win = new BrowserWindow({
     ...floating,
-    width: 162,
-    height: 48,
+    ...statusBubbleSize[state],
     hasShadow: false,
     skipTaskbar: true,
     focusable: false,
     // Display only: no preload, so this surface cannot send commands.
     webPreferences: isolated,
   });
-  return loadSurface(win, 'voice-status');
+  return loadSurface(win, 'voice-status', { state, side, skin });
 }
 
 export function createCharacterMenuWindow() {
   const win = new BrowserWindow({
     ...floating,
-    width: 260,
-    height: 276,
+    ...characterMenuSize,
     hasShadow: false,
     skipTaskbar: true,
     webPreferences: withBridge,

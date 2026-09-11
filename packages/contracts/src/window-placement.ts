@@ -37,3 +37,39 @@ export function placeCard(
     area,
   );
 }
+
+type Point = { x: number; y: number };
+type Size = { width: number; height: number };
+
+/**
+ * Put a speech bubble's tail corner on the head anchor: up and to the right by default,
+ * mirrored to the left when the right side lacks room. `margin` is the transparent
+ * shadow inset around the painted bubble inside its window.
+ */
+export function placeSpeechBubble(
+  anchors: { right: Point; left: Point },
+  size: Size,
+  margin: number,
+  area: Rect,
+  side?: 'left' | 'right',
+): { bounds: Rect; side: 'left' | 'right' } {
+  const right = { x: anchors.right.x - margin, y: anchors.right.y - size.height + margin };
+  const chosen = side ?? (right.x + size.width <= area.x + area.width ? 'right' : 'left');
+  const origin =
+    chosen === 'right'
+      ? right
+      : { x: anchors.left.x - size.width + margin, y: anchors.left.y - size.height + margin };
+  return {
+    bounds: clampWindow({ ...origin, width: size.width, height: size.height }, area),
+    side: chosen,
+  };
+}
+
+/** Open a context menu with its visible corner at the pointer, flipping at display edges. */
+export function placeContextMenu(point: Point, size: Size, margin: number, area: Rect): Rect {
+  let x = point.x - margin;
+  let y = point.y - margin;
+  if (x + size.width > area.x + area.width) x = point.x - size.width + margin;
+  if (y + size.height > area.y + area.height) y = point.y - size.height + margin;
+  return clampWindow({ x, y, width: size.width, height: size.height }, area);
+}

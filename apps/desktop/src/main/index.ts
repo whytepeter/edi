@@ -1,18 +1,18 @@
 import { app, globalShortcut, Menu, screen, session } from 'electron';
-import { AgentService } from './agent-service';
-import { CharacterActions } from './character-actions';
-import { createCommandRoutes } from './commands';
-import { registerIpc } from './ipc';
-import { PetDrag } from './pet-drag';
-import { SettingsStore } from './settings-store';
-import { WindowPlacement } from './window-placement';
+import { AgentService } from './agent/agent-service';
+import { CharacterActions } from './character/character-actions';
+import { createCommandRoutes } from './ipc/commands';
+import { registerIpc } from './ipc/router';
+import { PetDrag } from './character/pet-drag';
+import { SettingsStore } from './settings/settings-store';
+import { WindowPlacement } from './windows/placement';
 import {
   broadcast,
   createCharacterMenuWindow,
   createPetWindow,
-  createVoiceStatusWindow,
+  createStatusBubbleWindow,
   createWorkspaceWindow,
-} from './windows';
+} from './windows/factory';
 
 let quitting = false;
 
@@ -40,21 +40,25 @@ async function start() {
     () => placement.place(),
     petPosition => settings.update({ petPosition }),
   );
-  const character = new CharacterActions(
+  const character = new CharacterActions({
     pet,
-    workspace,
-    () => placement.show(),
-    () => {
+    card: workspace,
+    skin: () => settings.current.skin,
+    showContent: () => placement.show(),
+    stopWork: () => {
       petDrag.cancel();
       agent.stop();
     },
-    createVoiceStatusWindow,
-    () => app.quit(),
-    createCharacterMenuWindow,
-  );
+    createBubble: createStatusBubbleWindow,
+    createMenu: createCharacterMenuWindow,
+    quit: () => app.quit(),
+  });
 
   settings.onChange(value => broadcast([workspace, pet], 'edi:settings', value));
-  agent.onChange(state => broadcast([workspace], 'edi:agent', state));
+  agent.onChange(state => {
+    broadcast([workspace], 'edi:agent', state);
+    character.setThinking(state.status === 'running' && !state.text);
+  });
 
   placement.place();
   pet.webContents.on('render-process-gone', petDrag.cancel);

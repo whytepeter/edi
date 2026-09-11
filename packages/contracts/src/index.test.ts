@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { commandSchema, settingsSchema, contentCardSchema } from './index';
 import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
-import { placeCard, clampWindow } from './window-placement';
+import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
 
 test('card placement flips at left edge and clamps small/negative-origin displays', () => {
   const area = { x: -1000, y: 0, width: 1000, height: 800 };
@@ -149,4 +149,41 @@ test('agent commands bound prompts, keys, and model IDs', () => {
     }).success,
     false,
   );
+});
+
+test('speech bubble tail sits on the head anchor, mirroring left when the right lacks room', () => {
+  const area = { x: 0, y: 0, width: 1000, height: 800 };
+  const anchors = { right: { x: 500, y: 400 }, left: { x: 440, y: 400 } };
+  const size = { width: 88, height: 52 };
+  // Tail corner = window origin + margin (left) and height − margin (bottom).
+  assert.deepEqual(placeSpeechBubble(anchors, size, 8, area), {
+    bounds: { x: 492, y: 356, width: 88, height: 52 },
+    side: 'right',
+  });
+  const nearEdge = { right: { x: 960, y: 400 }, left: { x: 900, y: 400 } };
+  assert.deepEqual(placeSpeechBubble(nearEdge, size, 8, area), {
+    bounds: { x: 820, y: 356, width: 88, height: 52 },
+    side: 'left',
+  });
+  // An explicit side is kept (the rendered tail cannot flip mid-drag), then clamped.
+  assert.equal(placeSpeechBubble(nearEdge, size, 8, area, 'right').side, 'right');
+  assert.equal(placeSpeechBubble(nearEdge, size, 8, area, 'right').bounds.x, 912);
+});
+
+test('context menu opens at the pointer and flips at display edges', () => {
+  const area = { x: -1000, y: 0, width: 1000, height: 800 };
+  const size = { width: 200, height: 178 };
+  assert.deepEqual(placeContextMenu({ x: -900, y: 100 }, size, 8, area), {
+    x: -908,
+    y: 92,
+    width: 200,
+    height: 178,
+  });
+  // Bottom-right corner: open up and to the left of the pointer.
+  assert.deepEqual(placeContextMenu({ x: -10, y: 790 }, size, 8, area), {
+    x: -202,
+    y: 620,
+    width: 200,
+    height: 178,
+  });
 });

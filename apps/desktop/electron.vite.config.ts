@@ -8,7 +8,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'agent-worker': resolve('src/main/agent-worker.ts'),
+          'agent-worker': resolve('src/main/agent/agent-worker.ts'),
         },
       },
     },

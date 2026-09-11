@@ -20,7 +20,16 @@ export const skinGeometrySchema = z
     // Each path is also the actual SVG hit region. No second approximate hit map.
     bodyPath: z.string().min(1).max(4000),
     decorationPath: z.string().max(4000),
-    anchors: z.object({ workspace: point, leftHand: point, rightHand: point }).strict(),
+    anchors: z
+      .object({
+        workspace: point,
+        leftHand: point,
+        rightHand: point,
+        // Where a speech bubble's tail corner meets the head, on each side.
+        speechRight: point,
+        speechLeft: point,
+      })
+      .strict(),
   })
   .strict()
   .superRefine((geometry, context) => {
@@ -55,6 +64,8 @@ const base = {
     workspace: { x: 31, y: 40 },
     leftHand: { x: 30, y: 99 },
     rightHand: { x: 132, y: 112 },
+    speechRight: { x: 122, y: 54 },
+    speechLeft: { x: 40, y: 54 },
   },
 };
 export const skinGeometry = {

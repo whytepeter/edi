@@ -1,12 +1,12 @@
 import type { BrowserWindow } from 'electron';
 import type { Settings } from '@edi/contracts';
-import type { AgentService } from './agent-service';
-import type { CharacterActions } from './character-actions';
-import type { CommandRoutes } from './ipc';
-import type { PetDrag } from './pet-drag';
-import type { SettingsStore } from './settings-store';
-import type { WindowPlacement } from './window-placement';
-import { cardSize } from './windows';
+import type { AgentService } from '../agent/agent-service';
+import type { CharacterActions } from '../character/character-actions';
+import type { CommandRoutes } from './router';
+import type { PetDrag } from '../character/pet-drag';
+import type { SettingsStore } from '../settings/settings-store';
+import type { WindowPlacement } from '../windows/placement';
+import { cardSize } from '../windows/factory';
 
 interface CommandDependencies {
   workspace: BrowserWindow;
@@ -48,7 +48,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
         pet.setIgnoreMouseEvents(true, { forward: true });
       },
     },
-    'character-menu': { from: fromPet, handle: () => character.showMenu() },
+    'character-menu': { from: fromPet, handle: ({ point }) => character.showMenu(point) },
     'character-action': { from: ['menu'], handle: ({ action }) => character.action(action) },
     'pet-drag': { from: fromPet, handle: command => petDrag.handle(command) },
     'pet-hit-test': {
