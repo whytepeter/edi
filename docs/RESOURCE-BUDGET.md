@@ -25,6 +25,8 @@ Measured 2026-09-11 on **one Mac**: Apple M2 Pro (10 cores), 16 GB, macOS 26.5.2
 
 CPU is per core, as in Activity Monitor: 100% means one core fully busy. This Mac has 10 cores.
 
+**Host load caveat:** these runs shared the Mac with other work. Another Claude session was building and testing Edi in the same checkout, and the user may have had `pnpm dev` running. The figures above count only Edi's own processes, but contention on the host can still nudge them, especially the idle CPU numbers, which are tiny.
+
 Run 1 is the formal record: a package built from a clean commit. Runs 2 and 3 used a later package built from the working tree at `0688522`. That tree already had `ed046f9` (screen context on each request) plus another session's uncommitted contracts changes for voice. Neither changes what happens while idle or dragging: screenshots are only taken when a request starts, and no request is sent here. They are included to show run-to-run variation, and run 3 adds the footprint measurement. The last minute of run 2 (its drag phase) overlapped another session's desktop and transcription tests on the same Mac, so treat those two cells with care. Run 3 did not overlap them.
 
 ## Per process (run 1)
