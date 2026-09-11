@@ -57,6 +57,12 @@ Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRo
 - `apps/desktop/src/preload`: the narrow validated bridge.
 - `apps/desktop/src/renderer/src`: `app/` (shell and surface routing), `components/ui/` (shared UI primitives), `styles/` (tokens, materials, component styles), `features/*` (pet, conversation, content, appearance, extensions, activity, voice), `hooks/` and `lib/`. Features never import each other; ESLint enforces shared → features → app.
 - `packages/contracts`: command/settings schemas, skin geometry and pure placement logic.
+- `packages/storage`: the local SQLite history (runs, tool calls and approvals, notes). Built on Node's `node:sqlite`; only the main process writes.
+- `packages/capabilities`: the capability broker and built-in tools. Every tool call is validated, writes are reviewed by you first, and each outcome is recorded.
+
+### Tools and approvals
+
+Edi can list its notes and save a new note to `~/Documents/Edi Notes`. Saving always shows the exact file path and content first; nothing is written until you choose **Save Note**, and existing files are never replaced. Stopping a response cancels any pending review. Every request and action appears in **Activity**.
 
 ## Next
 
