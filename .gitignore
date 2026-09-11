@@ -8,3 +8,7 @@ release/
 .DS_Store
 *.tsbuildinfo
 tests/desktop/*.png
+benchmarks/voice/results/
+benchmarks/voice/.venv/
+benchmarks/voice/cache/
+__pycache__/

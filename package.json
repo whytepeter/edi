@@ -9,6 +9,13 @@
     "typecheck": "pnpm --filter @edi/desktop typecheck",
     "test": "tsx --test packages/contracts/src/index.test.ts",
     "test:desktop": "node tests/desktop/smoke.mjs",
+    "test:character": "node tests/desktop/character.mjs",
+    "test:agent": "pnpm build && node --test tests/agent/worker.test.mjs",
+    "test:audio": "node --import tsx --test tests/audio/player.test.ts tests/audio/process.test.ts tests/audio/session.test.ts tests/audio/capture.test.ts tests/audio/transcription.test.ts",
+    "test:audio:live": "node --import tsx tests/audio/live.mjs",
+    "test:capture:native": "node tests/audio/capture-native.mjs",
+    "test:transcription:native": "node --import tsx tests/audio/transcription-native.mjs",
+    "test:audio:native": "pnpm build && node tests/audio/native.mjs",
     "package": "pnpm --filter @edi/desktop package"
   },
   "devDependencies": {

@@ -1,9 +1,11 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { defaultSettings, skins, type DesktopBridge, type Settings, type SkinId } from '@edi/contracts';
 import { Pet } from './Pet';
+import { AgentPanel } from './AgentPanel';
+import { DesktopPet } from './DesktopPet';
 
 declare global { interface Window { edi?: DesktopBridge } }
-type View = 'content' | 'avatars' | 'extensions' | 'activity';
+type View = 'content' | 'avatars' | 'extensions' | 'activity' | 'agent';
 type IconName = 'expand' | 'collapse' | 'close' | 'more' | 'back' | 'pin' | 'check' | 'plus';
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, string> = {
@@ -26,7 +28,6 @@ export function App() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All');
-  const [example, setExample] = useState(false);
   const petSurface = new URLSearchParams(location.search).get('surface') === 'pet';
   useEffect(() => {
     document.body.classList.toggle('pet-surface', petSurface);
@@ -43,6 +44,7 @@ export function App() {
     } catch { setError('Couldn’t make that change. Try again.'); return false; }
   }
   useEffect(() => {
+    if (petSurface) return;
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (menu) setMenu(false);
@@ -51,12 +53,9 @@ export function App() {
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [menu]);
+  }, [menu, petSurface]);
   const accent = skins.find(s => s.id === settings.skin)!.color;
-  if (petSurface) return <button className="desktop-pet" aria-label="Open Edi card" style={{ color: accent }}
-    onMouseEnter={() => void send({ type: 'pet-hit-test', interactive: true })}
-    onMouseLeave={() => void send({ type: 'pet-hit-test', interactive: false })}
-    onClick={() => void send({ type: 'show-workspace' })}><Pet skin={settings.skin}/></button>;
+  if (petSurface) return <DesktopPet skin={settings.skin} color={accent}/>;
   function navigate(next: View) { setView(next); setMenu(false); setPreview(settings.skin); }
   const items = [
     { name: 'Cloud & Sprout', kind: 'Skins', symbol: '☺', detail: 'Two faces. One Edi.', available: true },
@@ -66,9 +65,10 @@ export function App() {
   ].filter(item => (filter === 'All' || item.kind === filter) && `${item.name} ${item.detail}`.toLowerCase().includes(query.toLowerCase()));
   return <div className={`card ${expanded ? 'expanded' : ''}`} style={{ '--accent': accent } as CSSProperties}>
     <header className="card-header"><div className="identity">{view !== 'content' ? <button className="icon-button" aria-label="Back to content" onClick={() => navigate('content')}><Icon name="back"/></button> : <span className="mini-avatar"><Pet skin={settings.skin}/></span>}<span>edi<span className="identity-dot"/></span></div><div className="header-actions"><button className={`icon-button ${settings.pinned ? 'is-on' : ''}`} aria-label={settings.pinned ? 'Unpin card' : 'Pin card'} aria-pressed={settings.pinned} onClick={() => void send({ type: 'set-pinned', pinned: !settings.pinned })}><Icon name="pin"/></button><button className="icon-button" aria-label={expanded ? 'Collapse card' : 'Expand card'} aria-expanded={expanded} onClick={async () => { if (await send({ type: 'set-expanded', expanded: !expanded })) setExpanded(!expanded); }}><Icon name={expanded ? 'collapse' : 'expand'}/></button><button className="icon-button" aria-label="More options" aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="more"/></button><button className="icon-button" aria-label="Dismiss card" onClick={() => void send({ type: 'hide-workspace' })}><Icon name="close"/></button></div></header>
-    {menu && <><button className="menu-dismiss" aria-label="Close menu" onClick={() => setMenu(false)}/><div className="options"><button onClick={() => navigate('avatars')}>Appearance <span>☺</span></button><button onClick={() => navigate('extensions')}>Extensions <span>✧</span></button><button onClick={() => navigate('activity')}>Activity <span>◷</span></button></div></>}
+    {menu && <><button className="menu-dismiss" aria-label="Close menu" onClick={() => setMenu(false)}/><div className="options"><button onClick={() => navigate('agent')}>Talk to Edi <span>↗</span></button><button onClick={() => navigate('avatars')}>Appearance <span>☺</span></button><button onClick={() => navigate('extensions')}>Extensions <span>✧</span></button><button onClick={() => navigate('activity')}>Activity <span>◷</span></button></div></>}
     <main className="card-content">{error && <div role="alert" className="error">{error}</div>}
-      {view === 'content' && <>{!example ? <section className="intro-view"><div className="hello-visual"><div className="halo"/><Pet skin={settings.skin}/><span className="hello-note">hey, you.</span></div><h1>A little space.<br/>Just when you need it.</h1><p>Something to show, a thought to share.<br/>I’ll bring it right here.</p><button className="preview-button" onClick={() => setExample(true)}>Preview a response <span>↗</span></button><span className="preview-label">LOCAL UI PREVIEW</span></section> : <section className="response-view"><div className="eyebrow">A LITTLE EXPLANATION</div><h1>From a spark<br/>to something real.</h1><p>Ideas get easier to work with when you can see how the pieces connect.</p><div className="illustration"><div className="diagram-node"><span>✳</span><small>Imagine</small></div><div className="connection"/><div className="diagram-node"><span>⌁</span><small>Explore</small></div><div className="connection"/><div className="diagram-node"><span>✧</span><small>Make</small></div></div><div className="response-detail"><span className="blue-dot"/><p>This card can hold an explanation, an illustration, or a video. Expand it when you want more room.</p></div><button className="text-button" onClick={() => setExample(false)}>Back to preview</button><span className="preview-label">SAMPLE CONTENT · NO MODEL CONNECTED</span></section>}</>}
+      {view === 'agent' && <AgentPanel/>}
+      {view === 'content' && <section className="intro-view"><div className="hello-visual"><div className="halo"/><Pet skin={settings.skin}/><span className="hello-note">hey, you.</span></div><h1>A little space.<br/>Just when you need it.</h1><p>Edi’s explanations, media, and questions<br/>will appear here as you talk.</p><button className="preview-button" onClick={() => navigate('agent')}>Talk to Edi <span>↗</span></button><span className="preview-label">TEMPORARY CONNECTION TEST</span></section>}
       {view === 'avatars' && <section><div className="eyebrow">APPEARANCE</div><h1>Pick your little someone.</h1><p className="subtitle">Same Edi. A different face.</p><div className="avatar-grid">{skins.map(skin => <button key={skin.id} className={`avatar-choice ${preview === skin.id ? 'selected' : ''}`} aria-label={`${skin.name} avatar option`} aria-pressed={preview === skin.id} onClick={() => setPreview(skin.id)}><Pet skin={skin.id}/><span>{skin.name}</span><small>{settings.skin === skin.id ? 'Your Edi' : 'Try a new look'}</small>{preview === skin.id && <i><Icon name="check"/></i>}</button>)}</div><button className="primary-button" disabled={preview === settings.skin} onClick={() => void send({ type: 'apply-skin', skin: preview })}>{preview === settings.skin ? 'This is your Edi' : `Use ${skins.find(s => s.id === preview)!.name}`}</button><p className="fine-print">Your voice and conversations stay the same.</p></section>}
       {view === 'extensions' && <section><div className="eyebrow">EXTENSIONS</div><h1>A few more possibilities.</h1><input className="search" aria-label="Search extensions" placeholder="Find something for Edi" value={query} onChange={event => setQuery(event.target.value)}/><div className="filters">{['All', 'Skills', 'Connectors', 'MCP', 'Skins'].map(kind => <button key={kind} aria-pressed={filter === kind} className={filter === kind ? 'selected' : ''} onClick={() => setFilter(kind)}>{kind}</button>)}</div><div className="extension-list">{items.map(item => <article key={item.name}><span className="extension-symbol">{item.symbol}</span><div><h2>{item.name}</h2><p>{item.detail}</p><small>{item.available ? 'Included' : 'Coming later · not connected'}</small></div>{item.available && <button className="icon-button" aria-label="Choose an avatar" onClick={() => navigate('avatars')}>↗</button>}</article>)}{items.length === 0 && <p className="fine-print">No matches. Try another search.</p>}</div><p className="fine-print">Catalog preview. External installs are not enabled yet.</p></section>}
       {view === 'activity' && <section><div className="eyebrow">ACTIVITY</div><div className="quiet"><span>◷</span><h1>A quiet beginning.</h1><p>When Edi starts helping, actions<br/>and approvals will appear here.</p></div></section>}

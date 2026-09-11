@@ -1,8 +1,12 @@
 import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
 
 export default defineConfig({
-  main: {},
+  main: { build: { rollupOptions: { input: {
+    index: resolve('src/main/index.ts'),
+    'agent-worker': resolve('src/main/agent-worker.ts'),
+  } } } },
   preload: { build: { rollupOptions: { output: { inlineDynamicImports: true } } } },
   renderer: { plugins: [react(), {
     name: 'development-refresh-policy',
