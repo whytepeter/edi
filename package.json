@@ -1,0 +1,24 @@
+{
+  "name": "edi-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "setup:electron": "pnpm --filter @edi/desktop exec install-electron",
+    "dev": "pnpm --filter @edi/desktop dev",
+    "build": "pnpm --filter @edi/desktop build",
+    "typecheck": "pnpm --filter @edi/desktop typecheck",
+    "test": "tsx --test packages/contracts/src/index.test.ts",
+    "test:desktop": "node tests/desktop/smoke.mjs",
+    "package": "pnpm --filter @edi/desktop package"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "tsx": "^4.20.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}

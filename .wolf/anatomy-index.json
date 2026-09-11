@@ -1,0 +1,818 @@
+{
+  "version": 1,
+  "meta": {
+    "lastScanned": "2026-09-11T08:05:09.372Z",
+    "fileCount": 28,
+    "hits": 0,
+    "misses": 0,
+    "renderedHash": "a158f8d048fa79a1168a7de0cb8a23f6a2de74d1cae459ba316b33616e2075db",
+    "storeUpdatedAt": "2026-09-11T08:05:09.373Z",
+    "rootHash": "1a1da471f4882442"
+  },
+  "files": {
+    ".gitignore": {
+      "description": "Git ignore rules",
+      "tokens": 28,
+      "hash": "9aadaa2c6fca5f03",
+      "size": 104,
+      "mtimeMs": 1789083315946.8662,
+      "updatedAt": "2026-09-11T08:05:08.908Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "AGENTS.md": {
+      "description": "OpenWolf",
+      "tokens": 75,
+      "hash": "e401f79554a8d796",
+      "size": 297,
+      "mtimeMs": 1789113902187.3555,
+      "updatedAt": "2026-09-11T08:05:08.908Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/electron.vite.config.ts": {
+      "description": "",
+      "tokens": 150,
+      "hash": "95f676116d1f294a",
+      "size": 523,
+      "mtimeMs": 1789083484699.2734,
+      "updatedAt": "2026-09-11T08:05:08.909Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/out/main/index.js": {
+      "description": "electron: getEnumValues, joinValues, jsonStringifyReplacer + 39 more",
+      "tokens": 39354,
+      "hash": "fca5c59f9d81d993",
+      "size": 137737,
+      "mtimeMs": 1789113523736.4385,
+      "updatedAt": "2026-09-11T08:05:08.910Z",
+      "source": "scan",
+      "symbols": [
+        {
+          "name": "getEnumValues",
+          "kind": "fn",
+          "startLine": 5,
+          "endLine": 9,
+          "tokens": 72
+        },
+        {
+          "name": "joinValues",
+          "kind": "fn",
+          "startLine": 10,
+          "endLine": 12,
+          "tokens": 34
+        },
+        {
+          "name": "jsonStringifyReplacer",
+          "kind": "fn",
+          "startLine": 13,
+          "endLine": 17,
+          "tokens": 35
+        },
+        {
+          "name": "Cached",
+          "kind": "class",
+          "startLine": 18,
+          "endLine": 31,
+          "tokens": 77
+        },
+        {
+          "name": "Cached.constructor",
+          "kind": "method",
+          "startLine": 19,
+          "endLine": 22,
+          "tokens": 23
+        },
+        {
+          "name": "Cached.value",
+          "kind": "method",
+          "startLine": 23,
+          "endLine": 30,
+          "tokens": 49
+        },
+        {
+          "name": "cached",
+          "kind": "fn",
+          "startLine": 32,
+          "endLine": 34,
+          "tokens": 16
+        },
+        {
+          "name": "nullish",
+          "kind": "fn",
+          "startLine": 35,
+          "endLine": 37,
+          "tokens": 21
+        },
+        {
+          "name": "cleanRegex",
+          "kind": "fn",
+          "startLine": 38,
+          "endLine": 42,
+          "tokens": 54
+        },
+        {
+          "name": "assignProp",
+          "kind": "fn",
+          "startLine": 43,
+          "endLine": 50,
+          "tokens": 48
+        },
+        {
+          "name": "rawShape",
+          "kind": "fn",
+          "startLine": 51,
+          "endLine": 54,
+          "tokens": 40
+        },
+        {
+          "name": "sourceShape",
+          "kind": "fn",
+          "startLine": 55,
+          "endLine": 57,
+          "tokens": 27
+        },
+        {
+          "name": "deferProp",
+          "kind": "fn",
+          "startLine": 58,
+          "endLine": 68,
+          "tokens": 68
+        },
+        {
+          "name": "putProp",
+          "kind": "fn",
+          "startLine": 69,
+          "endLine": 74,
+          "tokens": 37
+        },
+        {
+          "name": "mirrorShape",
+          "kind": "fn",
+          "startLine": 75,
+          "endLine": 89,
+          "tokens": 134
+        },
+        {
+          "name": "mirrorProps",
+          "kind": "fn",
+          "startLine": 90,
+          "endLine": 100,
+          "tokens": 90
+        },
+        {
+          "name": "mergeDefs",
+          "kind": "fn",
+          "startLine": 101,
+          "endLine": 108,
+          "tokens": 76
+        },
+        {
+          "name": "esc",
+          "kind": "fn",
+          "startLine": 109,
+          "endLine": 111,
+          "tokens": 15
+        },
+        {
+          "name": "captureStackTrace",
+          "kind": "fn",
+          "startLine": 112,
+          "endLine": 113,
+          "tokens": 29
+        },
+        {
+          "name": "isObject",
+          "kind": "fn",
+          "startLine": 114,
+          "endLine": 116,
+          "tokens": 30
+        },
+        {
+          "name": "allowsEval",
+          "kind": "fn",
+          "startLine": 117,
+          "endLine": 131,
+          "tokens": 92
+        },
+        {
+          "name": "isPlainObject",
+          "kind": "fn",
+          "startLine": 132,
+          "endLine": 147,
+          "tokens": 113
+        },
+        {
+          "name": "shallowClone",
+          "kind": "fn",
+          "startLine": 148,
+          "endLine": 158,
+          "tokens": 64
+        },
+        {
+          "name": "escapeRegex",
+          "kind": "fn",
+          "startLine": 160,
+          "endLine": 162,
+          "tokens": 24
+        },
+        {
+          "name": "clone",
+          "kind": "fn",
+          "startLine": 163,
+          "endLine": 168,
+          "tokens": 47
+        },
+        {
+          "name": "normalizeParams",
+          "kind": "fn",
+          "startLine": 169,
+          "endLine": 184,
+          "tokens": 138
+        },
+        {
+          "name": "stringifyPrimitive",
+          "kind": "fn",
+          "startLine": 185,
+          "endLine": 191,
+          "tokens": 53
+        },
+        {
+          "name": "optionalKeys",
+          "kind": "fn",
+          "startLine": 192,
+          "endLine": 196,
+          "tokens": 47
+        },
+        {
+          "name": "NUMBER_FORMAT_RANGES",
+          "kind": "fn",
+          "startLine": 197,
+          "endLine": 203,
+          "tokens": 84
+        },
+        {
+          "name": "pick",
+          "kind": "fn",
+          "startLine": 208,
+          "endLine": 218,
+          "tokens": 120
+        }
+      ],
+      "symbolSource": "ts",
+      "skeleton": "function getEnumValues(entries) {\nfunction joinValues(array2, separator = \"|\") {\nfunction jsonStringifyReplacer(_, value) {\nclass Cached {\n  constructor(getter) {\n  get value() {\nfunction cached(getter) {\nfunction nullish(input) {\nfunction cleanRegex(source) {\nfunction assignProp(target, prop, value) {\nfunction rawShape(def) {\nfunction sourceShape(schema) {\nfunction deferProp(target, key, getter) {\nfunction putProp(target, key, value) {\nfunction mirrorShape(target, source, keys, wrap) {\nfunction mirrorProps(target, source) {\nfunction mergeDefs(...defs) {\nfunction esc(str) {\nconst captureStackTrace = \"captureStackTrace\" in Error ? Error.captureStackTrace : (..._args) => {\nfunction isObject(data) {\nconst allowsEval = /* @__PURE__ */ cached(() => {\nfunction isPlainObject(o) {\nfunction shallowClone(o) {\nfunction escapeRegex(str) {\nfunction clone(inst, def, params) {\nfunction normalizeParams(_params) {\nfunction stringifyPrimitive(value) {\nfunction optionalKeys(shape) {\nconst NUMBER_FORMAT_RANGES = /* @__PURE__ */ (() => ({\nfunction pick(schema, mask) {",
+      "importance": 0.4783
+    },
+    "apps/desktop/out/preload/index.js": {
+      "description": "electron: getEnumValues, joinValues, jsonStringifyReplacer + 39 more",
+      "tokens": 37973,
+      "hash": "14976f9abd226fb0",
+      "size": 132904,
+      "mtimeMs": 1789113524215.101,
+      "updatedAt": "2026-09-11T08:05:08.912Z",
+      "source": "scan",
+      "symbols": [
+        {
+          "name": "getEnumValues",
+          "kind": "fn",
+          "startLine": 3,
+          "endLine": 7,
+          "tokens": 72
+        },
+        {
+          "name": "joinValues",
+          "kind": "fn",
+          "startLine": 8,
+          "endLine": 10,
+          "tokens": 34
+        },
+        {
+          "name": "jsonStringifyReplacer",
+          "kind": "fn",
+          "startLine": 11,
+          "endLine": 15,
+          "tokens": 35
+        },
+        {
+          "name": "Cached",
+          "kind": "class",
+          "startLine": 16,
+          "endLine": 29,
+          "tokens": 77
+        },
+        {
+          "name": "Cached.constructor",
+          "kind": "method",
+          "startLine": 17,
+          "endLine": 20,
+          "tokens": 23
+        },
+        {
+          "name": "Cached.value",
+          "kind": "method",
+          "startLine": 21,
+          "endLine": 28,
+          "tokens": 49
+        },
+        {
+          "name": "cached",
+          "kind": "fn",
+          "startLine": 30,
+          "endLine": 32,
+          "tokens": 16
+        },
+        {
+          "name": "nullish",
+          "kind": "fn",
+          "startLine": 33,
+          "endLine": 35,
+          "tokens": 21
+        },
+        {
+          "name": "cleanRegex",
+          "kind": "fn",
+          "startLine": 36,
+          "endLine": 40,
+          "tokens": 54
+        },
+        {
+          "name": "assignProp",
+          "kind": "fn",
+          "startLine": 41,
+          "endLine": 48,
+          "tokens": 48
+        },
+        {
+          "name": "rawShape",
+          "kind": "fn",
+          "startLine": 49,
+          "endLine": 52,
+          "tokens": 40
+        },
+        {
+          "name": "sourceShape",
+          "kind": "fn",
+          "startLine": 53,
+          "endLine": 55,
+          "tokens": 27
+        },
+        {
+          "name": "deferProp",
+          "kind": "fn",
+          "startLine": 56,
+          "endLine": 66,
+          "tokens": 68
+        },
+        {
+          "name": "putProp",
+          "kind": "fn",
+          "startLine": 67,
+          "endLine": 72,
+          "tokens": 37
+        },
+        {
+          "name": "mirrorShape",
+          "kind": "fn",
+          "startLine": 73,
+          "endLine": 87,
+          "tokens": 134
+        },
+        {
+          "name": "mirrorProps",
+          "kind": "fn",
+          "startLine": 88,
+          "endLine": 98,
+          "tokens": 90
+        },
+        {
+          "name": "mergeDefs",
+          "kind": "fn",
+          "startLine": 99,
+          "endLine": 106,
+          "tokens": 76
+        },
+        {
+          "name": "esc",
+          "kind": "fn",
+          "startLine": 107,
+          "endLine": 109,
+          "tokens": 15
+        },
+        {
+          "name": "captureStackTrace",
+          "kind": "fn",
+          "startLine": 110,
+          "endLine": 111,
+          "tokens": 29
+        },
+        {
+          "name": "isObject",
+          "kind": "fn",
+          "startLine": 112,
+          "endLine": 114,
+          "tokens": 30
+        },
+        {
+          "name": "allowsEval",
+          "kind": "fn",
+          "startLine": 115,
+          "endLine": 129,
+          "tokens": 92
+        },
+        {
+          "name": "isPlainObject",
+          "kind": "fn",
+          "startLine": 130,
+          "endLine": 145,
+          "tokens": 113
+        },
+        {
+          "name": "shallowClone",
+          "kind": "fn",
+          "startLine": 146,
+          "endLine": 156,
+          "tokens": 64
+        },
+        {
+          "name": "escapeRegex",
+          "kind": "fn",
+          "startLine": 158,
+          "endLine": 160,
+          "tokens": 24
+        },
+        {
+          "name": "clone",
+          "kind": "fn",
+          "startLine": 161,
+          "endLine": 166,
+          "tokens": 47
+        },
+        {
+          "name": "normalizeParams",
+          "kind": "fn",
+          "startLine": 167,
+          "endLine": 182,
+          "tokens": 138
+        },
+        {
+          "name": "stringifyPrimitive",
+          "kind": "fn",
+          "startLine": 183,
+          "endLine": 189,
+          "tokens": 53
+        },
+        {
+          "name": "optionalKeys",
+          "kind": "fn",
+          "startLine": 190,
+          "endLine": 194,
+          "tokens": 47
+        },
+        {
+          "name": "NUMBER_FORMAT_RANGES",
+          "kind": "fn",
+          "startLine": 195,
+          "endLine": 201,
+          "tokens": 84
+        },
+        {
+          "name": "pick",
+          "kind": "fn",
+          "startLine": 206,
+          "endLine": 216,
+          "tokens": 120
+        }
+      ],
+      "symbolSource": "ts",
+      "skeleton": "function getEnumValues(entries) {\nfunction joinValues(array2, separator = \"|\") {\nfunction jsonStringifyReplacer(_, value) {\nclass Cached {\n  constructor(getter) {\n  get value() {\nfunction cached(getter) {\nfunction nullish(input) {\nfunction cleanRegex(source) {\nfunction assignProp(target, prop, value) {\nfunction rawShape(def) {\nfunction sourceShape(schema) {\nfunction deferProp(target, key, getter) {\nfunction putProp(target, key, value) {\nfunction mirrorShape(target, source, keys, wrap) {\nfunction mirrorProps(target, source) {\nfunction mergeDefs(...defs) {\nfunction esc(str) {\nconst captureStackTrace = \"captureStackTrace\" in Error ? Error.captureStackTrace : (..._args) => {\nfunction isObject(data) {\nconst allowsEval = /* @__PURE__ */ cached(() => {\nfunction isPlainObject(o) {\nfunction shallowClone(o) {\nfunction escapeRegex(str) {\nfunction clone(inst, def, params) {\nfunction normalizeParams(_params) {\nfunction stringifyPrimitive(value) {\nfunction optionalKeys(shape) {\nconst NUMBER_FORMAT_RANGES = /* @__PURE__ */ (() => ({\nfunction pick(schema, mask) {",
+      "importance": 0.4783
+    },
+    "apps/desktop/out/renderer/assets/index-CDKZwNty.css": {
+      "description": "Styles: 5 rules, 3 media queries",
+      "tokens": 2309,
+      "hash": "e3be04fe4b89f660",
+      "size": 8081,
+      "mtimeMs": 1789113524948.2246,
+      "updatedAt": "2026-09-11T08:05:08.912Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/out/renderer/assets/index-DF_AL7vG.js": {
+      "description": "getDefaultExportFromCjs: requireReactJsxRuntime_production, jsxProd, requireJsxRuntime + 16 more",
+      "tokens": 226495,
+      "hash": "f9b5494eafa4835b",
+      "size": 792768,
+      "mtimeMs": 1789113524948.3574,
+      "updatedAt": "2026-09-11T08:05:08.914Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/out/renderer/index.html": {
+      "description": "Edi",
+      "tokens": 158,
+      "hash": "a4c9357947b74f0c",
+      "size": 591,
+      "mtimeMs": 1789113524948.1736,
+      "updatedAt": "2026-09-11T08:05:08.914Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/package.json": {
+      "description": "Node.js package manifest",
+      "tokens": 294,
+      "hash": "05e7d8cdbe224f8d",
+      "size": 1026,
+      "mtimeMs": 1789076184486.1597,
+      "updatedAt": "2026-09-11T08:05:08.914Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/src/main/index.ts": {
+      "description": "Settings: persist, publish, load, createWindows",
+      "tokens": 1506,
+      "hash": "ed75d11eae523ac0",
+      "size": 5268,
+      "mtimeMs": 1789113446826.4592,
+      "updatedAt": "2026-09-11T08:05:08.915Z",
+      "source": "scan",
+      "symbols": [
+        {
+          "name": "settingsPath",
+          "kind": "fn",
+          "startLine": 10,
+          "endLine": 10,
+          "tokens": 22
+        },
+        {
+          "name": "persist",
+          "kind": "fn",
+          "startLine": 12,
+          "endLine": 20,
+          "tokens": 97
+        },
+        {
+          "name": "publish",
+          "kind": "fn",
+          "startLine": 21,
+          "endLine": 23,
+          "tokens": 38
+        },
+        {
+          "name": "load",
+          "kind": "fn",
+          "startLine": 24,
+          "endLine": 30,
+          "tokens": 119
+        },
+        {
+          "name": "createWindows",
+          "kind": "fn",
+          "startLine": 31,
+          "endLine": 46,
+          "tokens": 338
+        }
+      ],
+      "symbolSource": "ts",
+      "importance": 0.4783
+    },
+    "apps/desktop/src/preload/index.ts": {
+      "description": "Declares DesktopBridge",
+      "tokens": 217,
+      "hash": "a8c993cb37b8b7fe",
+      "size": 757,
+      "mtimeMs": 1789076186089.8755,
+      "updatedAt": "2026-09-11T08:05:08.915Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/src/renderer/index.html": {
+      "description": "Edi",
+      "tokens": 131,
+      "hash": "0112e7b00a7c3bde",
+      "size": 490,
+      "mtimeMs": 1789076186353.7993,
+      "updatedAt": "2026-09-11T08:05:08.915Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "apps/desktop/src/renderer/src/compact.css": {
+      "description": "Styles: 3 media queries",
+      "tokens": 2206,
+      "hash": "3a430b3870c18455",
+      "size": 7718,
+      "mtimeMs": 1789113447379.5823,
+      "updatedAt": "2026-09-11T08:05:08.916Z",
+      "source": "scan",
+      "importance": 0.6138
+    },
+    "apps/desktop/src/renderer/src/CompactApp.tsx": {
+      "description": "Icon — uses useState, useEffect",
+      "tokens": 2688,
+      "hash": "19b041409479a239",
+      "size": 9443,
+      "mtimeMs": 1789113447112.2378,
+      "updatedAt": "2026-09-11T08:05:08.916Z",
+      "source": "scan",
+      "symbols": [
+        {
+          "name": "View",
+          "kind": "section",
+          "startLine": 6,
+          "endLine": 6,
+          "tokens": 18
+        },
+        {
+          "name": "IconName",
+          "kind": "section",
+          "startLine": 7,
+          "endLine": 7,
+          "tokens": 27
+        },
+        {
+          "name": "Icon",
+          "kind": "fn",
+          "startLine": 8,
+          "endLine": 18,
+          "tokens": 184
+        },
+        {
+          "name": "App",
+          "kind": "fn",
+          "startLine": 20,
+          "endLine": 77,
+          "tokens": 2384
+        }
+      ],
+      "symbolSource": "ts",
+      "skeleton": "type View = 'content' | 'avatars' | 'extensions' | 'activity';\ntype IconName = 'expand' | 'collapse' | 'close' | 'more' | 'back' | 'pin' | 'check' | 'plus';\nfunction Icon({ name }: { name: IconName }) {\nexport function App() {",
+      "imports": [
+        "apps/desktop/src/renderer/src/Pet.tsx"
+      ],
+      "importance": 0.6138
+    },
+    "apps/desktop/src/renderer/src/main.tsx": {
+      "description": "",
+      "tokens": 73,
+      "hash": "1a89e1329ff4c3c5",
+      "size": 253,
+      "mtimeMs": 1789113446930.601,
+      "updatedAt": "2026-09-11T08:05:08.917Z",
+      "source": "scan",
+      "imports": [
+        "apps/desktop/src/renderer/src/CompactApp.tsx",
+        "apps/desktop/src/renderer/src/compact.css",
+        "apps/desktop/src/renderer/src/pet.css"
+      ],
+      "importance": 0.4783
+    },
+    "apps/desktop/src/renderer/src/pet.css": {
+      "description": "Styles: 5 rules",
+      "tokens": 104,
+      "hash": "fc4ee42efcda9c54",
+      "size": 363,
+      "mtimeMs": 1789083530361.1565,
+      "updatedAt": "2026-09-11T08:05:08.917Z",
+      "source": "scan",
+      "importance": 0.6138
+    },
+    "apps/desktop/src/renderer/src/Pet.tsx": {
+      "description": "Pet",
+      "tokens": 368,
+      "hash": "f6c0fc71bff96ac2",
+      "size": 1285,
+      "mtimeMs": 1789083484827.0544,
+      "updatedAt": "2026-09-11T08:05:08.917Z",
+      "source": "scan",
+      "importance": 1
+    },
+    "apps/desktop/tsconfig.json": {
+      "description": "TypeScript configuration",
+      "tokens": 117,
+      "hash": "e5f1c8de1c3d775d",
+      "size": 408,
+      "mtimeMs": 1789076185085.079,
+      "updatedAt": "2026-09-11T08:05:08.917Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "CLAUDE.md": {
+      "description": "OpenWolf",
+      "tokens": 99,
+      "hash": "074d6b42b583729a",
+      "size": 395,
+      "mtimeMs": 1789113902160.153,
+      "updatedAt": "2026-09-11T08:05:08.917Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "docs/README.md": {
+      "description": "Project documentation",
+      "tokens": 118,
+      "hash": "0ccf3b8f3218f5c6",
+      "size": 469,
+      "mtimeMs": 1789076187024.8328,
+      "updatedAt": "2026-09-11T08:05:08.917Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "GEMINI.md": {
+      "description": "OpenWolf",
+      "tokens": 75,
+      "hash": "e401f79554a8d796",
+      "size": 297,
+      "mtimeMs": 1789113902187.6396,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "package.json": {
+      "description": "Node.js package manifest",
+      "tokens": 192,
+      "hash": "1df125afd8a5e4f3",
+      "size": 669,
+      "mtimeMs": 1789083514436.135,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "packages/contracts/package.json": {
+      "description": "Node.js package manifest",
+      "tokens": 47,
+      "hash": "fe2eb3cd05ca994f",
+      "size": 162,
+      "mtimeMs": 1789076183520.6528,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "packages/contracts/src/index.test.ts": {
+      "description": "",
+      "tokens": 220,
+      "hash": "4ae13513a88011c7",
+      "size": 770,
+      "mtimeMs": 1789076183818.5342,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "imports": [
+        "packages/contracts/src/index.ts"
+      ],
+      "importance": 0.4783
+    },
+    "packages/contracts/src/index.ts": {
+      "description": "Zod schemas: skinSchema, settingsSchema, commandSchema",
+      "tokens": 358,
+      "hash": "0fa20f0c2f6ccefd",
+      "size": 1253,
+      "mtimeMs": 1789113446747.8342,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "importance": 0.8848
+    },
+    "pnpm-workspace.yaml": {
+      "description": "",
+      "tokens": 11,
+      "hash": "253208fa7c1b6437",
+      "size": 36,
+      "mtimeMs": 1789076183185.0059,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "README.md": {
+      "description": "Project documentation",
+      "tokens": 547,
+      "hash": "194bba969cbb2eda",
+      "size": 2191,
+      "mtimeMs": 1789113581538.5483,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "importance": 0.4783
+    },
+    "tests/desktop/smoke.mjs": {
+      "description": "profile: launch",
+      "tokens": 1032,
+      "hash": "e5b764b6bc998a37",
+      "size": 3867,
+      "mtimeMs": 1789113581797.0066,
+      "updatedAt": "2026-09-11T08:05:08.918Z",
+      "source": "scan",
+      "symbols": [
+        {
+          "name": "launch",
+          "kind": "fn",
+          "startLine": 11,
+          "endLine": 24,
+          "tokens": 282
+        }
+      ],
+      "symbolSource": "ts",
+      "importance": 0.4783
+    }
+  },
+  "preamble": [
+    "> Project structure index. Auto-maintained by OpenWolf hooks and daemon.",
+    "> Run `openwolf scan` to generate, or wait for the first Claude Code session.",
+    "> Status: Pending initial scan"
+  ]
+}

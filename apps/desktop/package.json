@@ -1,0 +1,37 @@
+{
+  "name": "@edi/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Your little desktop companion",
+  "author": "Fewer Labs",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "package": "electron-vite build && electron-builder --dir"
+  },
+  "dependencies": {
+    "@edi/contracts": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^42.0.0",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^6.3.0"
+  },
+  "build": {
+    "appId": "com.fewerlabs.edi",
+    "productName": "Edi",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "package.json"],
+    "mac": { "category": "public.app-category.productivity", "target": ["dir"] }
+  }
+}
