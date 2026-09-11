@@ -10,12 +10,17 @@ export class AgentService {
   private worker?: Worker;
   private timeout?: ReturnType<typeof setTimeout>;
   private configuring = false;
-  constructor(private publish: (state: AgentState) => void) {}
+  private readonly listeners = new Set<(state: AgentState) => void>();
+  onChange(listener: (state: AgentState) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
   private path() {
     return join(app.getPath('userData'), 'openrouter.enc');
   }
   private emit() {
-    this.publish({ ...this.state });
+    const snapshot = { ...this.state };
+    for (const listener of this.listeners) listener(snapshot);
   }
   async load() {
     try {
