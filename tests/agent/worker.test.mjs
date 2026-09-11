@@ -31,7 +31,11 @@ function collect(worker) {
     const timeout = setTimeout(() => { void worker.terminate(); reject(Error('Worker timed out')); }, 8000);
     worker.on('message', message => messages.push(message));
     worker.on('error', reject);
-    worker.on('exit', code => { clearTimeout(timeout); code === 0 ? resolve(messages) : reject(Error('Worker exit ' + code)); });
+    worker.on('exit', code => {
+      clearTimeout(timeout);
+      if (code === 0) resolve(messages);
+      else reject(Error('Worker exit ' + code));
+    });
   });
 }
 test('real SDK worker streams mocked OpenRouter text', async () => {

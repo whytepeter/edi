@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type PointerEvent } from 'react';
 import { petDragThreshold, type Command, type SkinId } from '@edi/contracts';
 import { Pet } from './Pet';
 
@@ -40,8 +40,10 @@ export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
     if (button.current?.hasPointerCapture(current.pointerId)) button.current.releasePointerCapture(current.pointerId);
   }
 
+  // Window listeners are registered once; the effect event always sees the latest finish().
+  const cancelGesture = useEffectEvent(() => finish(true));
   useEffect(() => {
-    const cancel = () => finish(true);
+    const cancel = () => cancelGesture();
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && gesture.current) { event.preventDefault(); cancel(); }
     };

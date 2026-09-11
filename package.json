@@ -2,7 +2,15 @@
   "name": "edi-workspace",
   "private": true,
   "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:audio",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "setup:electron": "pnpm --filter @edi/desktop exec install-electron",
     "dev": "pnpm --filter @edi/desktop dev",
     "build": "pnpm --filter @edi/desktop build",
@@ -19,8 +27,14 @@
     "package": "pnpm --filter @edi/desktop package"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
-    "tsx": "^4.20.0"
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.20.0",
+    "typescript-eslint": "^8.70.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

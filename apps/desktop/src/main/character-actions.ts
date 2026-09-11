@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, type MenuItemConstructorOptions } from 'electron';
+import { type BrowserWindow, screen, type MenuItemConstructorOptions } from 'electron';
 import { clampWindow } from '@edi/contracts';
 
 /** One entry point for character clicks, menu actions and the global shortcut. */
