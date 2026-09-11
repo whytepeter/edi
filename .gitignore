@@ -12,3 +12,9 @@ benchmarks/voice/results/
 benchmarks/voice/.venv/
 benchmarks/voice/cache/
 __pycache__/
+
+# Local agent tooling state (OpenWolf, Codex, Claude, Cursor)
+.wolf/
+.codex/
+.claude/
+.cursor/
