@@ -6,13 +6,15 @@
 //   node tests/perf/resources.mjs --quick    # short phases, for checking the script itself
 //
 // Memory: Electron's per-process working set (KiB) and `ps` RSS. Both count shared pages in
-// every process, so the totals overstate unique memory. CPU is always per core (100 = one
-// core, as in Activity Monitor): Electron's percentCPUUsage per sampling interval, which it
-// reports as a share of all cores and we rescale, and `ps` cumulative CPU time per phase.
+// every process, so their totals overstate unique memory; the macOS `footprint` total taken
+// after each phase is the closer figure.
+// CPU is always per core (100 = one core, as in Activity Monitor): Electron's percentCPUUsage
+// per sampling interval, which Electron reports as a share of all cores and we rescale, and
+// `ps` cumulative CPU time per phase.
 import { _electron as electron } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { cpus, tmpdir, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -305,6 +307,35 @@ function counterDelta(before, after) {
   );
 }
 
+/**
+ * macOS physical footprint, the figure Activity Monitor shows as Memory. Unlike summed RSS,
+ * the total counts pages shared between Edi's processes once.
+ */
+async function footprint(app) {
+  const { processes } = await sample(app);
+  const directory = await mkdtemp(join(tmpdir(), 'edi-footprint-'));
+  const file = join(directory, 'footprint.json');
+  try {
+    const pids = processes.flatMap(({ pid }) => ['-p', String(pid)]);
+    await run('footprint', ['-j', file, ...pids]);
+    const report = JSON.parse(await readFile(file, 'utf8'));
+    const labels = new Map(processes.map(metric => [metric.pid, metric.label]));
+    return {
+      totalMiB: round(report['total footprint'] / 2 ** 20),
+      perProcessMiB: Object.fromEntries(
+        report.processes.map(({ pid, footprint }) => [
+          labels.get(pid) === 'renderer:other' ? `renderer:${pid}` : labels.get(pid),
+          round(footprint / 2 ** 20),
+        ]),
+      ),
+    };
+  } catch (error) {
+    return { error: String(error.message ?? error) };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function idlePhase(app, pages, durationMs) {
   const counters = await openRendererCounters(app, pages);
   const before = await counters.read();
@@ -313,6 +344,8 @@ async function idlePhase(app, pages, durationMs) {
   const samples = await sampler.stop();
   const after = await counters.read();
   await counters.close();
+  // Both probes run after the CPU samples so they cannot inflate them.
+  const memory = await footprint(app);
   const render = await renderActivity(app, pages);
   const delta = counterDelta(before, after);
   const frames = Object.values(render.framesPresented);
@@ -331,6 +364,7 @@ async function idlePhase(app, pages, durationMs) {
     },
     rendererWork: { atStart: before, delta },
     render,
+    footprint: memory,
     samples,
   };
 }
@@ -419,6 +453,8 @@ async function environment(app) {
   return {
     ...inApp,
     executablePath,
+    // Identifies which package was measured; the checkout may have moved on since.
+    packageBuiltAt: (await stat(join(executablePath, '../../Resources/app.asar'))).mtime,
     host: {
       cpu: cpus()[0]?.model,
       cores: cpus().length,
@@ -475,7 +511,11 @@ try {
   };
 
   // (d) Simulated pet drags through the pet's own drag commands, card visible.
-  result.drags = { ...(await dragPhase(app, pet, workspace)), windows: await windowState(app) };
+  result.drags = {
+    ...(await dragPhase(app, pet, workspace)),
+    windows: await windowState(app),
+    footprint: await footprint(app),
+  };
 
   result.rendererErrors = current.errors;
   result.externalRequests = current.external;
@@ -505,6 +545,13 @@ console.log(
 for (const phase of ['idleHidden', 'cardPinned']) {
   console.log(`Idle repaint loop (${phase}): ${JSON.stringify(result[phase].repaintLoop)}`);
 }
+console.log(
+  `Footprint (Activity Monitor memory) after each phase: ${['idleHidden', 'cardPinned', 'drags']
+    .map(
+      phase => `${phase} ${result[phase].footprint.totalMiB ?? result[phase].footprint.error} MiB`,
+    )
+    .join(', ')}`,
+);
 console.log(
   `Renderer errors: ${result.rendererErrors.length}; external renderer requests: ${result.externalRequests.length}`,
 );
