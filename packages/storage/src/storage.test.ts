@@ -159,6 +159,27 @@ test('recent exchanges are completed turns, oldest first, clipped', () => {
   assert.equal(repos.runs.recentExchanges(10, { prompt: 4, reply: 3 })[0].reply, 'ans');
 });
 
+test('thread includes finished turns for the chat, oldest first', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  for (const [n, status, text, error] of [
+    [1, 'done', 'answer 1', ''],
+    [2, 'error', '', 'Could not reach the model.'],
+    [3, 'stopped', 'partial', ''],
+    [4, 'done', 'answer 4', ''],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}` });
+    repos.runs.finish(uuid(n), { status, text, error, at: n });
+  }
+  const turns = repos.runs.thread(3);
+  assert.equal(turns.length, 3);
+  assert.deepEqual(
+    turns.map(turn => turn.prompt),
+    ['question 2', 'question 3', 'question 4'],
+  );
+  assert.equal(turns[0].error, 'Could not reach the model.');
+  assert.equal(turns[1].reply, 'partial');
+});
+
 test('activity reports how many screens were sent', () => {
   const repos = createRepositories(openDatabase(':memory:'));
   repos.runs.start({ ...run(uuid(1)), screens: 2 });

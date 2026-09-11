@@ -53,6 +53,26 @@
   justify-content: flex-end;
 }
 
+.status-bubble-surface[data-state='notice'] .ds-bubble {
+  display: flex;
+  align-items: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: var(--space-4);
+  white-space: normal;
+}
+
+.bubble-reply {
+  display: block;
+  max-height: 120px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 /* ---------- Character context menu window ---------- */
 .character-menu-surface {
   padding: 8px;

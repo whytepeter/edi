@@ -2,22 +2,112 @@
   display: grid;
   gap: var(--space-4);
 }
+.agent-panel[data-setup] {
+  padding: 4px 22px 24px;
+}
+.agent-panel[data-ready] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
 .agent-form {
   display: grid;
   gap: var(--space-4);
 }
-.agent-model {
-  overflow-wrap: anywhere;
+.agent-thread {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 18px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--fill-pressed) transparent;
 }
-.agent-status:empty {
-  display: none;
+.agent-empty {
+  margin: auto 0;
+  padding: 12px 8px 28px;
+  text-align: center;
+}
+.agent-empty .ds-title {
+  letter-spacing: var(--tracking-title);
+}
+.agent-empty p {
+  margin-top: var(--space-2);
+}
+.agent-turn {
+  display: grid;
+  gap: 8px;
+  max-width: 86%;
+}
+.agent-turn[data-role='user'] {
+  align-self: end;
+  justify-items: end;
+}
+.agent-turn[data-role='assistant'] {
+  align-self: start;
+  justify-items: start;
+  max-width: 92%;
+}
+.agent-bubble {
+  padding: 9px 13px;
+  border-radius: 16px;
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  line-height: 1.55;
+}
+.agent-turn[data-role='user'] .agent-bubble {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-bottom-right-radius: 6px;
+}
+.agent-turn[data-role='assistant'] .agent-bubble {
+  background: var(--fill);
+  color: var(--label);
+  border-bottom-left-radius: 6px;
+}
+.agent-bubble-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.agent-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: var(--accent-strong);
+  animation: agent-caret 1s step-end infinite;
+}
+@keyframes agent-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.agent-turn .step-list {
+  width: 100%;
+}
+.agent-notice,
+.agent-error-dock {
+  margin: 0 18px 8px;
 }
 .agent-notice {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
   background: var(--accent-softer);
   font: var(--text-footnote);
   color: var(--label-secondary);
+}
+.agent-notice p {
+  margin: 0;
 }
 .agent-error {
   padding: var(--space-2) var(--space-3);
@@ -26,23 +116,76 @@
   color: #a4462a;
   font: var(--text-footnote);
 }
+.agent-composer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0 12px 4px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--radius-inset);
+}
+.agent-composer .ds-input {
+  flex: 1;
+  min-height: 36px;
+  max-height: 120px;
+  resize: none;
+  background: transparent;
+  padding: 8px 4px;
+  line-height: 1.45;
+}
+.agent-composer .ds-input:hover,
+.agent-composer .ds-input:focus-visible {
+  background: transparent;
+  box-shadow: none;
+}
+.agent-send {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  transition:
+    transform var(--press-duration) ease-out,
+    opacity 150ms ease-out;
+}
+.agent-send:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+.agent-send:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+.agent-send:disabled {
+  opacity: 0.38;
+}
+.agent-send[data-stop] {
+  border-radius: 10px;
+}
+.agent-composer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 18px 10px;
+  min-height: 22px;
+}
+.agent-composer-meta .ds-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (prefers-color-scheme: dark) {
   .agent-error {
     color: #f2a283;
   }
 }
-/* The reply sits on its own inset layer: content, not chrome. */
-.agent-response {
-  padding: var(--space-4);
-  border-radius: var(--radius-inset);
-  background: var(--accent-softer);
-  font: var(--text-body);
-  letter-spacing: var(--tracking-body);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  user-select: text;
-}
-.agent-panel > .ds-button[data-variant='plain'] {
-  justify-self: start;
+@media (prefers-reduced-motion: reduce) {
+  .agent-caret {
+    animation: none;
+  }
 }

@@ -38,6 +38,14 @@ const noteRow = z.object({
 export type NoteRecord = z.infer<typeof noteRow>;
 const exchangeRow = z.object({ prompt: z.string(), reply: z.string() });
 export type Exchange = z.infer<typeof exchangeRow>;
+const threadRow = z.object({
+  id: z.string(),
+  prompt: z.string(),
+  reply: z.string(),
+  status: runStatusSchema,
+  error: z.string(),
+});
+export type ThreadTurn = z.infer<typeof threadRow>;
 
 export class RunRepository {
   constructor(private readonly db: Database) {}
@@ -67,6 +75,28 @@ export class RunRepository {
       .map(turn => ({
         prompt: turn.prompt.slice(0, maxChars.prompt),
         reply: turn.reply.slice(0, maxChars.reply),
+      }))
+      .reverse();
+  }
+
+  /**
+   * Recent finished turns for the chat thread, oldest first. Includes stopped
+   * and failed replies so the card remembers what the person already said.
+   */
+  thread(limit: number): ThreadTurn[] {
+    return this.db
+      .prepare(
+        `SELECT id, prompt, text AS reply, status, error FROM runs
+         WHERE status IN ('done', 'error', 'stopped') AND prompt != ''
+         ORDER BY started_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => threadRow.parse(row))
+      .map(turn => ({
+        ...turn,
+        prompt: turn.prompt.slice(0, 8000),
+        reply: turn.reply.slice(0, 32000),
+        error: turn.error.slice(0, 400),
       }))
       .reverse();
   }

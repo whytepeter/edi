@@ -62,6 +62,11 @@
   overflow-wrap: anywhere;
   color: var(--label);
 }
+.response-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
 .content-steps {
   display: flex;
   flex-wrap: wrap;

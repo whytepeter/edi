@@ -57,13 +57,22 @@ async function launch() {
   const workspace = pages.find(page => page.url().includes('surface=workspace'));
   const pet = pages.find(page => page.url().includes('surface=pet'));
   if (!workspace || !pet) throw new Error('Missing Edi windows');
-  expect(
-    await instance.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()
-        .find(w => w.webContents.getURL().includes('surface=workspace'))
-        .isVisible(),
-    ),
-  ).toBe(false);
+  const cardVisible = () =>
+    instance.evaluate(({ BrowserWindow }) =>
+      Boolean(
+        BrowserWindow.getAllWindows()
+          .find(w => w.webContents.getURL().includes('surface=workspace'))
+          ?.isVisible(),
+      ),
+    );
+  if (await cardVisible()) {
+    const skip = workspace.getByRole('button', { name: 'Not now' });
+    for (let step = 0; step < 2 && (await skip.isVisible().catch(() => false)); step += 1) {
+      await skip.click();
+    }
+    await workspace.evaluate(() => window.edi.command({ type: 'hide-workspace' }));
+  }
+  expect(await cardVisible()).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
   await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
   return { workspace, pet };

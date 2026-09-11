@@ -9,6 +9,13 @@ import {
 } from '@edi/contracts';
 
 const bridge: DesktopBridge = {
+  onMicrophonePermission: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
+      if (status === 'granted' || status === 'blocked') callback(status);
+    };
+    ipcRenderer.on('edi:microphone-permission', listener);
+    return () => ipcRenderer.removeListener('edi:microphone-permission', listener);
+  },
   agent: async () => agentStateSchema.parse(await ipcRenderer.invoke('edi:agent:get')),
   activity: async () => activitySchema.parse(await ipcRenderer.invoke('edi:activity:get')),
   onAgent: callback => {

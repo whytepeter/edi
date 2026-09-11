@@ -17,20 +17,25 @@ const SYSTEM = [
   'You are Edi, a concise desktop companion. Answer in plain text.',
   'Each message may include screenshots of the user’s screens, taken the moment they asked and',
   'labelled with which screen has the cursor. Use them to answer about what is on screen.',
-  'If no screenshot is attached, you cannot see the screen; say so rather than guessing.',
+  'If no screenshot is attached, you cannot see the screen; say so in one short sentence.',
+  'Do not ask the user to take or send a screenshot. Screen capture is automatic when allowed.',
   'You can only affect the user’s Mac through the tools provided, and every change is shown',
   'to the user for approval first.',
   'If a tool result says the user declined or that it was stopped, accept it, do not retry,',
   'and say so plainly. Never claim an action happened unless its result status is "succeeded".',
 ].join(' ');
 
-// heyclicky's pointing convention; main strips the tag and moves Edi's pointer.
+// Pointing tags; main strips them and moves Edi's pointer.
 const POINTING = [
   'When pointing at something on screen would help, end your reply with [POINT:x,y:label],',
   'where x,y are integer pixel coordinates within that screenshot’s image dimensions and label',
   'names the thing in a few words. Add :screenN, e.g. [POINT:120,40:Wi-Fi:screen2], to point',
   'at a screen other than screen 1. If pointing would not help, end with [POINT:none].',
   'Never mention the tag itself.',
+  'To annotate the screen, append up to six tags on one display: [DRAW:circle:x,y,r:label],',
+  '[DRAW:box:x,y,w,h:label], [DRAW:arrow:x1,y1,x2,y2:label], or [DRAW:underline:x1,y1,x2,y2:label].',
+  'Use positive sizes, keep shapes inside the screenshot, and add :screenN before ] when needed.',
+  'These are temporary visual annotations, never clicks or changes to another app.',
 ].join(' ');
 
 // Voice turns are heard, not read: keep them short and free of formatting.
@@ -75,7 +80,7 @@ const tools: ToolSet = Object.fromEntries(
   ]),
 );
 
-/** Earlier turns as text, then this question with every screen attached (heyclicky's model). */
+/** Earlier turns as text, then this question with every screen attached. */
 function conversation(): ModelMessage[] {
   const history = input.history.flatMap((turn): ModelMessage[] => [
     { role: 'user', content: turn.prompt },

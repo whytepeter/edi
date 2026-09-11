@@ -38,12 +38,24 @@ export class CharacterActions {
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
   private dismiss?: ReturnType<typeof setTimeout>;
+  private replyText = '';
+
+  /** Reuse the bubble window as tokens arrive; never reload it per token. */
+  showReply = (text: string, done: boolean) => {
+    this.replyText = text.slice(-600);
+    if (!this.replyText) return;
+    clearTimeout(this.dismiss);
+    if (this.bubble?.state !== 'notice') this.showStatus('notice');
+    this.bubble?.window.webContents.send('edi:bubble-text', this.replyText);
+    if (done) this.dismiss = setTimeout(() => this.hideBubble(), 12000);
+  };
 
   constructor(private readonly options: CharacterActionsOptions) {
     options.pet.on('move', this.followPet);
   }
 
   requestListening = (mode: 'conversation' | 'push-to-talk' = 'conversation') => {
+    this.replyText = '';
     this.hideMenu();
     this.mode = mode;
     this.options.stopWork();
@@ -62,8 +74,10 @@ export class CharacterActions {
 
   /** Voice session feedback: live listening, thinking, a short notice, or nothing. */
   showVoiceStatus = (status: 'listening' | 'thinking' | 'hidden' | { notice: string }) => {
-    if (status === 'hidden') this.hideBubble();
-    else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
+    if (status !== 'hidden') this.replyText = '';
+    if (status === 'hidden') {
+      if (!this.replyText) this.hideBubble();
+    } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
     else if (this.bubble?.state !== status) this.showStatus(status);
   };
 
@@ -77,6 +91,8 @@ export class CharacterActions {
     window.once('ready-to-show', () => {
       if (window.isDestroyed() || this.bubble?.window !== window) return;
       window.showInactive();
+      if (state === 'notice' && this.replyText)
+        window.webContents.send('edi:bubble-text', this.replyText);
       if (dismissAfterMs) this.dismiss = setTimeout(() => this.hideBubble(), dismissAfterMs);
     });
   }

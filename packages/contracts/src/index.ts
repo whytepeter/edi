@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { approvalRequestSchema, toolStepSchema, type Activity } from './capabilities';
 export * from './capabilities';
 export * from './screen-context';
+export * from './presentation';
 export * from './voice';
 export * from './voice-session';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
@@ -16,6 +17,7 @@ export {
   skinGeometrySchema,
   skinGeometry,
   handPaths,
+  handTip,
   mapSkinPoint,
   desktopPetSize,
   type SkinGeometry,
@@ -47,21 +49,51 @@ export const modelIdSchema = z
   .min(3)
   .max(160)
   .regex(/^[a-zA-Z0-9_.:/-]+$/);
+export const chatMessageSchema = z
+  .object({
+    id: z.string().min(1).max(80),
+    role: z.enum(['user', 'assistant']),
+    text: z.string().max(32000),
+  })
+  .strict();
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
 export const agentStateSchema = z.object({
   configured: z.boolean(),
   model: z.string(),
   status: z.enum(['idle', 'running', 'done', 'stopped', 'error']),
   /** The foreground run, if any; approvals and steps belong to it. */
   runId: z.string().uuid().nullable(),
+  /** The live user turn; empty when there is no foreground prompt. */
+  prompt: z.string().max(8000),
   text: z.string().max(32000),
   error: z.string(),
   steps: z.array(toolStepSchema).max(20),
+  /** Completed history plus the live turn, oldest first. */
+  messages: z.array(chatMessageSchema).max(24),
   /** Screen Recording permission as of the last request; null before any request. */
   screenAccess: z.enum(['granted', 'denied', 'not-determined', 'restricted', 'unknown']).nullable(),
   /** The oldest pending approval; further writes wait behind it. */
   approval: approvalRequestSchema.nullable(),
 });
 export type AgentState = z.infer<typeof agentStateSchema>;
+
+export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState {
+  return {
+    configured: false,
+    model: '',
+    status: 'idle',
+    runId: null,
+    prompt: '',
+    text: '',
+    error: '',
+    steps: [],
+    messages: [],
+    approval: null,
+    screenAccess: null,
+    ...overrides,
+  };
+}
 
 export const skinSchema = z.enum(['cloud', 'sprout']);
 export type SkinId = z.infer<typeof skinSchema>;
@@ -85,9 +117,19 @@ export const settingsSchema = z.object({
   skin: skinSchema,
   pinned: z.boolean(),
   petPosition: screenPointSchema.nullable().default(null),
+  /** After the first Screen Recording prompt, later asks open Settings. */
+  screenRecordingPrompted: z.boolean().default(false),
+  /** Trust a prior grant when the live check is a false deny. */
+  screenRecordingConfirmed: z.boolean().default(false),
 });
 export type Settings = z.infer<typeof settingsSchema>;
-export const defaultSettings: Settings = { skin: 'cloud', pinned: false, petPosition: null };
+export const defaultSettings: Settings = {
+  skin: 'cloud',
+  pinned: false,
+  petPosition: null,
+  screenRecordingPrompted: false,
+  screenRecordingConfirmed: false,
+};
 export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -127,6 +169,11 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('show-workspace') }).strict(),
+  z.object({ type: z.literal('open-microphone-settings') }).strict(),
+  z.object({ type: z.literal('open-screen-recording-settings') }).strict(),
+  z.object({ type: z.literal('check-microphone-permission') }).strict(),
+  z.object({ type: z.literal('request-microphone-permission') }).strict(),
+  z.object({ type: z.literal('request-screen-recording') }).strict(),
   z.object({ type: z.literal('hide-workspace') }).strict(),
   z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
@@ -144,6 +191,7 @@ export const commandSchema = z.discriminatedUnion('type', [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export interface DesktopBridge {
+  onMicrophonePermission(callback: (status: 'granted' | 'blocked') => void): () => void;
   agent(): Promise<AgentState>;
   /** Recent runs and their tool outcomes, newest first. */
   activity(): Promise<Activity>;
@@ -155,6 +203,18 @@ export interface DesktopBridge {
   onVoice(callback: (event: VoiceHostEvent) => void): () => void;
 }
 export const skins = [
-  { id: 'cloud', name: 'Cloud', description: 'A little curious. Always nearby.', color: '#759bea' },
-  { id: 'sprout', name: 'Sprout', description: 'A softer shade of company.', color: '#759881' },
+  {
+    id: 'cloud',
+    name: 'Cloud',
+    description: 'A little curious. Always nearby.',
+    color: '#759bea',
+    fill: '#f5f8ff',
+  },
+  {
+    id: 'sprout',
+    name: 'Sprout',
+    description: 'A softer shade of company.',
+    color: '#759881',
+    fill: '#f0f5ec',
+  },
 ] as const;

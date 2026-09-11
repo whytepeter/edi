@@ -24,7 +24,7 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
   unavailable: { width: 160, height: 52 },
   thinking: { width: 88, height: 52 },
   listening: { width: 92, height: 52 },
-  notice: { width: 280, height: 52 },
+  notice: { width: 340, height: 184 },
 };
 export const characterMenuSize = { width: 200, height: 178 } as const;
 
@@ -102,8 +102,8 @@ export function createStatusBubbleWindow({ state, side, skin, text }: StatusBubb
     hasShadow: false,
     skipTaskbar: true,
     focusable: false,
-    // Display only: no preload, so this surface cannot send commands.
-    webPreferences: isolated,
+    // Receive-only preload; no command bridge.
+    webPreferences: { ...isolated, preload: join(__dirname, '../preload/bubble.js') },
   });
   return loadSurface(win, 'voice-status', { state, side, skin, ...(text ? { text } : {}) });
 }

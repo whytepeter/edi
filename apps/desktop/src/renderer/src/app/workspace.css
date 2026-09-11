@@ -145,9 +145,30 @@
   max-width: 260px;
 }
 
+/* Talk to Edi: the thread fills the card; the composer sits where the footer was. */
+.workspace-card[data-view='agent'] .workspace-content {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 56px 0 0;
+}
+.workspace-card[data-view='agent'] .workspace-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.workspace-card[data-view='agent'] .workspace-footer,
+.workspace-card[data-view='agent'] .ds-scroll-edge[data-edge='bottom'] {
+  display: none;
+}
+
 /* ---------- Expanded card ---------- */
 .workspace-card[data-expanded] .workspace-content {
   padding: 72px 44px 80px;
+}
+.workspace-card[data-expanded][data-view='agent'] .workspace-content {
+  padding: 56px 0 0;
 }
 .workspace-card[data-expanded] .ds-large-title {
   font-size: 32px;

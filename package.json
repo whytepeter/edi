@@ -11,7 +11,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "setup:electron": "pnpm --filter @edi/desktop exec install-electron",
+    "setup:electron": "pnpm --filter @edi/desktop exec install-electron && pnpm --filter @edi/desktop exec node scripts/prepare-electron.mjs",
     "dev": "pnpm --filter @edi/desktop dev",
     "build": "pnpm --filter @edi/desktop build",
     "typecheck": "pnpm -r typecheck",
@@ -42,7 +42,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "koffi"
     ]
   }
 }

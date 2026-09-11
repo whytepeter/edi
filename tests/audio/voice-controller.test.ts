@@ -25,9 +25,11 @@ function harness(overrides: Partial<VoiceDependencies<string>> = {}) {
     model: 'm',
     status: 'done',
     runId: 'run-1',
+    prompt: 'What is this button?',
     text: 'It is the **Save** button. [POINT:10,20:save]',
     error: '',
     steps: [],
+    messages: [],
     approval: null,
     screenAccess: 'granted',
   };
@@ -105,7 +107,18 @@ test('a refused microphone never opens capture and says why', async () => {
   await tick();
   assert.equal(h.types().includes('open'), false);
   assert.equal(h.voice.phase, 'error');
-  assert.match(JSON.stringify(h.statuses.at(-1)), /System Settings/);
+  assert.match(JSON.stringify(h.statuses.at(-1)), /microphone/i);
+});
+
+test('a spoken turn without OpenRouter says so instead of a generic stop', async () => {
+  const h = harness({
+    ask: async () => {
+      throw new Error('Set up OpenRouter first.');
+    },
+  });
+  const generation = await holdAndSpeak(h);
+  await h.voice.audio(generation, new Uint8Array(3200));
+  assert.deepEqual(h.statuses.at(-1), { notice: 'Set up OpenRouter first.' });
 });
 
 test('an empty transcript asks nothing and says it did not catch that', async () => {

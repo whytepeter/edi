@@ -3,6 +3,7 @@ import {
   bubbleSideSchema,
   skinSchema,
   statusBubbleStateSchema,
+  presentationScriptSchema,
 } from '@edi/contracts';
 
 /** Which window this renderer is. Main chooses it; unknown values fall back safely. */
@@ -36,7 +37,12 @@ const coordinate = (name: string) => {
 /** The pointer overlay's path, in window-local logical pixels. */
 export const pointerParams = {
   from: { x: coordinate('fromX'), y: coordinate('fromY') },
-  to: { x: coordinate('toX'), y: coordinate('toY') },
-  label: bubbleNoticeSchema.catch('').parse(params.get('label')),
+  actions: (() => {
+    try {
+      return presentationScriptSchema.parse(JSON.parse(params.get('actions') ?? '[]'));
+    } catch {
+      return [];
+    }
+  })(),
   skin: skinSchema.catch('cloud').parse(params.get('skin')),
 };

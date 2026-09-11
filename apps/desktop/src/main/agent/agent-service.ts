@@ -8,13 +8,15 @@ import {
   type ToolOutcome,
 } from '@edi/capabilities';
 import {
-  parsePointTag,
-  resolvePointTarget,
+  emptyAgentState,
+  parsePresentation,
+  resolvePresentation,
   type AgentState,
   type ApprovalRequest,
+  type ChatMessage,
   type ToolStep,
 } from '@edi/contracts';
-import type { Repositories } from '@edi/storage';
+import type { Repositories, ThreadTurn } from '@edi/storage';
 import type { Screenshot, ScreenAccess } from '../capture/screens';
 
 type CapturedScreens = { screenshots: Screenshot[]; access: ScreenAccess };
@@ -24,7 +26,7 @@ import { workerMessageSchema, type HostMessage, type WorkerInput } from './worke
 
 /** Wall-clock budget for a run, excluding time spent waiting for a person to decide. */
 const RUN_BUDGET_MS = 120_000;
-/** Conversation context: completed exchanges sent with each request (heyclicky uses 10). */
+/** Conversation context: completed exchanges sent with each request. */
 const HISTORY_TURNS = 10;
 const MAX_TEXT = 32_000;
 const MAX_STEPS_SHOWN = 20;
@@ -39,7 +41,7 @@ interface AgentServiceOptions {
   point?: (target: PointTarget) => void;
 }
 
-export type PointTarget = NonNullable<ReturnType<typeof resolvePointTarget>>;
+export type PointTarget = NonNullable<ReturnType<typeof resolvePresentation>>;
 
 interface ActiveRun {
   id: string;
@@ -57,18 +59,10 @@ type FinishedStatus = Extract<AgentState['status'], 'done' | 'stopped' | 'error'
  * approvals; knows nothing about windows.
  */
 export class AgentService {
-  state: AgentState = {
-    configured: false,
-    model: '',
-    status: 'idle',
-    runId: null,
-    text: '',
-    error: '',
-    steps: [],
-    approval: null,
-    screenAccess: null,
-  };
+  state: AgentState = emptyAgentState();
   private run?: ActiveRun;
+  /** Finished turns shown in the card; refreshed on load and when a run ends. */
+  private cachedThread: ThreadTurn[] = [];
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
   private starting?: object;
   private configuring = false;
@@ -88,10 +82,16 @@ export class AgentService {
     return () => this.listeners.delete(listener);
   }
 
+  /** Launch / Settings flow updates this before the first ask. */
+  rememberScreenAccess(access: ScreenAccess) {
+    this.update({ ...this.state, screenAccess: access });
+  }
+
   async load() {
     await this.options.credentials.load();
     const { configured, model } = this.options.credentials;
-    this.state = { ...this.state, configured, model };
+    this.refreshThread();
+    this.state = this.withMessages({ ...this.state, configured, model });
   }
 
   async configure(apiKey: string, model: string) {
@@ -137,6 +137,7 @@ export class AgentService {
       ...this.state,
       status: 'running',
       runId: null,
+      prompt,
       text: '',
       error: '',
       steps: [],
@@ -274,10 +275,12 @@ export class AgentService {
     run.worker.postMessage({ type: 'stop' } satisfies HostMessage);
     void run.worker.terminate();
     // The pointing tag is an instruction for Edi, not part of the answer.
-    const { text, point } = parsePointTag(this.state.text);
+    const presentation = parsePresentation(this.state.text);
+    const { text } = presentation;
     this.options.repositories.runs.finish(run.id, { status, text, error, at: Date.now() });
+    this.refreshThread();
     this.update({ ...this.state, status, text, error, approval: null });
-    const target = status === 'done' && point ? resolvePointTarget(point, run.screenshots) : null;
+    const target = status === 'done' ? resolvePresentation(presentation, run.screenshots) : null;
     if (target) this.options.point?.(target);
   }
 
@@ -324,25 +327,48 @@ export class AgentService {
     };
   }
 
+  private refreshThread() {
+    this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS);
+  }
+
+  private withMessages(state: AgentState): AgentState {
+    return { ...state, messages: this.buildMessages(state) };
+  }
+
+  private buildMessages(state: AgentState): ChatMessage[] {
+    const messages: ChatMessage[] = [];
+    const seen = new Set<string>();
+    for (const turn of this.cachedThread) {
+      if (state.status === 'running' && turn.id === state.runId) continue;
+      seen.add(turn.id);
+      messages.push({ id: `${turn.id}-u`, role: 'user', text: turn.prompt });
+      const reply = turn.reply || turn.error;
+      if (reply) messages.push({ id: `${turn.id}-a`, role: 'assistant', text: reply });
+    }
+    const live =
+      Boolean(state.prompt) &&
+      (state.status === 'running' || !state.runId || !seen.has(state.runId));
+    if (live) {
+      const id = state.runId ?? 'pending';
+      messages.push({ id: `${id}-u`, role: 'user', text: state.prompt });
+      if (state.text || state.status === 'running') {
+        messages.push({ id: `${id}-a`, role: 'assistant', text: state.text });
+      } else if (state.error) {
+        messages.push({ id: `${id}-a`, role: 'assistant', text: state.error });
+      }
+    }
+    return messages.slice(-24);
+  }
+
   private update(state: AgentState) {
-    this.state = state;
-    const snapshot = { ...state };
+    this.state = this.withMessages(state);
+    const snapshot = { ...this.state };
     for (const listener of this.listeners) listener(snapshot);
   }
 }
 
 function idle(): AgentState {
-  return {
-    configured: false,
-    model: '',
-    status: 'idle',
-    runId: null,
-    text: '',
-    error: '',
-    steps: [],
-    approval: null,
-    screenAccess: null,
-  };
+  return emptyAgentState();
 }
 
 /** A one-shot timer whose remaining time survives pause/resume. */

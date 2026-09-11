@@ -6,6 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
+        external: ['koffi'],
         input: {
           index: resolve('src/main/index.ts'),
           'agent-worker': resolve('src/main/agent/agent-worker.ts'),
@@ -13,7 +14,13 @@ export default defineConfig({
       },
     },
   },
-  preload: { build: { rollupOptions: { output: { inlineDynamicImports: true } } } },
+  preload: {
+    build: {
+      rollupOptions: {
+        input: { index: resolve('src/preload/index.ts'), bubble: resolve('src/preload/bubble.ts') },
+      },
+    },
+  },
   renderer: {
     plugins: [
       react(),

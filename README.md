@@ -72,7 +72,7 @@ Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're do
 
 ### Pointing
 
-When showing you where something is helps, Edi ends its reply with a pointing tag (heyclicky's `[POINT:x,y:label:screenN]` convention). Edi removes the tag from what you read and hear, maps the point from the screenshot back to that display, and sends its pointer from its hand to the spot with a short label. The pointer layer covers the whole display, including the menu bar, and never takes clicks or focus. It clears after eight seconds, on your next question, or on Stop or Sleep.
+When showing you where something is helps, Edi ends its reply with a pointing tag (`[POINT:x,y:label:screenN]`). Edi removes the tag from what you read and hear, maps the point from the screenshot back to that display, and sends its pointer from its hand to the spot with a short label. The pointer layer covers the whole display, including the menu bar, and never takes clicks or focus. It clears after eight seconds, on your next question, or on Stop or Sleep.
 
 ### Tools and approvals
 

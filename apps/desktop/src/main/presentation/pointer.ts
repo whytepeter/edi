@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron';
-import { mapSkinPoint, skinGeometry, type SkinId } from '@edi/contracts';
+import { handTip, localizeActions, mapSkinPoint, skinGeometry, type SkinId } from '@edi/contracts';
 import type { PointTarget } from '../agent/agent-service';
 
 type Display = PointTarget['display'];
@@ -27,7 +27,12 @@ export class PointerOverlay {
     this.dismiss();
     const { display } = target;
     const geometry = skinGeometry[this.options.skin()];
-    const hand = mapSkinPoint(geometry, geometry.anchors.rightHand, this.options.pet.getBounds());
+    const anchor = geometry.anchors.rightHand;
+    const hand = mapSkinPoint(
+      geometry,
+      { x: anchor.x + handTip.x, y: anchor.y + handTip.y },
+      this.options.pet.getBounds(),
+    );
     // If Edi is on another display, the pointer enters from the edge nearest to it.
     const from = {
       x: Math.min(Math.max(hand.x, display.x), display.x + display.width),
@@ -38,20 +43,17 @@ export class PointerOverlay {
       y: String(Math.round(point.y - display.y)),
     });
     const start = local(from);
-    const end = local(target);
     const win = this.options.create(display, {
       fromX: start.x,
       fromY: start.y,
-      toX: end.x,
-      toY: end.y,
-      label: target.label,
+      actions: JSON.stringify(localizeActions(target.actions, display)),
       skin: this.options.skin(),
     });
     this.window = win;
     win.once('ready-to-show', () => {
       if (this.window === win && !win.isDestroyed()) win.showInactive();
     });
-    this.timer = setTimeout(() => this.dismiss(), POINTER_MS);
+    this.timer = setTimeout(() => this.dismiss(), POINTER_MS + target.actions.length * 1500);
   }
 
   dismiss() {

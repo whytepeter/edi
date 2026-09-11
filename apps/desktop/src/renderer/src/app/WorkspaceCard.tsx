@@ -7,10 +7,12 @@ import { ApprovalSheet } from '../features/conversation/ApprovalSheet';
 import { Pet } from '../components/Pet';
 import { IntroView } from '../features/content/IntroView';
 import { AgentPanel } from '../features/conversation/AgentPanel';
+import { ScreenRecordingPermission } from '../features/conversation/ScreenRecordingPermission';
 import { AppearanceView } from '../features/appearance/AppearanceView';
 import { ExtensionsView } from '../features/extensions/ExtensionsView';
 import { ActivityView } from '../features/activity/ActivityView';
 import './workspace.css';
+import { MicrophonePermission } from '../features/voice/MicrophonePermission';
 
 type View = 'content' | 'agent' | 'avatars' | 'extensions' | 'activity';
 
@@ -25,6 +27,16 @@ export function WorkspaceCard() {
     blockedRef.current = blocked;
   }, [blocked]);
   const [view, setView] = useState<View>('content');
+  const [microphone, setMicrophone] = useState<'granted' | 'blocked' | null>(null);
+  const [skipScreen, setSkipScreen] = useState(false);
+  useEffect(() => window.edi?.onMicrophonePermission(setMicrophone), []);
+  const screenKnown = agent.screenAccess !== null;
+  const needScreen = !skipScreen && screenKnown && agent.screenAccess !== 'granted';
+  const needMicrophone = screenKnown && !needScreen && microphone === 'blocked';
+  useEffect(() => {
+    if (!screenKnown || needScreen) return;
+    void window.edi?.command({ type: 'check-microphone-permission' });
+  }, [screenKnown, needScreen]);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState('');
@@ -70,6 +82,7 @@ export function WorkspaceCard() {
     <div
       className="workspace-card ds-card"
       data-accent
+      data-view={view}
       data-expanded={expanded || undefined}
       style={{ '--accent': accentFor(settings.skin) } as CSSProperties}
     >
@@ -79,16 +92,26 @@ export function WorkspaceCard() {
             {shownError}
           </div>
         )}
-        {view === 'content' && <IntroView skin={settings.skin} onTalk={() => navigate('agent')} />}
-        {view === 'agent' && <AgentPanel />}
-        {view === 'avatars' && (
-          <AppearanceView
-            skin={settings.skin}
-            onApply={skin => void send({ type: 'apply-skin', skin })}
-          />
+        {needScreen && (
+          <ScreenRecordingPermission onDismiss={() => setSkipScreen(true)} />
         )}
-        {view === 'extensions' && <ExtensionsView onOpenAppearance={() => navigate('avatars')} />}
-        {view === 'activity' && <ActivityView refreshKey={`${agent.runId}:${agent.status}`} />}
+        {needMicrophone && (
+          <MicrophonePermission status="blocked" onDismiss={() => setMicrophone(null)} />
+        )}
+        <div className="workspace-view" hidden={needScreen || needMicrophone}>
+          {view === 'content' && (
+            <IntroView skin={settings.skin} onTalk={() => navigate('agent')} />
+          )}
+          {view === 'agent' && <AgentPanel />}
+          {view === 'avatars' && (
+            <AppearanceView
+              skin={settings.skin}
+              onApply={skin => void send({ type: 'apply-skin', skin })}
+            />
+          )}
+          {view === 'extensions' && <ExtensionsView onOpenAppearance={() => navigate('avatars')} />}
+          {view === 'activity' && <ActivityView refreshKey={`${agent.runId}:${agent.status}`} />}
+        </div>
       </main>
 
       <div className="ds-scroll-edge" data-edge="top" />

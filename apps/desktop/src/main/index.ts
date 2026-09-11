@@ -1,9 +1,37 @@
-import { app, globalShortcut, Menu, screen, session, systemPreferences } from 'electron';
+import {
+  app,
+  globalShortcut,
+  Menu,
+  screen,
+  session,
+  systemPreferences,
+  type WebContents,
+} from 'electron';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+if (process.env.EDI_CWD) process.chdir(process.env.EDI_CWD);
+
+function recordMicrophoneStatus(phase: string) {
+  const out = process.env.EDI_MIC_OUT;
+  if (!out) return;
+  try {
+    writeFileSync(
+      out,
+      `${phase}=${systemPreferences.getMediaAccessStatus('microphone')}\n`,
+      { flag: 'a' },
+    );
+  } catch {
+    // Probe path only; ignore a failed write.
+  }
+}
+recordMicrophoneStatus('boot');
+import { presentationText } from '@edi/contracts';
 import { notesCapabilities } from '@edi/capabilities';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreens } from './capture/screens';
+import { ScreenRecording, shouldHideCardOnBlur } from './permissions';
 import { PocketVoice } from './voice/pocket-process';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
@@ -75,11 +103,14 @@ async function start() {
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
     status: status => character.showVoiceStatus(status),
-    microphoneAccess: async () =>
-      systemPreferences.getMediaAccessStatus('microphone') === 'granted' ||
-      systemPreferences.askForMediaAccess('microphone'),
+    microphoneAccess: () => requestMicrophoneAccess(),
     captureScreens,
-    ask: (prompt, options) => agent.ask(prompt, options),
+    ask: (prompt, options) =>
+      agent.ask(prompt, options).catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'Set up OpenRouter first.')
+          placement.reveal();
+        throw error;
+      }),
     whenFinished: (runId, signal) => agent.whenFinished(runId, signal),
     stopAgent: () => agent.stop(),
     transcribe: transcribePcm,
@@ -88,17 +119,108 @@ async function start() {
     warmSpeech: () => pocket?.warm(),
   });
 
+  // Hiding the card on blur dismisses macOS permission prompts. Hold it up
+  // for the ask, including the Chromium getUserMedia fallback.
+  let holdCard = false;
+  const screenRecording = new ScreenRecording({
+    read: () => ({
+      prompted: settings.current.screenRecordingPrompted,
+      confirmed: settings.current.screenRecordingConfirmed,
+    }),
+    write: next =>
+      settings.update({
+        screenRecordingPrompted: next.prompted,
+        screenRecordingConfirmed: next.confirmed,
+      }),
+  });
+  const requestScreenRecording = async () => {
+    const cardWasOpen = !workspace.isDestroyed() && workspace.isVisible();
+    holdCard = true;
+    try {
+      // The conversation button is on the card. Focusing the pet blurs it, and
+      // hide-on-blur then closes Talk to Edi. Keep the card if it is already up.
+      if (cardWasOpen && !workspace.isDestroyed()) {
+        workspace.show();
+        workspace.focus();
+      } else if (!pet.isDestroyed()) pet.show();
+      const { access } = await screenRecording.request();
+      agent.rememberScreenAccess(access);
+      if (
+        access === 'granted' &&
+        systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
+        !workspace.isDestroyed()
+      ) {
+        workspace.webContents.send('edi:microphone-permission', 'blocked');
+      }
+      return access;
+    } finally {
+      // The system sheet can appear after CGRequest returns. Keep the card
+      // up so hide-on-blur does not dismiss it. Do not block the click.
+      setTimeout(() => {
+        holdCard = false;
+        if (cardWasOpen && !workspace.isDestroyed()) workspace.show();
+      }, 8_000);
+    }
+  };
+  let microphoneProbe = false;
+  const requestMicrophoneAccess = async () => {
+    if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
+    holdCard = true;
+    try {
+      if (!workspace.isDestroyed()) {
+        workspace.show();
+        workspace.focus();
+      }
+      try {
+        if (await systemPreferences.askForMediaAccess('microphone')) return true;
+      } catch {
+        // Chromium's getUserMedia can still raise the prompt.
+      }
+      if (pet.isDestroyed()) return false;
+      microphoneProbe = true;
+      return (
+        (await pet.webContents.executeJavaScript(
+          'navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{s.getTracks().forEach(t=>t.stop());true}).catch(()=>false)',
+        )) === true
+      );
+    } catch {
+      return false;
+    } finally {
+      microphoneProbe = false;
+      holdCard = false;
+      if (
+        systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
+        !workspace.isDestroyed()
+      ) {
+        workspace.webContents.send('edi:microphone-permission', 'blocked');
+        placement.reveal();
+      }
+    }
+  };
+
   // Nothing is granted except the microphone, to the pet window, audio only, and
   // only while a voice turn is opening or listening.
+  const audioOnly = (details: object) => {
+    const types = 'mediaTypes' in details ? details.mediaTypes : undefined;
+    if (Array.isArray(types)) return types.length > 0 && types.every(type => type === 'audio');
+    const type = 'mediaType' in details ? details.mediaType : undefined;
+    return type === undefined || type === 'audio';
+  };
+  const allowMicrophone = (contents: WebContents | null, permission: string, details: object) => {
+    if (permission !== 'microphone' && permission !== 'audioCapture' && permission !== 'media')
+      return false;
+    if (permission === 'media' && !audioOnly(details)) return false;
+    // Chromium pre-checks with no window. Denying those suppresses the prompt.
+    if (!contents) return true;
+    if (contents === workspace.webContents) return true;
+    return contents === pet.webContents && (voice.wantsMicrophone || microphoneProbe);
+  };
+  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
+    allowMicrophone(contents, permission, details),
+  );
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-    const audioOnly =
-      permission === 'media' &&
-      'mediaTypes' in details &&
-      (details.mediaTypes ?? []).length > 0 &&
-      (details.mediaTypes ?? []).every(type => type === 'audio');
-    callback(audioOnly && contents === pet.webContents && voice.wantsMicrophone);
+    callback(allowMicrophone(contents, permission, details));
   });
-
   const character = new CharacterActions({
     pet,
     card: workspace,
@@ -146,6 +268,9 @@ async function start() {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     character.setThinking(state.status === 'running' && !state.text && !state.approval);
+    if (!state.approval && (state.status === 'running' || state.status === 'done')) {
+      character.showReply(presentationText(state.text), state.status === 'done');
+    }
     // A new review surfaces the card even if it was hidden, without stealing focus.
     const approval = state.approval?.callId ?? null;
     if (approval && approval !== shownApproval) placement.reveal();
@@ -160,14 +285,41 @@ async function start() {
   };
   screen.on('display-removed', onDisplayChange);
   screen.on('display-metrics-changed', onDisplayChange);
+  const presentPermissionGate = () => {
+    const access = screenRecording.status();
+    agent.rememberScreenAccess(access);
+    if (access === 'granted') {
+      if (
+        systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
+        !workspace.isDestroyed()
+      ) {
+        workspace.webContents.send('edi:microphone-permission', 'blocked');
+      } else {
+        return;
+      }
+    }
+    placement.show();
+  };
   pet.once('ready-to-show', () => pet.showInactive());
+  workspace.webContents.once('did-finish-load', presentPermissionGate);
+  workspace.on('focus', () => {
+    const access = screenRecording.status();
+    agent.rememberScreenAccess(access);
+    if (
+      access === 'granted' &&
+      systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
+      !workspace.isDestroyed()
+    ) {
+      workspace.webContents.send('edi:microphone-permission', 'blocked');
+    }
+  });
   workspace.on('close', event => {
     if (quitting) return;
     event.preventDefault();
     workspace.hide();
   });
   workspace.on('blur', () => {
-    if (!settings.current.pinned) workspace.hide();
+    if (shouldHideCardOnBlur(settings.current.pinned, holdCard)) workspace.hide();
   });
 
   // Registered in the same tick as window creation, before any renderer can run.
@@ -187,6 +339,8 @@ async function start() {
       petDrag,
       character,
       voice,
+      requestMicrophoneAccess,
+      requestScreenRecording,
     }),
     settings: () => settings.current,
     agentState: () => agent.state,
@@ -218,6 +372,16 @@ async function start() {
   });
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
-else void app.whenReady().then(start);
+if (process.platform === 'darwin') app.setName('Edi');
+if (process.env.EDI_VOICE !== 'off' && !app.requestSingleInstanceLock()) {
+  void app.whenReady().then(() => {
+    recordMicrophoneStatus('ready');
+    app.quit();
+  });
+} else {
+  void app.whenReady().then(() => {
+    recordMicrophoneStatus('ready');
+    return start();
+  });
+}
 app.on('will-quit', () => globalShortcut.unregisterAll());

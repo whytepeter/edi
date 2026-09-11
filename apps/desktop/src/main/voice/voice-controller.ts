@@ -150,9 +150,12 @@ export class VoiceController<Screens> {
         this.play(generation, samples, rate, turn.signal),
       );
       if (!turn.signal.aborted) ended();
-    } catch {
+    } catch (error) {
       if (turn.signal.aborted) return;
-      this.notice = 'Voice stopped. Try again.';
+      this.notice =
+        error instanceof Error && error.message === 'Set up OpenRouter first.'
+          ? error.message
+          : 'Voice stopped. Try again.';
       this.dispatch({ type: 'failed', generation });
     } finally {
       if (this.turn === turn) this.turn = undefined;
@@ -202,7 +205,7 @@ export class VoiceController<Screens> {
       void this.deps.microphoneAccess().then(granted => {
         if (generation !== this.session.generation) return;
         if (!granted) {
-          this.notice = 'Turn on the microphone for Edi in System Settings.';
+          this.notice = 'Allow the microphone when macOS asks.';
           this.dispatch({ type: 'failed', generation });
           return;
         }
@@ -210,7 +213,7 @@ export class VoiceController<Screens> {
       });
     } else if (effect === 'close-microphone') {
       this.deps.send({ type: 'finish', generation });
-      // heyclicky captures the screens the moment the question ends.
+      // Capture the screens the moment the question ends.
       this.screens = this.deps.captureScreens();
       this.screens.catch(() => {});
     }

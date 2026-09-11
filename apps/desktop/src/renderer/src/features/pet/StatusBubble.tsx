@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { BubbleSide, SkinId, StatusBubbleState } from '@edi/contracts';
 import { ListeningBars, SpeechBubble, ThinkingDots } from '../../components/ui';
 import { accentFor } from '../../lib/bridge';
@@ -23,13 +23,21 @@ export function StatusBubble({
   skin: SkinId;
   text: string;
 }) {
-  const text = state === 'notice' ? notice || 'Edi' : announcement[state];
+  const [reply, setReply] = useState('');
+  useEffect(() => {
+    const bridge = (
+      window as unknown as { ediBubble?: { subscribe: (cb: (text: string) => void) => () => void } }
+    ).ediBubble;
+    return bridge?.subscribe(setReply);
+  }, []);
+  const text = state === 'notice' ? reply || notice || 'Edi' : announcement[state];
   const visible = state === 'unavailable' || state === 'notice';
   return (
     <div
       className="status-bubble-surface"
       data-accent
       data-side={side}
+      data-state={state}
       style={{ '--accent': accentFor(skin) } as CSSProperties}
     >
       <SpeechBubble side={side}>
@@ -38,7 +46,7 @@ export function StatusBubble({
         <span
           role="status"
           aria-live="polite"
-          className={visible ? undefined : 'ds-visually-hidden'}
+          className={visible ? 'bubble-reply' : 'ds-visually-hidden'}
           title={state === 'unavailable' ? 'No microphone is active' : undefined}
         >
           {text}

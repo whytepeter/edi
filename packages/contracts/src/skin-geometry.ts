@@ -91,6 +91,12 @@ export const handPaths = {
   right: 'M0 0C22 -6 19 7 10 17C6 17 1 6 0 0Z',
 };
 
+/**
+ * The right hand's fingertip in its local coordinates: the path point farthest from
+ * the attachment. When the hand points or draws, this is what touches the target.
+ */
+export const handTip = { x: 10, y: 17 } as const;
+
 /** Match SVG's xMidYMid meet transform. Coordinates are logical pixels, not Retina device pixels. */
 export function mapSkinPoint(
   geometry: SkinGeometry,

@@ -1,16 +1,50 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  agentStateSchema,
   commandSchema,
+  emptyAgentState,
   settingsSchema,
   contentCardSchema,
   screenLabel,
   screenshotPointToScreen,
   voiceHostEventSchema,
   maxVoicePcmBytes,
-  parsePointTag,
-  resolvePointTarget,
+  parsePresentation,
+  resolvePresentation,
+  localizeActions,
+  presentationScriptSchema,
+  presentationText,
 } from './index';
+
+test('agent state carries a bounded chat thread', () => {
+  const state = emptyAgentState({
+    configured: true,
+    model: 'test/model',
+    prompt: 'Hi',
+    messages: [
+      { id: '1-u', role: 'user', text: 'Hi' },
+      { id: '1-a', role: 'assistant', text: 'Hello.' },
+    ],
+  });
+  assert.equal(agentStateSchema.safeParse(state).success, true);
+  assert.equal(
+    agentStateSchema.safeParse({ ...state, messages: [{ id: '', role: 'user', text: 'x' }] })
+      .success,
+    false,
+  );
+});
+
+test('streamed presentation tags stay hidden, including partial tokens', () => {
+  for (const suffix of ['[P', '[POINT', '[POINT:1,2:Save', '[DRAW:circle:1,2,3']) {
+    assert.equal(presentationText('Here. ' + suffix), 'Here.');
+  }
+  assert.equal(presentationText('Here [POINT:1,2:Save]'), 'Here');
+  assert.equal(presentationText('Use [brackets] normally.'), 'Use [brackets] normally.');
+  assert.equal(parsePresentation('[POINT:,2:bad][POINT:1e2,2:bad]').actions.length, 0);
+  const shots = [{ width: 100, height: 100, display: { x: 0, y: 0, width: 100, height: 100 } }];
+  assert.equal(resolvePresentation(parsePresentation('[DRAW:circle:5,5,20:bad]'), shots), null);
+});
 import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
 import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
 
@@ -135,6 +169,18 @@ test('pet drag commands require a valid phase, pointer, and finite screen point'
   assert.equal(commandSchema.safeParse({ ...command, point: { x: NaN, y: 0 } }).success, false);
   assert.equal(commandSchema.safeParse({ ...command, pointerId: -1 }).success, false);
 });
+test('microphone permission commands have no extra fields', () => {
+  for (const type of [
+    'open-microphone-settings',
+    'open-screen-recording-settings',
+    'check-microphone-permission',
+    'request-microphone-permission',
+    'request-screen-recording',
+  ] as const) {
+    assert.equal(commandSchema.safeParse({ type }).success, true);
+    assert.equal(commandSchema.safeParse({ type, extra: true }).success, false);
+  }
+});
 test('agent commands bound prompts, keys, and model IDs', () => {
   assert.equal(commandSchema.safeParse({ type: 'ask-agent', prompt: 'hello' }).success, true);
   assert.equal(commandSchema.safeParse({ type: 'ask-agent', prompt: ' ' }).success, false);
@@ -198,7 +244,7 @@ test('context menu opens at the pointer and flips at display edges', () => {
   });
 });
 
-test('screenshots are labelled like heyclicky and points map back to displays', () => {
+test('screenshots are labelled per display and points map back to those displays', () => {
   assert.equal(
     screenLabel(0, 2, true, 1280, 831),
     'screen 1 of 2 — cursor is on this screen (primary focus) (image dimensions: 1280x831 pixels)',
@@ -247,36 +293,61 @@ test('voice messages carry typed audio and reject anything else', () => {
   );
 });
 
-test('pointing tags are parsed like heyclicky and stripped from the reply', () => {
-  assert.deepEqual(parsePointTag('Click Save. [POINT:640,120:Save button]'), {
-    text: 'Click Save.',
-    point: { x: 640, y: 120, label: 'Save button', screen: 1 },
-  });
-  assert.deepEqual(parsePointTag('It is over there [POINT:10, 20:Dock:screen2]').point, {
-    x: 10,
-    y: 20,
-    label: 'Dock',
-    screen: 2,
-  });
-  assert.deepEqual(parsePointTag('Nothing to show. [POINT:none]'), {
+test('presentation tags parse into ordered actions on one screen and leave the text clean', () => {
+  const reply =
+    'Click Save, then check the name. [POINT:640,120:Save button]' +
+    '[DRAW:circle:300,200,40:Name: required][DRAW:box:10,20,100,50:Menu]' +
+    '[DRAW:arrow:0,0,50,60:Here][DRAW:underline:5,90,200,90:Title][DRAW:box:1,1,5,5:Other:screen2]';
+  const { text, screen, actions } = parsePresentation(reply);
+  assert.equal(text, 'Click Save, then check the name.');
+  assert.equal(screen, 1);
+  assert.deepEqual(actions, [
+    { type: 'point', x: 640, y: 120, label: 'Save button' },
+    { type: 'circle', x: 300, y: 200, r: 40, label: 'Name: required' },
+    { type: 'box', x: 10, y: 20, w: 100, h: 50, label: 'Menu' },
+    { type: 'arrow', x1: 0, y1: 0, x2: 50, y2: 60, label: 'Here' },
+    { type: 'underline', x1: 5, y1: 90, x2: 200, y2: 90, label: 'Title' },
+  ]);
+  assert.deepEqual(parsePresentation('Over there [POINT:10,20:Dock:screen2]').screen, 2);
+  assert.deepEqual(parsePresentation('Nothing to show. [POINT:none]'), {
     text: 'Nothing to show.',
-    point: null,
+    screen: 1,
+    actions: [],
   });
-  assert.deepEqual(parsePointTag('No tag at all.'), { text: 'No tag at all.', point: null });
+  // Malformed tags are removed from the text but never performed.
+  assert.deepEqual(parsePresentation('Hmm [DRAW:star:1,2] [POINT:x,y]').actions, []);
+  assert.equal(presentationScriptSchema.safeParse(actions).success, true);
 });
 
-test('points resolve onto the right display, and unknown screens are ignored', () => {
+test('presentations resolve onto the right display, and bad targets are rejected', () => {
   const shots = [
     { width: 1280, height: 800, display: { x: 0, y: 0, width: 1512, height: 945 } },
     { width: 1280, height: 720, display: { x: -1920, y: 0, width: 1920, height: 1080 } },
   ];
-  assert.deepEqual(resolvePointTarget({ x: 640, y: 400, label: 'Here', screen: 1 }, shots), {
-    x: 756,
-    y: 473,
-    label: 'Here',
-    display: shots[0].display,
-  });
-  assert.equal(resolvePointTarget({ x: 640, y: 360, label: '', screen: 2 }, shots)?.x, -960);
-  assert.equal(resolvePointTarget({ x: 1, y: 1, label: '', screen: 3 }, shots), null);
-  assert.equal(resolvePointTarget({ x: 5000, y: 1, label: '', screen: 1 }, shots), null);
+  const first = resolvePresentation(
+    { screen: 1, actions: [{ type: 'circle', x: 640, y: 400, r: 40, label: '' }] },
+    shots,
+  );
+  assert.deepEqual(first?.actions, [{ type: 'circle', x: 756, y: 473, r: 47, label: '' }]);
+  const second = resolvePresentation(
+    { screen: 2, actions: [{ type: 'point', x: 640, y: 360, label: 'Here' }] },
+    shots,
+  );
+  assert.deepEqual(second?.actions[0], { type: 'point', x: -960, y: 540, label: 'Here' });
+  assert.deepEqual(second?.display, shots[1].display);
+  assert.equal(
+    resolvePresentation({ screen: 3, actions: [{ type: 'point', x: 1, y: 1, label: '' }] }, shots),
+    null,
+  );
+  assert.equal(
+    resolvePresentation(
+      { screen: 1, actions: [{ type: 'point', x: 5000, y: 1, label: '' }] },
+      shots,
+    ),
+    null,
+  );
+  assert.deepEqual(
+    localizeActions([{ type: 'point', x: -960, y: 540, label: '' }], { x: -1920, y: 0 }),
+    [{ type: 'point', x: 960, y: 540, label: '' }],
+  );
 });

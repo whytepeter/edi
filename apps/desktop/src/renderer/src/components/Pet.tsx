@@ -1,9 +1,10 @@
-import { skinGeometry, handPaths, type SkinId } from '@edi/contracts';
+import { skinGeometry, handPaths, skins, type SkinId } from '@edi/contracts';
 
 export function Pet({ skin, className = '' }: { skin: SkinId; className?: string }) {
   const sprout = skin === 'sprout';
   const geometry = skinGeometry[sprout ? 'sprout' : 'cloud'];
   const { viewBox, anchors } = geometry;
+  const fill = skins.find(entry => entry.id === skin)?.fill ?? skins[0].fill;
   return (
     <svg
       className={`pet-art ${className}`}
@@ -31,7 +32,7 @@ export function Pet({ skin, className = '' }: { skin: SkinId; className?: string
         strokeLinejoin="round"
       >
         {geometry.decorationPath && <path d={geometry.decorationPath} fill="#e2ebe3" />}
-        <path data-part="body" d={geometry.bodyPath} fill={sprout ? '#f0f5ec' : '#f5f8ff'} />
+        <path data-part="body" d={geometry.bodyPath} fill={fill} />
         {(['left', 'right'] as const).map(side => {
           const anchor = anchors[side === 'left' ? 'leftHand' : 'rightHand'];
           return (
@@ -40,7 +41,7 @@ export function Pet({ skin, className = '' }: { skin: SkinId; className?: string
               data-part={`${side}-hand`}
               transform={`translate(${anchor.x} ${anchor.y})`}
               d={handPaths[side]}
-              fill={sprout ? '#f0f5ec' : '#f5f8ff'}
+              fill={fill}
             />
           );
         })}

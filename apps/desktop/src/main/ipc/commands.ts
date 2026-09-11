@@ -1,4 +1,5 @@
-import type { BrowserWindow } from 'electron';
+import { shell, systemPreferences, type BrowserWindow } from 'electron';
+import { microphoneSettingsUrl, screenRecordingSettingsUrl } from '../permissions';
 import type { Settings } from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
 import type { CharacterActions } from '../character/character-actions';
@@ -18,6 +19,8 @@ interface CommandDependencies {
   petDrag: PetDrag;
   character: CharacterActions;
   voice: VoiceController<unknown>;
+  requestMicrophoneAccess(): Promise<boolean>;
+  requestScreenRecording(): Promise<unknown>;
 }
 
 const fromPet = ['pet'] as const;
@@ -25,7 +28,18 @@ const fromWorkspace = ['workspace'] as const;
 
 /** Which surface may send each command, and what it does. Exhaustive by type. */
 export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
-  const { workspace, pet, settings, agent, placement, petDrag, character, voice } = deps;
+  const {
+    workspace,
+    pet,
+    settings,
+    agent,
+    placement,
+    petDrag,
+    character,
+    voice,
+    requestMicrophoneAccess,
+    requestScreenRecording,
+  } = deps;
 
   // Move the card immediately; the write and broadcast follow.
   const updateLayout = (patch: Partial<Settings>) => {
@@ -35,6 +49,39 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
   };
 
   return {
+    'open-microphone-settings': {
+      from: fromWorkspace,
+      handle: () =>
+        shell.openExternal(microphoneSettingsUrl),
+    },
+    'open-screen-recording-settings': {
+      from: fromWorkspace,
+      handle: () =>
+        shell.openExternal(screenRecordingSettingsUrl),
+    },
+    'check-microphone-permission': {
+      from: fromWorkspace,
+      handle: () =>
+        workspace.webContents.send(
+          'edi:microphone-permission',
+          systemPreferences.getMediaAccessStatus('microphone') === 'granted'
+            ? 'granted'
+            : 'blocked',
+        ),
+    },
+    'request-microphone-permission': {
+      from: fromWorkspace,
+      handle: async () => {
+        workspace.webContents.send(
+          'edi:microphone-permission',
+          (await requestMicrophoneAccess()) ? 'granted' : 'blocked',
+        );
+      },
+    },
+    'request-screen-recording': {
+      from: fromWorkspace,
+      handle: () => requestScreenRecording(),
+    },
     'request-listening': {
       from: fromPet,
       handle: ({ mode }) => {

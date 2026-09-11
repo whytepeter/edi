@@ -8,4 +8,5 @@ export {
   type Repositories,
   type NoteRecord,
   type Exchange,
+  type ThreadTurn,
 } from './repositories';

@@ -19,6 +19,11 @@ try {
     .toBe(2);
   const pet = app.windows().find(page => page.url().includes('surface=pet'));
   const workspace = app.windows().find(page => page.url().includes('surface=workspace'));
+  const skip = workspace.getByRole('button', { name: 'Not now' });
+  for (let step = 0; step < 2 && (await skip.isVisible().catch(() => false)); step += 1) {
+    await skip.click();
+  }
+  await workspace.evaluate(() => window.edi.command({ type: 'hide-workspace' }));
   const visible = surface =>
     app.evaluate(
       ({ BrowserWindow }, surface) =>
