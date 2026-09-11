@@ -1,6 +1,6 @@
 # Edi
 
-A desktop companion by Fewer Labs. This is the first runnable foundation, not a connected agent yet.
+A desktop companion by Fewer Labs. The foundation includes optional OpenRouter text responses; tools and voice are not connected yet.
 
 ## Run
 
@@ -12,7 +12,9 @@ pnpm setup:electron
 pnpm dev
 ```
 
-Only the transparent pet window appears at launch. Click Edi or press **Command–Shift–E** to summon a small, iOS-inspired content card. Expand it for more room. The card dismisses on focus loss unless pinned; closing it hides it. Quit from the Edi menu or Command–Q. This is a macOS app, not an iOS app or a notch integration.
+Only the transparent pet window appears at launch. Click Edi or press **Command–Shift–E** to request listening; neither opens the content card. Microphone/transcription is not connected yet, so a small status bubble explains that no microphone is active. Right-click Edi → **Show content** to open the card, then expand it for more room. The card dismisses on focus loss unless pinned. Right-click → **Sleep Edi** hides the character and card; the shortcut wakes Edi and requests listening. **Quit Edi** exits fully. This is a macOS app, not an iOS app or a notch integration.
+
+Character gestures now distinguish a short click (conversation request), a stationary 350 ms hold (push-to-talk request), and moving before the hold threshold (drag). Releasing a hold never starts conversation. Until microphone capture and VAD are connected, these requests display “voice coming soon”; they do not record or submit speech. The custom right-click menu supports arrow keys, Home/End and Escape. The global shortcut currently requests conversation, not hold-to-talk.
 
 ```sh
 pnpm typecheck
@@ -27,13 +29,27 @@ pnpm package
 ## Working now
 
 - Independent Electron pet/workspace windows and narrow validated IPC.
+- OpenRouter setup, streamed plain-text responses, cancellation, and request limits in a separate worker thread.
 - Compact content card with Appearance, Extensions, and Activity under More.
 - Cloud and Sprout avatars, synchronized across windows and persisted locally.
-- Expand/collapse, pin/hide controls, and global summon shortcut.
+- Expand/collapse, pin/hide controls, character context menu, Sleep, and global wake/listen shortcut.
+- Drag Edi to reposition it; Escape cancels a drag. Position persists across restarts. Unpinned cards follow; pinned cards stay in place.
 - Search/filter of the clearly labeled extension catalog preview.
-- A sample response with a diagram; no model or video playback is connected yet.
+- Validated text, step-diagram, and local-video renderer foundations. Example selectors are no longer exposed in the main UI; inline agent-generated rich content is still pending. Remote media remains blocked.
 
-Preferences use an atomic JSON file in Electron's user-data directory for this foundation. Move them into SQLite when conversation/run persistence arrives. No API keys are needed, no accounts are connected, and microphone permissions are not requested.
+Preferences use an atomic JSON file in Electron's user-data directory for this foundation. Move them into SQLite when conversation/run persistence arrives. Previews need no key. Microphone permissions are not requested.
+
+## Connect OpenRouter
+
+Open **Talk to Edi**, enter your OpenRouter API key and an exact model ID from your OpenRouter account, then choose **Save connection**. Do not paste the key into chat or commit it to this project. Saving is local only; the first message tests the connection and may incur provider charges.
+
+The key is entered in a password field, cleared after submission, and stored in `openrouter.enc` in the app's user-data directory using Electron safeStorage encryption. It is never returned through the settings bridge. This is Keychain-backed encryption on macOS, not a claim that the key exists only in Keychain. Unsigned development builds may trigger Keychain prompts. Removing the saved key deletes Edi's local encrypted copy; it does not revoke the key at OpenRouter.
+
+Only your typed prompt and Edi's system instructions go to OpenRouter. Requests start fresh without chat history, screen capture, or files. Limits: one active request, 8,000 input characters, 2,048 output tokens, a 120-second timeout, and no automatic retries. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
+
+`pnpm test:agent` exercises the real SDK with mocked network responses. The user confirmed a live OpenRouter response on 2026-09-11. “Talk to Edi” remains a temporary integration interface, not the final product entry point.
+
+Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRouterTeam/ai-sdk-provider), [Electron credential encryption](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 ## Structure
 
@@ -41,7 +57,7 @@ Preferences use an atomic JSON file in Electron's user-data directory for this f
 
 ## Next
 
-1. Agent worker with AI SDK streaming and cancellation.
+1. Finish milestone 0: packaged acceptance, desktop behavior, skin attachment geometry, and measured audio/runtime selection.
 2. Screen capture and a capability broker with reviewed writes.
 3. SQLite conversation/run history.
 4. Voice runtime measurements and integration.
