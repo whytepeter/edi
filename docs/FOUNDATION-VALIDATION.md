@@ -4,11 +4,26 @@ Updated 2026-09-11.
 
 ## Verified
 
-The refreshed unsigned package also passes the drag/pointer, pin-follow, cancellation, and saved-position restart suite using an isolated temporary profile. No live provider requests are made by that suite.
+### Packaged launch — 2026-09-11
 
-Unsigned Apple Silicon app produced at `apps/desktop/release/mac-arm64/Edi.app`, using the installed Electron runtime. Packaged smoke tests passed with a temporary profile and no development server: independent windows, hidden card at startup, expand/collapse, skin and pin persistence, extension filtering, content previews, malformed-video fallback, OpenRouter setup, rejection of requests without credentials, and no renderer errors.
+Rebuilt from commit `c7aa55b` with `pnpm package` (Electron 42.11.3, arm64, unsigned because `build.mac.identity` is `null`). The packaged smoke suite passed on the first run with a temporary profile and no development server:
 
-The user separately confirmed live OpenRouter responses work. Packaged live-worker and credential migration checks remain pending; no paid requests or real keys were used in the packaged smoke test.
+```
+EDI_TEST_EXECUTABLE="$PWD/apps/desktop/release/mac-arm64/Edi.app/Contents/MacOS/Edi" pnpm test:desktop
+PASS: hidden card at launch, two windows, avatar sync/persistence, pin persistence, extension search, expand/collapse, no renderer errors.
+```
+
+What that run covers, inside the packaged app:
+
+- Two independent windows (pet and card). The card is hidden at launch and placed against the pet's workspace anchor.
+- Cloud and Sprout SVG bounds and hit regions. These are renderer hit tests, not macOS click-through.
+- The OpenRouter setup form (password field). A request with no saved credentials is rejected. The pet window cannot change settings.
+- Skin switching, pinning, extension search, expand/collapse.
+- A native pointer drag that leaves the card closed. Drag commands: the 6 px threshold, wrong-pointer rejection, cancel restoring the position, a pinned card staying put, and an unpinned card following. The card window cannot send drag commands.
+- A restart that restores the pet position, skin and pin. No renderer errors across both launches.
+- **SQLite history in the packaged main process.** The profile contained `edi.sqlite` with the `runs`, `tool_calls` and `notes` tables, schema version 1, in WAL mode. Both launches ran the startup recovery (`recoverInterrupted`) on that file. Recovery only ran on an empty history here. Recovering a genuinely interrupted run is covered by `packages/storage` tests, not by the package.
+
+Not covered by the packaged run: a live model request, credential migration, the notes tool and approval card, the status bubble and custom menu (`pnpm test:character` runs against the development app only), and anything that needs a person at the Mac. No paid requests or real keys were used. The user separately confirmed live OpenRouter responses in the development app.
 
 Test host: Apple M2 Pro, 16 GB RAM, macOS 26.5.2. This is not a minimum-hardware claim.
 
@@ -20,7 +35,7 @@ Latest gesture/menu verification: 350 ms stationary hold selects push-to-talk re
 
 Character interaction update: click and Command–Shift–E now share the listen-request path; Show content is a context-menu action. The native menu also has Stop, Sleep and Quit. Sleep hides pet/card and stops the current text run while leaving the shortcut registered. A separate, non-focusable status bubble follows the pet without enlarging its hit region. Native checks verify click keeps content hidden, unavailable status is truthful, Show content opens the card, Sleep hides it, Listen wakes without opening content, workspace IPC cannot invoke pet-only commands, and Stop removes the bubble. Shortcut registration is tested; physical key delivery and right-click menu selection still need manual checks. Existing desktop smoke tests pass.
 
-The bubble's listening-bars variant has reduced-motion support but is not selected in production until microphone capture is implemented. No microphone access or spoken greeting was added. The status-bubble screenshot was visually checked; the packaged app has not been refreshed for this interaction change.
+The bubble's listening-bars variant has reduced-motion support but is not selected in production until microphone capture is implemented. No microphone access or spoken greeting was added. The status-bubble screenshot was visually checked. The 2026-09-11 package includes this interaction change, but the bubble and menu tests run against the development app only.
 
 - Validate moving/pointing hands and physical display changes. Workspace placement now consumes skin anchors; motion during presentation remains pending.
 - Manual click-through, focus/dismissal, dragging, stacking, Retina coordinates, Spaces/fullscreen, display changes, and capture permission behavior.
