@@ -1,48 +1,19 @@
-import { useEffect, useState } from 'react';
-import type { AgentState } from '@edi/contracts';
+import { useState } from 'react';
 import { Button, TextField } from '../../components/ui';
 import type { Command } from '../../lib/bridge';
+import { useAgentState } from '../../hooks/useAgentState';
+import { StepList } from '../../components/StepList';
 import './conversation.css';
 
 /** Temporary OpenRouter connection test. Not the final conversation surface. */
 export function AgentPanel() {
-  const [state, setState] = useState<AgentState>({
-    configured: false,
-    model: '',
-    status: 'idle',
-    text: '',
-    error: '',
-  });
-  const [loading, setLoading] = useState(true);
+  const { state, loading, error: loadError } = useAgentState();
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    let alive = true;
-    const unsubscribe = window.edi?.onAgent(value => {
-      if (alive) setState(value);
-    });
-    window.edi
-      ?.agent()
-      .then(value => {
-        if (alive) {
-          setState(value);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (alive) {
-          setLoading(false);
-          setError('Could not load the connection.');
-        }
-      });
-    return () => {
-      alive = false;
-      unsubscribe?.();
-    };
-  }, []);
+  const [commandError, setError] = useState('');
+  const error = commandError || loadError;
   async function command(value: Command) {
     if (!window.edi) return;
     setBusy(true);
@@ -149,7 +120,7 @@ export function AgentPanel() {
             />
             <p className="ds-footnote ds-tertiary">
               Sends this message to OpenRouter and its model provider. Your OpenRouter rates apply.
-              Each request starts fresh; no screen or files are sent.
+              Each request starts fresh; no screen is sent. Edi asks before saving anything.
             </p>
             {running ? (
               <Button
@@ -169,6 +140,7 @@ export function AgentPanel() {
           <div role="status" className="agent-status ds-footnote ds-secondary">
             {status}
           </div>
+          <StepList steps={state.steps} label="What Edi did" />
           {state.error && (
             <p role="alert" className="agent-error">
               {state.error}

@@ -1,5 +1,9 @@
 import { app, globalShortcut, Menu, screen, session } from 'electron';
+import { join } from 'node:path';
+import { notesCapabilities } from '@edi/capabilities';
+import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
+import { OpenRouterCredentials } from './agent/credentials';
 import { CharacterActions } from './character/character-actions';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
@@ -18,8 +22,20 @@ let quitting = false;
 
 /** Composition root: construct services, wire them together, own app lifecycle. */
 async function start() {
+  // One SQLite writer, owned here. Nothing in flight at the last quit is replayed.
+  const database = openDatabase(join(app.getPath('userData'), 'edi.sqlite'));
+  const repositories = createRepositories(database);
+  repositories.recoverInterrupted(Date.now());
+
   const settings = new SettingsStore();
-  const agent = new AgentService();
+  const agent = new AgentService({
+    credentials: new OpenRouterCredentials(),
+    repositories,
+    capabilities: notesCapabilities({
+      directory: () => join(app.getPath('documents'), 'Edi Notes'),
+      store: repositories.notes,
+    }),
+  });
   await Promise.all([settings.load(), agent.load()]);
 
   // Nothing is granted until a feature asks for exactly what it needs.
@@ -55,9 +71,14 @@ async function start() {
   });
 
   settings.onChange(value => broadcast([workspace, pet], 'edi:settings', value));
+  let shownApproval: string | null = null;
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
-    character.setThinking(state.status === 'running' && !state.text);
+    character.setThinking(state.status === 'running' && !state.text && !state.approval);
+    // A new review surfaces the card even if it was hidden, without stealing focus.
+    const approval = state.approval?.callId ?? null;
+    if (approval && approval !== shownApproval) placement.reveal();
+    shownApproval = approval;
   });
 
   placement.place();
@@ -97,6 +118,7 @@ async function start() {
     }),
     settings: () => settings.current,
     agentState: () => agent.state,
+    activity: () => repositories.activity(30),
   });
 
   Menu.setApplicationMenu(
@@ -117,6 +139,7 @@ async function start() {
     petDrag.cancel();
     agent.stop();
   });
+  app.on('will-quit', () => database.close());
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

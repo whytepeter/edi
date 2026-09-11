@@ -14,8 +14,8 @@
     "setup:electron": "pnpm --filter @edi/desktop exec install-electron",
     "dev": "pnpm --filter @edi/desktop dev",
     "build": "pnpm --filter @edi/desktop build",
-    "typecheck": "pnpm --filter @edi/desktop typecheck",
-    "test": "tsx --test packages/contracts/src/index.test.ts",
+    "typecheck": "pnpm -r typecheck",
+    "test": "node --import tsx --disable-warning=ExperimentalWarning --test packages/*/src/*.test.ts",
     "test:desktop": "node tests/desktop/smoke.mjs",
     "test:character": "node tests/desktop/character.mjs",
     "test:agent": "pnpm build && node --test tests/agent/worker.test.mjs",
@@ -29,11 +29,13 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.2",
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.12.0",
     "prettier": "^3.9.6",
     "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.0"
   },
   "pnpm": {

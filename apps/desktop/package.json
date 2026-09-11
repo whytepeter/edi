@@ -12,11 +12,14 @@
     "package": "electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist"
   },
   "dependencies": {
+    "@edi/capabilities": "workspace:*",
     "@edi/contracts": "workspace:*",
+    "@edi/storage": "workspace:*",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.97",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -75,5 +75,9 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'disconnect-agent': { from: fromWorkspace, handle: () => agent.disconnect() },
     'ask-agent': { from: fromWorkspace, handle: ({ prompt }) => agent.ask(prompt) },
     'stop-agent': { from: fromWorkspace, handle: () => agent.stop() },
+    'respond-approval': {
+      from: fromWorkspace,
+      handle: ({ callId, decision }) => agent.respondToApproval(callId, decision),
+    },
   };
 }

@@ -1,13 +1,14 @@
 {
-  "name": "@edi/contracts",
+  "name": "@edi/storage",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
-  "dependencies": {
-    "zod": "^4.0.0"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@edi/contracts": "workspace:*",
+    "zod": "^4.0.0"
   }
 }

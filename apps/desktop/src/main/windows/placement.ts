@@ -29,6 +29,12 @@ export class WindowPlacement {
     this.card.show();
   }
 
+  /** Bring the card up without taking focus, so stray keystrokes cannot act in it. */
+  reveal() {
+    this.place();
+    this.card.showInactive();
+  }
+
   /** Recover off-screen windows after display removal or a work-area change. */
   recover = () => {
     if (this.pet.isDestroyed() || this.card.isDestroyed()) return;

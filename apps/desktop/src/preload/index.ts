@@ -1,13 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  activitySchema,
+  agentStateSchema,
   commandSchema,
   settingsSchema,
-  agentStateSchema,
   type DesktopBridge,
 } from '@edi/contracts';
 
 const bridge: DesktopBridge = {
   agent: async () => agentStateSchema.parse(await ipcRenderer.invoke('edi:agent:get')),
+  activity: async () => activitySchema.parse(await ipcRenderer.invoke('edi:activity:get')),
   onAgent: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = agentStateSchema.safeParse(value);

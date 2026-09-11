@@ -1,5 +1,11 @@
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
-import { commandSchema, type AgentState, type Command, type Settings } from '@edi/contracts';
+import {
+  commandSchema,
+  type Activity,
+  type AgentState,
+  type Command,
+  type Settings,
+} from '@edi/contracts';
 
 /** Renderers allowed to call the main process. The voice-status bubble has no bridge. */
 export type Caller = 'workspace' | 'pet' | 'menu';
@@ -17,9 +23,10 @@ interface IpcDependencies {
   routes: CommandRoutes;
   settings(): Settings;
   agentState(): AgentState;
+  activity(): Activity;
 }
 
-export function registerIpc({ identify, routes, settings, agentState }: IpcDependencies) {
+export function registerIpc({ identify, routes, settings, agentState, activity }: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
     // Subframes never inherit their window's privileges.
     const caller =
@@ -38,6 +45,10 @@ export function registerIpc({ identify, routes, settings, agentState }: IpcDepen
   ipcMain.handle('edi:agent:get', event => {
     authorize(callerOf(event), ['workspace']);
     return agentState();
+  });
+  ipcMain.handle('edi:activity:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return activity();
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

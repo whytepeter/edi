@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { IconButton, Menu, ToolbarGroup } from '../components/ui';
 import { accentFor, type Command } from '../lib/bridge';
 import { useSettings } from '../hooks/useSettings';
+import { useAgentState } from '../hooks/useAgentState';
+import { ApprovalSheet } from '../features/conversation/ApprovalSheet';
 import { Pet } from '../components/Pet';
 import { IntroView } from '../features/content/IntroView';
 import { AgentPanel } from '../features/conversation/AgentPanel';
@@ -15,6 +17,13 @@ type View = 'content' | 'agent' | 'avatars' | 'extensions' | 'activity';
 /** The floating content card: navigation, card controls, and the active view. */
 export function WorkspaceCard() {
   const { settings, setSettings, error: loadError } = useSettings();
+  const { state: agent } = useAgentState();
+  // While a review is pending, everything else in the card is inert.
+  const blocked = agent.approval !== null;
+  const blockedRef = useRef(blocked);
+  useEffect(() => {
+    blockedRef.current = blocked;
+  }, [blocked]);
   const [view, setView] = useState<View>('content');
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,7 +56,9 @@ export function WorkspaceCard() {
   useEffect(() => {
     // The menu handles its own Escape; this only fires when it is closed.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') void window.edi?.command({ type: 'hide-workspace' });
+      if (event.key === 'Escape' && !blockedRef.current) {
+        void window.edi?.command({ type: 'hide-workspace' });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -62,7 +73,7 @@ export function WorkspaceCard() {
       data-expanded={expanded || undefined}
       style={{ '--accent': accentFor(settings.skin) } as CSSProperties}
     >
-      <main className="workspace-content">
+      <main className="workspace-content" inert={blocked}>
         {shownError && (
           <div role="alert" className="workspace-error">
             {shownError}
@@ -77,13 +88,13 @@ export function WorkspaceCard() {
           />
         )}
         {view === 'extensions' && <ExtensionsView onOpenAppearance={() => navigate('avatars')} />}
-        {view === 'activity' && <ActivityView />}
+        {view === 'activity' && <ActivityView refreshKey={`${agent.runId}:${agent.status}`} />}
       </main>
 
       <div className="ds-scroll-edge" data-edge="top" />
       <div className="ds-scroll-edge" data-edge="bottom" />
 
-      <header className="workspace-header">
+      <header className="workspace-header" inert={blocked}>
         <div className="workspace-identity">
           {view === 'content' ? (
             <span className="workspace-avatar">
@@ -164,11 +175,13 @@ export function WorkspaceCard() {
         </>
       )}
 
-      <footer className="workspace-footer ds-glass">
+      <footer className="workspace-footer ds-glass" inert={blocked}>
         <span className="ds-status-dot" aria-hidden="true" />
         <span>Here when you need me</span>
         <kbd aria-label="Command Shift E">⌘⇧E</kbd>
       </footer>
+
+      {agent.approval && <ApprovalSheet key={agent.approval.callId} approval={agent.approval} />}
     </div>
   );
 }

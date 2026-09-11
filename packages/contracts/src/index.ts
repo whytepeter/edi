@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { approvalRequestSchema, toolStepSchema, type Activity } from './capabilities';
+export * from './capabilities';
 export {
   placeCard,
   placeSpeechBubble,
@@ -45,8 +47,13 @@ export const agentStateSchema = z.object({
   configured: z.boolean(),
   model: z.string(),
   status: z.enum(['idle', 'running', 'done', 'stopped', 'error']),
+  /** The foreground run, if any; approvals and steps belong to it. */
+  runId: z.string().uuid().nullable(),
   text: z.string().max(32000),
   error: z.string(),
+  steps: z.array(toolStepSchema).max(20),
+  /** The oldest pending approval; further writes wait behind it. */
+  approval: approvalRequestSchema.nullable(),
 });
 export type AgentState = z.infer<typeof agentStateSchema>;
 
@@ -103,6 +110,13 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('disconnect-agent') }).strict(),
   z.object({ type: z.literal('ask-agent'), prompt: z.string().trim().min(1).max(8000) }).strict(),
   z.object({ type: z.literal('stop-agent') }).strict(),
+  z
+    .object({
+      type: z.literal('respond-approval'),
+      callId: z.string().uuid(),
+      decision: z.enum(['approve', 'deny']),
+    })
+    .strict(),
   z.object({ type: z.literal('show-workspace') }).strict(),
   z.object({ type: z.literal('hide-workspace') }).strict(),
   z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
@@ -121,6 +135,8 @@ export const commandSchema = z.discriminatedUnion('type', [
 export type Command = z.infer<typeof commandSchema>;
 export interface DesktopBridge {
   agent(): Promise<AgentState>;
+  /** Recent runs and their tool outcomes, newest first. */
+  activity(): Promise<Activity>;
   onAgent(callback: (state: AgentState) => void): () => void;
   settings(): Promise<Settings>;
   command(command: Command): Promise<void>;
