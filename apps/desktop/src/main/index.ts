@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { notesCapabilities } from '@edi/capabilities';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
+import { captureScreens } from './capture/screens';
 import { OpenRouterCredentials } from './agent/credentials';
 import { CharacterActions } from './character/character-actions';
 import { createCommandRoutes } from './ipc/commands';
@@ -35,6 +36,7 @@ async function start() {
       directory: () => join(app.getPath('documents'), 'Edi Notes'),
       store: repositories.notes,
     }),
+    captureScreens,
   });
   await Promise.all([settings.load(), agent.load()]);
 

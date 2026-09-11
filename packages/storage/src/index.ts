@@ -7,4 +7,5 @@ export {
   NoteRepository,
   type Repositories,
   type NoteRecord,
+  type Exchange,
 } from './repositories';

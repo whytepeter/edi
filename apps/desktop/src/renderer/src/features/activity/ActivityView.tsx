@@ -67,6 +67,7 @@ export function ActivityView({ refreshKey }: { refreshKey: string }) {
               <p className="activity-prompt">{run.prompt}</p>
               <p className="activity-meta">
                 {runLabel[run.status]} · {when(run.startedAt)}
+                {run.screens > 0 && ` · saw ${run.screens} screen${run.screens === 1 ? '' : 's'}`}
               </p>
               {run.error && <p className="activity-error">{run.error}</p>}
               <StepList steps={run.steps} label={`Actions for “${run.prompt.slice(0, 40)}”`} />

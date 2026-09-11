@@ -50,6 +50,11 @@ export const migrations: readonly { version: number; sql: string }[] = [
       CREATE INDEX notes_created ON notes (created_at DESC);
     `,
   },
+  {
+    // Screen context: only the number of screenshots sent is kept, never the images.
+    version: 2,
+    sql: `ALTER TABLE runs ADD COLUMN screens INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

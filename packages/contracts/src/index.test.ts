@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { commandSchema, settingsSchema, contentCardSchema } from './index';
+import {
+  commandSchema,
+  settingsSchema,
+  contentCardSchema,
+  screenLabel,
+  screenshotPointToScreen,
+} from './index';
 import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
 import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
 
@@ -186,4 +192,32 @@ test('context menu opens at the pointer and flips at display edges', () => {
     width: 200,
     height: 178,
   });
+});
+
+test('screenshots are labelled like heyclicky and points map back to displays', () => {
+  assert.equal(
+    screenLabel(0, 2, true, 1280, 831),
+    'screen 1 of 2 — cursor is on this screen (primary focus) (image dimensions: 1280x831 pixels)',
+  );
+  assert.equal(
+    screenLabel(1, 2, false, 1280, 720),
+    'screen 2 of 2 (image dimensions: 1280x720 pixels)',
+  );
+  // A secondary display to the left of the primary, at a negative origin.
+  const display = { x: -1920, y: 0, width: 1920, height: 1080 };
+  assert.deepEqual(
+    screenshotPointToScreen({ x: 640, y: 360 }, { width: 1280, height: 720 }, display),
+    {
+      x: -960,
+      y: 540,
+    },
+  );
+  // Out-of-image points clamp to the display edge instead of leaving it.
+  assert.deepEqual(
+    screenshotPointToScreen({ x: 9999, y: -5 }, { width: 1280, height: 720 }, display),
+    {
+      x: 0,
+      y: 0,
+    },
+  );
 });

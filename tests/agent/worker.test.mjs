@@ -16,7 +16,7 @@ const notesSave = {
 
 // Mock the network below the real SDK/adapter. No requests or credentials leave the process.
 // Each request body is echoed to the test as a `debug-request` message for inspection.
-function launch(mode, tools = []) {
+function launch(mode, tools = [], context = {}) {
   const worker = new Worker(
     `
     const { workerData, parentPort } = require('node:worker_threads');
@@ -57,6 +57,8 @@ function launch(mode, tools = []) {
         apiKey: 'test-only-secret',
         model: 'test/model',
         prompt: 'Hello',
+        history: context.history ?? [],
+        screenshots: context.screenshots ?? [],
         tools,
         mode,
       },
@@ -133,4 +135,25 @@ test('tool calls go to the host, and the host outcome reaches the model', async 
   assert.equal(requests[0].tools[0].function.name, 'notes_save');
   const toolMessage = requests[1].messages.find(m => m.role === 'tool');
   assert.match(JSON.stringify(toolMessage), /denied/);
+});
+
+test('history and every screenshot reach the model, in order', async () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const { requests } = await collect(
+    launch('success', [], {
+      history: [{ prompt: 'Earlier question', reply: 'Earlier answer' }],
+      screenshots: [
+        { label: 'screen 1 of 2 — cursor is on this screen (primary focus)', jpeg },
+        { label: 'screen 2 of 2', jpeg },
+      ],
+    }),
+  );
+  const [first, second, current] = requests[0].messages.filter(m => m.role !== 'system');
+  assert.deepEqual([first.role, first.content], ['user', 'Earlier question']);
+  assert.deepEqual([second.role, second.content], ['assistant', 'Earlier answer']);
+  const parts = current.content;
+  assert.equal(parts[0].text, 'Hello');
+  assert.equal(parts.filter(p => p.type === 'image_url').length, 2);
+  assert.match(parts.find(p => p.type === 'image_url').image_url.url, /^data:image\/jpeg;base64,/);
+  assert.match(JSON.stringify(parts), /cursor is on this screen/);
 });

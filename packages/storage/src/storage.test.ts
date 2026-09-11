@@ -6,6 +6,7 @@ const run = (id: string, startedAt = 1) => ({
   id,
   prompt: 'Save my list',
   model: 'test/model',
+  screens: 0,
   startedAt,
 });
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -133,4 +134,33 @@ test('schema rejects impossible states', () => {
     }),
   );
   assert.throws(() => repos.runs.start(run(uuid(1)))); // duplicate id
+});
+
+test('recent exchanges are completed turns, oldest first, clipped', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  for (const [n, status] of [
+    [1, 'done'],
+    [2, 'error'],
+    [3, 'done'],
+    [4, 'done'],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}` });
+    repos.runs.finish(uuid(n), {
+      status,
+      text: status === 'done' ? `answer ${n}` : '',
+      error: '',
+      at: n,
+    });
+  }
+  assert.deepEqual(repos.runs.recentExchanges(2), [
+    { prompt: 'question 3', reply: 'answer 3' },
+    { prompt: 'question 4', reply: 'answer 4' },
+  ]);
+  assert.equal(repos.runs.recentExchanges(10, { prompt: 4, reply: 3 })[0].reply, 'ans');
+});
+
+test('activity reports how many screens were sent', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.runs.start({ ...run(uuid(1)), screens: 2 });
+  assert.equal(repos.activity(1)[0].screens, 2);
 });

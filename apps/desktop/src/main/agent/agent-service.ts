@@ -9,12 +9,15 @@ import {
 } from '@edi/capabilities';
 import type { AgentState, ApprovalRequest, ToolStep } from '@edi/contracts';
 import type { Repositories } from '@edi/storage';
+import type { Screenshot, ScreenAccess } from '../capture/screens';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
 
 /** Wall-clock budget for a run, excluding time spent waiting for a person to decide. */
 const RUN_BUDGET_MS = 120_000;
+/** Conversation context: completed exchanges sent with each request (heyclicky uses 10). */
+const HISTORY_TURNS = 10;
 const MAX_TEXT = 32_000;
 const MAX_STEPS_SHOWN = 20;
 
@@ -22,10 +25,14 @@ interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
   capabilities: readonly Capability[];
+  /** Called on every request; there is no per-request screen prompt. */
+  captureScreens: () => Promise<{ screenshots: Screenshot[]; access: ScreenAccess }>;
 }
 
 interface ActiveRun {
   id: string;
+  /** Kept in memory for this run only (to map pointing back to displays). Never stored. */
+  screenshots: Screenshot[];
   worker: Worker;
   abort: AbortController;
   deadline: PausableTimer;
@@ -47,8 +54,11 @@ export class AgentService {
     error: '',
     steps: [],
     approval: null,
+    screenAccess: null,
   };
   private run?: ActiveRun;
+  /** Set while screens are being captured, so a second ask or a Stop is handled. */
+  private starting?: object;
   private configuring = false;
   private readonly listeners = new Set<(state: AgentState) => void>();
   private readonly approvals = new ApprovalQueue(head => this.onApprovalChange(head));
@@ -96,21 +106,48 @@ export class AgentService {
     }
   }
 
-  ask(prompt: string) {
+  async ask(prompt: string) {
     const { credentials, repositories } = this.options;
     if (!credentials.configured || this.configuring) throw new Error('Set up OpenRouter first.');
-    if (this.run) throw new Error('A response is already running.');
+    if (this.run || this.starting) throw new Error('A response is already running.');
+
+    const starting = {};
+    this.starting = starting;
+    this.update({
+      ...this.state,
+      status: 'running',
+      runId: null,
+      text: '',
+      error: '',
+      steps: [],
+      approval: null,
+    });
+    const { screenshots, access } = await this.options.captureScreens().catch(() => ({
+      screenshots: [] as Screenshot[],
+      access: 'unknown' as const,
+    }));
+    if (this.starting !== starting) return; // stopped while capturing
+    this.starting = undefined;
 
     const id = randomUUID();
-    repositories.runs.start({ id, prompt, model: credentials.model, startedAt: Date.now() });
+    repositories.runs.start({
+      id,
+      prompt,
+      model: credentials.model,
+      screens: screenshots.length,
+      startedAt: Date.now(),
+    });
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model: credentials.model,
       prompt,
+      history: repositories.runs.recentExchanges(HISTORY_TURNS),
+      screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {
       id,
+      screenshots,
       worker: new Worker(join(__dirname, 'agent-worker.js'), { workerData }),
       abort: new AbortController(),
       deadline: new PausableTimer(RUN_BUDGET_MS, () =>
@@ -118,15 +155,7 @@ export class AgentService {
       ),
     };
     this.run = run;
-    this.update({
-      ...this.state,
-      status: 'running',
-      runId: id,
-      text: '',
-      error: '',
-      steps: [],
-      approval: null,
-    });
+    this.update({ ...this.state, runId: id, screenAccess: access });
 
     run.worker.on('message', raw => this.onWorkerMessage(run, raw));
     run.worker.on('error', () => this.finish(run, 'error', 'The response worker could not start.'));
@@ -136,6 +165,10 @@ export class AgentService {
   }
 
   stop() {
+    if (this.starting) {
+      this.starting = undefined;
+      this.update({ ...this.state, status: 'stopped' });
+    }
     if (this.run) this.finish(this.run, 'stopped');
   }
 
@@ -267,6 +300,7 @@ function idle(): AgentState {
     error: '',
     steps: [],
     approval: null,
+    screenAccess: null,
   };
 }
 

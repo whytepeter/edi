@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { approvalRequestSchema, toolStepSchema, type Activity } from './capabilities';
 export * from './capabilities';
+export * from './screen-context';
 export {
   placeCard,
   placeSpeechBubble,
@@ -52,6 +53,8 @@ export const agentStateSchema = z.object({
   text: z.string().max(32000),
   error: z.string(),
   steps: z.array(toolStepSchema).max(20),
+  /** Screen Recording permission as of the last request; null before any request. */
+  screenAccess: z.enum(['granted', 'denied', 'not-determined', 'restricted', 'unknown']).nullable(),
   /** The oldest pending approval; further writes wait behind it. */
   approval: approvalRequestSchema.nullable(),
 });

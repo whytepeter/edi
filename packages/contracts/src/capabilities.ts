@@ -65,6 +65,8 @@ export const activityRunSchema = z
     model: z.string().max(160),
     status: runStatusSchema,
     error: z.string().max(400),
+    /** How many screenshots were sent. The images themselves are never stored. */
+    screens: z.number().int().min(0).max(8),
     startedAt: z.number().int().nonnegative(),
     finishedAt: z.number().int().nonnegative().nullable(),
     steps: z.array(toolStepSchema).max(50),

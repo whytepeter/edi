@@ -12,6 +12,13 @@
 .agent-status:empty {
   display: none;
 }
+.agent-notice {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--accent-softer);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
 .agent-error {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);

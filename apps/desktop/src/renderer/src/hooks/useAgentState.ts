@@ -11,6 +11,7 @@ const initial: AgentState = {
   error: '',
   steps: [],
   approval: null,
+  screenAccess: null,
 };
 
 /** Live agent state from main: snapshot first, then pushed updates. */

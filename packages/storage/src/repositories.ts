@@ -16,6 +16,7 @@ const runRow = z.object({
   model: z.string(),
   status: runStatusSchema,
   error: z.string(),
+  screens: z.number(),
   startedAt: z.number(),
   finishedAt: z.number().nullable(),
 });
@@ -35,17 +36,39 @@ const noteRow = z.object({
   createdAt: z.number(),
 });
 export type NoteRecord = z.infer<typeof noteRow>;
+const exchangeRow = z.object({ prompt: z.string(), reply: z.string() });
+export type Exchange = z.infer<typeof exchangeRow>;
 
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
-  start(run: { id: string; prompt: string; model: string; startedAt: number }) {
+  start(run: { id: string; prompt: string; model: string; screens: number; startedAt: number }) {
     this.db
       .prepare(
-        `INSERT INTO runs (id, prompt, model, status, started_at)
-         VALUES (?, ?, ?, 'running', ?)`,
+        `INSERT INTO runs (id, prompt, model, status, screens, started_at)
+         VALUES (?, ?, ?, 'running', ?, ?)`,
       )
-      .run(run.id, run.prompt, run.model, run.startedAt);
+      .run(run.id, run.prompt, run.model, run.screens, run.startedAt);
+  }
+
+  /**
+   * The last completed exchanges, oldest first, as text only: conversation context
+   * for the next request. Long turns are clipped to bound tokens.
+   */
+  recentExchanges(limit: number, maxChars = { prompt: 2000, reply: 4000 }): Exchange[] {
+    return this.db
+      .prepare(
+        `SELECT prompt, text AS reply FROM runs
+         WHERE status = 'done' AND text != ''
+         ORDER BY started_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => exchangeRow.parse(row))
+      .map(turn => ({
+        prompt: turn.prompt.slice(0, maxChars.prompt),
+        reply: turn.reply.slice(0, maxChars.reply),
+      }))
+      .reverse();
   }
 
   finish(
@@ -157,7 +180,8 @@ export function createRepositories(db: Database): Repositories {
     activity(limit) {
       const runs = db
         .prepare(
-          `SELECT id, prompt, model, status, error, started_at AS startedAt, finished_at AS finishedAt
+          `SELECT id, prompt, model, status, error, screens,
+                  started_at AS startedAt, finished_at AS finishedAt
            FROM runs ORDER BY started_at DESC LIMIT ?`,
         )
         .all(limit)

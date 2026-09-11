@@ -119,8 +119,8 @@ export function AgentPanel() {
               placeholder="Ask Edi something…"
             />
             <p className="ds-footnote ds-tertiary">
-              Sends this message to OpenRouter and its model provider. Your OpenRouter rates apply.
-              Each request starts fresh; no screen is sent. Edi asks before saving anything.
+              Each message goes to OpenRouter with a screenshot of every screen, taken as you send.
+              Screenshots are never saved. Edi asks before saving anything.
             </p>
             {running ? (
               <Button
@@ -140,6 +140,12 @@ export function AgentPanel() {
           <div role="status" className="agent-status ds-footnote ds-secondary">
             {status}
           </div>
+          {(state.screenAccess === 'denied' || state.screenAccess === 'restricted') && (
+            <p role="note" className="agent-notice">
+              Edi can’t see your screen. To let it, open System Settings → Privacy &amp; Security →
+              Screen &amp; System Audio Recording and turn on Edi, then ask again.
+            </p>
+          )}
           <StepList steps={state.steps} label="What Edi did" />
           {state.error && (
             <p role="alert" className="agent-error">

@@ -6,6 +6,10 @@ export interface WorkerInput {
   apiKey: string;
   model: string;
   prompt: string;
+  /** Earlier completed exchanges, oldest first, text only. */
+  history: { prompt: string; reply: string }[];
+  /** Taken when the person asked; JPEG bytes, labelled for the model. */
+  screenshots: { label: string; jpeg: Uint8Array }[];
   tools: ToolManifestEntry[];
 }
 
