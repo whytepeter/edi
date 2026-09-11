@@ -8,6 +8,8 @@ import {
   screenshotPointToScreen,
   voiceHostEventSchema,
   maxVoicePcmBytes,
+  parsePointTag,
+  resolvePointTarget,
 } from './index';
 import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
 import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
@@ -243,4 +245,38 @@ test('voice messages carry typed audio and reject anything else', () => {
     commandSchema.safeParse({ ...audio, pcm: new Uint8Array(maxVoicePcmBytes + 2) }).success,
     false,
   );
+});
+
+test('pointing tags are parsed like heyclicky and stripped from the reply', () => {
+  assert.deepEqual(parsePointTag('Click Save. [POINT:640,120:Save button]'), {
+    text: 'Click Save.',
+    point: { x: 640, y: 120, label: 'Save button', screen: 1 },
+  });
+  assert.deepEqual(parsePointTag('It is over there [POINT:10, 20:Dock:screen2]').point, {
+    x: 10,
+    y: 20,
+    label: 'Dock',
+    screen: 2,
+  });
+  assert.deepEqual(parsePointTag('Nothing to show. [POINT:none]'), {
+    text: 'Nothing to show.',
+    point: null,
+  });
+  assert.deepEqual(parsePointTag('No tag at all.'), { text: 'No tag at all.', point: null });
+});
+
+test('points resolve onto the right display, and unknown screens are ignored', () => {
+  const shots = [
+    { width: 1280, height: 800, display: { x: 0, y: 0, width: 1512, height: 945 } },
+    { width: 1280, height: 720, display: { x: -1920, y: 0, width: 1920, height: 1080 } },
+  ];
+  assert.deepEqual(resolvePointTarget({ x: 640, y: 400, label: 'Here', screen: 1 }, shots), {
+    x: 756,
+    y: 473,
+    label: 'Here',
+    display: shots[0].display,
+  });
+  assert.equal(resolvePointTarget({ x: 640, y: 360, label: '', screen: 2 }, shots)?.x, -960);
+  assert.equal(resolvePointTarget({ x: 1, y: 1, label: '', screen: 3 }, shots), null);
+  assert.equal(resolvePointTarget({ x: 5000, y: 1, label: '', screen: 1 }, shots), null);
 });

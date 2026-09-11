@@ -42,3 +42,53 @@ export function screenshotPointToScreen(
     y: Math.round(display.y + (y / image.height) * display.height),
   };
 }
+
+export interface PointTag {
+  x: number;
+  y: number;
+  label: string;
+  /** 1-based screenshot index; screen 1 is the display with the cursor. */
+  screen: number;
+}
+
+const pointTag =
+  /\[POINT:\s*(none|(\d{1,5})\s*,\s*(\d{1,5})(?::([^\]:]{1,60}))?(?::screen(\d))?)\s*\]/gi;
+
+/**
+ * heyclicky's pointing convention: the reply ends with `[POINT:x,y:label]`
+ * (optionally `:screenN`) in screenshot pixels, or `[POINT:none]`. Returns the
+ * reply without any tags and the last point, if one was given.
+ */
+export function parsePointTag(reply: string): { text: string; point: PointTag | null } {
+  let point: PointTag | null = null;
+  for (const match of reply.matchAll(pointTag)) {
+    point =
+      match[1].toLowerCase() === 'none'
+        ? null
+        : {
+            x: Number(match[2]),
+            y: Number(match[3]),
+            label: (match[4] ?? '').trim(),
+            screen: Number(match[5] ?? 1),
+          };
+  }
+  return { text: reply.replace(pointTag, '').trimEnd(), point };
+}
+
+/** Where a point lands on the desktop, or null if it names a screen that was not sent. */
+export function resolvePointTarget(
+  point: PointTag,
+  screenshots: readonly {
+    width: number;
+    height: number;
+    display: { x: number; y: number; width: number; height: number };
+  }[],
+) {
+  const shot = screenshots[point.screen - 1];
+  if (!shot || point.x > shot.width || point.y > shot.height) return null;
+  return {
+    ...screenshotPointToScreen(point, shot, shot.display),
+    label: point.label,
+    display: shot.display,
+  };
+}

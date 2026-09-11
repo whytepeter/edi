@@ -9,7 +9,7 @@ import {
 } from '@edi/contracts';
 
 /** Renderer entry points. One bundle serves all of them, selected by `?surface=`. */
-export type Surface = 'workspace' | 'pet' | 'voice-status' | 'character-menu';
+export type Surface = 'workspace' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
 
 export const cardSize = {
   compact: { width: 408, height: 480 },
@@ -117,6 +117,30 @@ export function createCharacterMenuWindow() {
     webPreferences: withBridge,
   });
   return loadSurface(win, 'character-menu');
+}
+
+/**
+ * A transparent layer over one whole display for Edi's pointer. It never takes
+ * focus or clicks (every event passes through to the apps beneath) and has no
+ * bridge: it only draws what main put in its URL.
+ */
+export function createPointerWindow(
+  display: { x: number; y: number; width: number; height: number },
+  params: Record<string, string>,
+) {
+  const win = new BrowserWindow({
+    ...floating,
+    ...display,
+    hasShadow: false,
+    skipTaskbar: true,
+    focusable: false,
+    enableLargerThanScreen: true,
+    webPreferences: isolated,
+  });
+  win.setIgnoreMouseEvents(true);
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  return loadSurface(win, 'pointer', params);
 }
 
 export function broadcast(windows: BrowserWindow[], channel: string, value: unknown) {

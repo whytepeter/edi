@@ -24,6 +24,15 @@ const SYSTEM = [
   'and say so plainly. Never claim an action happened unless its result status is "succeeded".',
 ].join(' ');
 
+// heyclicky's pointing convention; main strips the tag and moves Edi's pointer.
+const POINTING = [
+  'When pointing at something on screen would help, end your reply with [POINT:x,y:label],',
+  'where x,y are integer pixel coordinates within that screenshot’s image dimensions and label',
+  'names the thing in a few words. Add :screenN, e.g. [POINT:120,40:Wi-Fi:screen2], to point',
+  'at a screen other than screen 1. If pointing would not help, end with [POINT:none].',
+  'Never mention the tag itself.',
+].join(' ');
+
 // Voice turns are heard, not read: keep them short and free of formatting.
 const SPOKEN = [
   'This question was spoken aloud and your reply will be read aloud.',
@@ -88,7 +97,9 @@ async function run() {
     const provider = createOpenRouter({ apiKey: input.apiKey });
     const result = streamText({
       model: provider(input.model),
-      system: input.spoken ? `${SYSTEM} ${SPOKEN}` : SYSTEM,
+      system: [SYSTEM, input.screenshots.length ? POINTING : '', input.spoken ? SPOKEN : '']
+        .filter(Boolean)
+        .join(' '),
       messages: conversation(),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),

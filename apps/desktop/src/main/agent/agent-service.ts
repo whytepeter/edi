@@ -7,7 +7,13 @@ import {
   type ToolCallRecorder,
   type ToolOutcome,
 } from '@edi/capabilities';
-import type { AgentState, ApprovalRequest, ToolStep } from '@edi/contracts';
+import {
+  parsePointTag,
+  resolvePointTarget,
+  type AgentState,
+  type ApprovalRequest,
+  type ToolStep,
+} from '@edi/contracts';
 import type { Repositories } from '@edi/storage';
 import type { Screenshot, ScreenAccess } from '../capture/screens';
 
@@ -29,7 +35,11 @@ interface AgentServiceOptions {
   capabilities: readonly Capability[];
   /** Called on every request; there is no per-request screen prompt. */
   captureScreens: () => Promise<CapturedScreens>;
+  /** A finished reply pointed at something on screen (global logical coordinates). */
+  point?: (target: PointTarget) => void;
 }
+
+export type PointTarget = NonNullable<ReturnType<typeof resolvePointTarget>>;
 
 interface ActiveRun {
   id: string;
@@ -263,13 +273,12 @@ export class AgentService {
     run.abort.abort();
     run.worker.postMessage({ type: 'stop' } satisfies HostMessage);
     void run.worker.terminate();
-    this.options.repositories.runs.finish(run.id, {
-      status,
-      text: this.state.text,
-      error,
-      at: Date.now(),
-    });
-    this.update({ ...this.state, status, error, approval: null });
+    // The pointing tag is an instruction for Edi, not part of the answer.
+    const { text, point } = parsePointTag(this.state.text);
+    this.options.repositories.runs.finish(run.id, { status, text, error, at: Date.now() });
+    this.update({ ...this.state, status, text, error, approval: null });
+    const target = status === 'done' && point ? resolvePointTarget(point, run.screenshots) : null;
+    if (target) this.options.point?.(target);
   }
 
   private onApprovalChange(head: ApprovalRequest | null) {

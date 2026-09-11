@@ -70,6 +70,10 @@ Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're do
 - ⌥ Space comes from a tiny native helper (`native/hotkey`, built by `pnpm build:native` and by `pnpm package`). It registers only that chord through Carbon, so it needs no Input Monitoring or Accessibility permission, never sees other keystrokes, and stops ⌥ Space from typing into the focused app. It runs only while voice is available and exits with Edi. macOS doesn't report when another app has also claimed ⌥ Space, so a conflict shows up as the key not reaching Edi. Rebinding under Settings → Keyboard Shortcut is still to come.
 - `EDI_VOICE=off pnpm dev` turns local voice off. The desktop tests set it so they never open a real microphone.
 
+### Pointing
+
+When showing you where something is helps, Edi ends its reply with a pointing tag (heyclicky's `[POINT:x,y:label:screenN]` convention). Edi removes the tag from what you read and hear, maps the point from the screenshot back to that display, and sends its pointer from its hand to the spot with a short label. The pointer layer covers the whole display, including the menu bar, and never takes clicks or focus. It clears after eight seconds, on your next question, or on Stop or Sleep.
+
 ### Tools and approvals
 
 Edi can list its notes and save a new note to `~/Documents/Edi Notes`. Saving always shows the exact file path and content first; nothing is written until you choose **Save Note**, and existing files are never replaced. Stopping a response cancels any pending review. Every request and action appears in **Activity**.

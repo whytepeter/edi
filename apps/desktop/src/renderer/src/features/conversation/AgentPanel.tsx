@@ -34,6 +34,8 @@ export function AgentPanel() {
       </p>
     );
   const running = state.status === 'running';
+  // While streaming, hide a pointing tag that is still arriving; main strips it at the end.
+  const visibleText = state.text.replace(/\s*\[POINT:[^\]]*\]?\s*$/i, '');
   const status =
     state.status === 'running'
       ? 'Edi is responding…'
@@ -152,9 +154,9 @@ export function AgentPanel() {
               {state.error}
             </p>
           )}
-          {state.text && (
+          {visibleText && (
             <article aria-label="Edi response" className="agent-response">
-              {state.text}
+              {visibleText}
             </article>
           )}
           <Button

@@ -1,12 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/index.css';
-import { bubbleParams, surface } from './app/surface';
+import { bubbleParams, pointerParams, surface } from './app/surface';
 import { WorkspaceCard } from './app/WorkspaceCard';
 import { PetSurface } from './features/pet/PetSurface';
 import { CharacterMenu } from './features/pet/CharacterMenu';
 import { StatusBubble } from './features/pet/StatusBubble';
 import { startVoiceClient } from './features/voice/VoiceClient';
+import { PointerSurface } from './features/pointer/PointerSurface';
 
 document.documentElement.dataset.surface = surface;
 
@@ -18,6 +19,7 @@ const view = {
   pet: <PetSurface />,
   'character-menu': <CharacterMenu />,
   'voice-status': <StatusBubble {...bubbleParams} />,
+  pointer: <PointerSurface {...pointerParams} />,
 }[surface];
 
 createRoot(document.getElementById('root')!).render(<StrictMode>{view}</StrictMode>);

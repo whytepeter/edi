@@ -10,6 +10,7 @@ import { transcribePcm } from './voice/transcription-process';
 import { VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
+import { PointerOverlay } from './presentation/pointer';
 import { CharacterActions } from './character/character-actions';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
@@ -19,6 +20,7 @@ import { WindowPlacement } from './windows/placement';
 import {
   broadcast,
   createCharacterMenuWindow,
+  createPointerWindow,
   createPetWindow,
   createStatusBubbleWindow,
   createWorkspaceWindow,
@@ -42,11 +44,17 @@ async function start() {
       store: repositories.notes,
     }),
     captureScreens,
+    point: target => pointer.show(target),
   });
   await Promise.all([settings.load(), agent.load()]);
 
   const workspace = createWorkspaceWindow();
   const pet = createPetWindow(settings.current.petPosition);
+  const pointer = new PointerOverlay({
+    pet,
+    skin: () => settings.current.skin,
+    create: createPointerWindow,
+  });
   const placement = new WindowPlacement(
     pet,
     workspace,
@@ -102,6 +110,7 @@ async function start() {
         : 'Hold me down and talk to me',
     showContent: () => placement.show(),
     stopWork: () => {
+      pointer.dismiss();
       petDrag.cancel();
       voice.stop();
       agent.stop();
@@ -135,6 +144,7 @@ async function start() {
   let shownApproval: string | null = null;
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
+    if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     character.setThinking(state.status === 'running' && !state.text && !state.approval);
     // A new review surfaces the card even if it was hidden, without stealing focus.
     const approval = state.approval?.callId ?? null;

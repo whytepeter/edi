@@ -1,0 +1,78 @@
+/* A full-display, click-through layer: only the pointer and its label paint. */
+.pointer-surface {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* The element's origin is the arrow's tip, so every transform aims the tip. */
+.pointer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+.pointer svg {
+  position: absolute;
+  left: -31px;
+  top: -14px;
+  overflow: visible;
+  filter: drop-shadow(0 2px 6px rgb(16 20 32 / 0.35));
+}
+.pointer path {
+  fill: var(--accent-strong);
+  stroke: #fff;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.pointer-ping {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  animation: pointer-ping 900ms var(--ease-out) 2 both;
+}
+@keyframes pointer-ping {
+  from {
+    opacity: 0.9;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+.pointer-label {
+  position: absolute;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--label);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pointer-ping {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* The label hangs below the point, so its small corner faces up toward it. */
+.pointer-label.ds-bubble[data-side] {
+  border-radius: 18px;
+  transform-origin: top left;
+}
+.pointer-label.ds-bubble[data-side='right'] {
+  border-top-left-radius: 5px;
+}
+.pointer-label.ds-bubble[data-side='left'] {
+  border-top-right-radius: 5px;
+  transform-origin: top right;
+}
