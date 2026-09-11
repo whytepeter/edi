@@ -20,12 +20,19 @@ export async function speakPocket(
   const child = spawn(runtime.python, ['-u', runtime.worker], {
     stdio: ['pipe', 'pipe', 'ignore'],
     // Do not inherit provider keys, Python injection variables, or HF credentials.
-    env: { PATH: '/usr/bin:/bin', HF_HOME: runtime.cache,
-      HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1' },
+    env: {
+      PATH: '/usr/bin:/bin',
+      HF_HOME: runtime.cache,
+      HF_HUB_OFFLINE: '1',
+      TRANSFORMERS_OFFLINE: '1',
+      HF_HUB_DISABLE_TELEMETRY: '1',
+    },
   });
   let failure: Error | undefined;
   let rejectFailure!: (error: Error) => void;
-  const failed = new Promise<never>((_, reject) => { rejectFailure = reject; });
+  const failed = new Promise<never>((_, reject) => {
+    rejectFailure = reject;
+  });
   void failed.catch(() => {});
   const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
   let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -60,13 +67,21 @@ export async function speakPocket(
         buffer = buffer.slice(end + 1);
         const frame = JSON.parse(line);
         if (done) throw new Error('Local voice sent data after completion');
-        if (frame.type === 'done' && count > 0) { done = true; continue; }
-        if (frame.type !== 'pcm' || frame.rate !== 24000 ||
-            typeof frame.data !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(frame.data)) {
+        if (frame.type === 'done' && count > 0) {
+          done = true;
+          continue;
+        }
+        if (
+          frame.type !== 'pcm' ||
+          frame.rate !== 24000 ||
+          typeof frame.data !== 'string' ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(frame.data)
+        ) {
           throw new Error('Invalid local voice frame');
         }
         const raw = Buffer.from(frame.data, 'base64');
-        if (!raw.length || raw.length % 4 || raw.length > 96000) throw new Error('Invalid PCM size');
+        if (!raw.length || raw.length % 4 || raw.length > 96000)
+          throw new Error('Invalid PCM size');
         const pcm = new Float32Array(raw.length / 4);
         for (let i = 0; i < pcm.length; i++) {
           const value = raw.readFloatLE(i * 4);
@@ -74,7 +89,8 @@ export async function speakPocket(
           pcm[i] = value;
         }
         samples += pcm.length;
-        if (++count > 10000 || samples > 24000 * 180) throw new Error('Local voice output limit reached');
+        if (++count > 10000 || samples > 24000 * 180)
+          throw new Error('Local voice output limit reached');
         await Promise.race([consume(pcm, frame.rate), failed]);
         if (failure) throw failure;
         child.stdin.write('ack\n');

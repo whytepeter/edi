@@ -5,7 +5,8 @@ import { resolve } from 'node:path';
 
 // Mock the network below the real SDK/adapter. No requests or credentials leave the process.
 function launch(mode) {
-  const worker = new Worker(`
+  const worker = new Worker(
+    `
     const { workerData } = require('node:worker_threads');
     global.fetch = async (url, options) => {
       if (!String(url).startsWith('https://openrouter.ai/api/')) throw Error('Unexpected endpoint');
@@ -22,13 +23,27 @@ function launch(mode) {
       return new Response(data, { headers: { 'content-type': 'text/event-stream' } });
     };
     require(workerData.entry);
-  `, { eval: true, workerData: { entry: resolve('apps/desktop/out/main/agent-worker.js'), apiKey: 'test-only-secret', model: 'test/model', prompt: 'Hello', mode } });
+  `,
+    {
+      eval: true,
+      workerData: {
+        entry: resolve('apps/desktop/out/main/agent-worker.js'),
+        apiKey: 'test-only-secret',
+        model: 'test/model',
+        prompt: 'Hello',
+        mode,
+      },
+    },
+  );
   return worker;
 }
 function collect(worker) {
   return new Promise((resolve, reject) => {
     const messages = [];
-    const timeout = setTimeout(() => { void worker.terminate(); reject(Error('Worker timed out')); }, 8000);
+    const timeout = setTimeout(() => {
+      void worker.terminate();
+      reject(Error('Worker timed out'));
+    }, 8000);
     worker.on('message', message => messages.push(message));
     worker.on('error', reject);
     worker.on('exit', code => {
@@ -40,7 +55,13 @@ function collect(worker) {
 }
 test('real SDK worker streams mocked OpenRouter text', async () => {
   const messages = await collect(launch('success'));
-  assert.equal(messages.filter(m => m.type === 'text').map(m => m.text).join(''), 'Hello from Edi.');
+  assert.equal(
+    messages
+      .filter(m => m.type === 'text')
+      .map(m => m.text)
+      .join(''),
+    'Hello from Edi.',
+  );
   assert.equal(messages.at(-1).type, 'done');
 });
 test('provider errors do not expose request metadata', async () => {
@@ -53,5 +74,8 @@ test('worker accepts cancellation during a request', async () => {
   const result = collect(worker);
   setTimeout(() => worker.postMessage('stop'), 500);
   const messages = await result;
-  assert.equal(messages.some(m => m.type === 'text'), false);
+  assert.equal(
+    messages.some(m => m.type === 'text'),
+    false,
+  );
 });

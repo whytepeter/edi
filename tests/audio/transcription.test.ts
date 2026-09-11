@@ -12,11 +12,24 @@ test('WAV boundary produces fixed mono PCM16 and rejects malformed input', () =>
   }
 });
 test('pre-aborted transcription does not spawn a process', async () => {
-  const controller = new AbortController(); controller.abort();
-  await assert.rejects(transcribePcm({ executable: '/does-not-exist', model: '', vadModel: '' },
-    new Uint8Array(32000), controller.signal), { name: 'AbortError' });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    transcribePcm(
+      { executable: '/does-not-exist', model: '', vadModel: '' },
+      new Uint8Array(32000),
+      controller.signal,
+    ),
+    { name: 'AbortError' },
+  );
 });
 test('missing local runtime fails cleanly', async () => {
-  await assert.rejects(transcribePcm({ executable: '/does-not-exist', model: '', vadModel: '' },
-    new Uint8Array(32000), new AbortController().signal), /could not start/);
+  await assert.rejects(
+    transcribePcm(
+      { executable: '/does-not-exist', model: '', vadModel: '' },
+      new Uint8Array(32000),
+      new AbortController().signal,
+    ),
+    /could not start/,
+  );
 });

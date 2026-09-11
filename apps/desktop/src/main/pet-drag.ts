@@ -21,7 +21,9 @@ export class PetDrag {
     private readonly save: (point: Point) => Promise<void>,
   ) {}
 
-  get active() { return this.gesture !== undefined; }
+  get active() {
+    return this.gesture !== undefined;
+  }
 
   async handle(command: DragCommand) {
     const { point, pointerId, phase } = command;
@@ -29,8 +31,13 @@ export class PetDrag {
       if (this.gesture) return;
       const bounds = this.pet.getBounds();
       // A compromised pet renderer still cannot begin a drag outside its own window.
-      if (point.x < bounds.x || point.x > bounds.x + bounds.width ||
-          point.y < bounds.y || point.y > bounds.y + bounds.height) return;
+      if (
+        point.x < bounds.x ||
+        point.x > bounds.x + bounds.width ||
+        point.y < bounds.y ||
+        point.y > bounds.y + bounds.height
+      )
+        return;
       this.gesture = { pointerId, origin: point, bounds, moved: false };
       this.pet.setIgnoreMouseEvents(false);
       this.watchdog = setTimeout(() => this.cancel(), 120000);
@@ -38,7 +45,10 @@ export class PetDrag {
     }
     const gesture = this.gesture;
     if (!gesture || gesture.pointerId !== pointerId) return;
-    if (phase === 'cancel') { this.cancel(); return; }
+    if (phase === 'cancel') {
+      this.cancel();
+      return;
+    }
 
     const dx = point.x - gesture.origin.x;
     const dy = point.y - gesture.origin.y;

@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { commandSchema, settingsSchema, agentStateSchema, type DesktopBridge } from '@edi/contracts';
+import {
+  commandSchema,
+  settingsSchema,
+  agentStateSchema,
+  type DesktopBridge,
+} from '@edi/contracts';
 
 const bridge: DesktopBridge = {
   agent: async () => agentStateSchema.parse(await ipcRenderer.invoke('edi:agent:get')),
@@ -12,7 +17,9 @@ const bridge: DesktopBridge = {
     return () => ipcRenderer.removeListener('edi:agent', listener);
   },
   settings: async () => settingsSchema.parse(await ipcRenderer.invoke('edi:settings:get')),
-  command: async command => { await ipcRenderer.invoke('edi:command', commandSchema.parse(command)); },
+  command: async command => {
+    await ipcRenderer.invoke('edi:command', commandSchema.parse(command));
+  },
   onSettings: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = settingsSchema.safeParse(value);

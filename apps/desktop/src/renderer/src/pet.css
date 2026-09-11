@@ -20,13 +20,18 @@
 }
 
 .desktop-pet.is-dragging .pet-body path,
-.desktop-pet.is-dragging .pet-body rect { cursor: grabbing; }
+.desktop-pet.is-dragging .pet-body rect {
+  cursor: grabbing;
+}
 
 .desktop-pet .pet-shadow {
   pointer-events: none;
 }
 
-.voice-status-surface { margin: 0; background: transparent; }
+.voice-status-surface {
+  margin: 0;
+  background: transparent;
+}
 .voice-bubble {
   box-sizing: border-box;
   margin: 6px;
@@ -36,35 +41,101 @@
   align-items: center;
   border: none;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .96);
+  background: rgba(255, 255, 255, 0.96);
   color: #617da8;
   box-shadow: none;
   backdrop-filter: blur(18px) saturate(150%);
-  font: 12px/1.4 system-ui, sans-serif;
+  font:
+    12px/1.4 system-ui,
+    sans-serif;
 }
 .character-menu {
-  margin: 8px; padding: 8px; border-radius: 24px;
-  background: rgba(255,255,255,.96); border: 1px solid #e8ecf3;
-  box-shadow: 0 3px 12px #29365312; backdrop-filter: blur(24px) saturate(150%);
-  font: 14px/1.4 system-ui, sans-serif;
+  margin: 8px;
+  padding: 8px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e8ecf3;
+  box-shadow: 0 3px 12px #29365312;
+  backdrop-filter: blur(24px) saturate(150%);
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
 }
 .character-menu button {
-  border: 0; background: transparent; color: #292e3a; width: 100%;
-  padding: 13px 12px; min-height: 46px; display: flex; align-items: center;
-  justify-content: space-between; border-radius: 14px; font: inherit; text-align: left;
+  border: 0;
+  background: transparent;
+  color: #292e3a;
+  width: 100%;
+  padding: 13px 12px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 14px;
+  font: inherit;
+  text-align: left;
 }
-.character-menu button:hover, .character-menu button:focus-visible { background: #eef2f8; outline: none; }
-.character-menu button:active { background: #e3eaf5; }
-.menu-glyph { color: #8b99af; font-size: 19px; line-height: 1; margin-left: 10px; }
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .character-menu { background: white; backdrop-filter: none; border-color: #617da8; }
+.character-menu button:hover,
+.character-menu button:focus-visible {
+  background: #eef2f8;
+  outline: none;
 }
-.voice-bubble strong { display: block; font-weight: 600; }
-.voice-bubble small { display: block; font-size: 10px; color: #526076; }
-.listening-bars { display: flex; align-items: center; gap: 3px; height: 22px; }
-.listening-bars i { width: 3px; height: 18px; border-radius: 3px; background: #5278bd; animation: listen-pulse .75s ease-in-out infinite alternate; }
-@keyframes listen-pulse { from { transform: scaleY(.3); } to { transform: scaleY(1); } }
-@media (prefers-reduced-motion: reduce) { .listening-bars i { animation: none; transform: scaleY(.65); } }
+.character-menu button:active {
+  background: #e3eaf5;
+}
+.menu-glyph {
+  color: #8b99af;
+  font-size: 19px;
+  line-height: 1;
+  margin-left: 10px;
+}
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .voice-bubble { background: #f8faff; backdrop-filter: none; border-color: #526076; }
+  .character-menu {
+    background: white;
+    backdrop-filter: none;
+    border-color: #617da8;
+  }
+}
+.voice-bubble strong {
+  display: block;
+  font-weight: 600;
+}
+.voice-bubble small {
+  display: block;
+  font-size: 10px;
+  color: #526076;
+}
+.listening-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+}
+.listening-bars i {
+  width: 3px;
+  height: 18px;
+  border-radius: 3px;
+  background: #5278bd;
+  animation: listen-pulse 0.75s ease-in-out infinite alternate;
+}
+@keyframes listen-pulse {
+  from {
+    transform: scaleY(0.3);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listening-bars i {
+    animation: none;
+    transform: scaleY(0.65);
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .voice-bubble {
+    background: #f8faff;
+    backdrop-filter: none;
+    border-color: #526076;
+  }
 }

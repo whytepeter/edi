@@ -27,15 +27,24 @@ export class PcmPlayer {
   }
 
   /** False means stale/finished run. Backpressure requires retrying the same chunk later. */
-  push(token: number, pcm: Float32Array, sampleRate: number): 'accepted' | 'stale' | 'backpressure' {
+  push(
+    token: number,
+    pcm: Float32Array,
+    sampleRate: number,
+  ): 'accepted' | 'stale' | 'backpressure' {
     if (token !== this.generation || !this.accepting || this.disposed) return 'stale';
     if (this.context.state !== 'running') {
       this.stop();
       throw new Error('Audio output was suspended');
     }
-    if (!Number.isInteger(sampleRate) || sampleRate < 8000 || sampleRate > 48000 ||
-        pcm.length === 0 || pcm.length > sampleRate ||
-        pcm.some(value => !Number.isFinite(value) || Math.abs(value) > 1)) {
+    if (
+      !Number.isInteger(sampleRate) ||
+      sampleRate < 8000 ||
+      sampleRate > 48000 ||
+      pcm.length === 0 ||
+      pcm.length > sampleRate ||
+      pcm.some(value => !Number.isFinite(value) || Math.abs(value) > 1)
+    ) {
       throw new Error('Expected finite mono PCM, 8–48 kHz, at most one second per chunk');
     }
     const now = this.context.currentTime;

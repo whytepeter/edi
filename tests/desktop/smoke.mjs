@@ -4,8 +4,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const profile = await mkdtemp(join(tmpdir(), 'edi-smoke-'));
-const executablePath = process.env.EDI_TEST_EXECUTABLE || resolve('apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
-const args = process.env.EDI_TEST_EXECUTABLE ? [`--user-data-dir=${profile}`] : [resolve('apps/desktop'), `--user-data-dir=${profile}`];
+const executablePath =
+  process.env.EDI_TEST_EXECUTABLE ||
+  resolve('apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+const args = process.env.EDI_TEST_EXECUTABLE
+  ? [`--user-data-dir=${profile}`]
+  : [resolve('apps/desktop'), `--user-data-dir=${profile}`];
 let instance;
 const errors = [];
 async function checkGeometry(pet, skin) {
@@ -20,7 +24,9 @@ async function checkGeometry(pet, skin) {
     };
     return {
       box: { x: box.x, y: box.y, right: box.x + box.width, bottom: box.y + box.height },
-      bodyHit: hits(80, 90), marginHit: hits(3, 3), shadowHit: hits(80, 153),
+      bodyHit: hits(80, 90),
+      marginHit: hits(3, 3),
+      shadowHit: hits(80, 153),
       left: svg.querySelector('[data-part="left-hand"]').getAttribute('transform'),
       right: svg.querySelector('[data-part="right-hand"]').getAttribute('transform'),
     };
@@ -39,12 +45,20 @@ async function launch() {
   instance = await electron.launch({ executablePath, args });
   instance.on('window', page => page.on('pageerror', error => errors.push(error.message)));
   await expect.poll(() => instance.windows().length).toBe(2);
-  await expect.poll(() => instance.windows().filter(page => page.url().includes('surface=')).length).toBe(2);
+  await expect
+    .poll(() => instance.windows().filter(page => page.url().includes('surface=')).length)
+    .toBe(2);
   const pages = instance.windows();
   const workspace = pages.find(page => page.url().includes('surface=workspace'));
   const pet = pages.find(page => page.url().includes('surface=pet'));
   if (!workspace || !pet) throw new Error('Missing Edi windows');
-  expect(await instance.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('surface=workspace')).isVisible())).toBe(false);
+  expect(
+    await instance.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find(w => w.webContents.getURL().includes('surface=workspace'))
+        .isVisible(),
+    ),
+  ).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
   await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
   return { workspace, pet };
@@ -54,7 +68,9 @@ try {
   const placement = await instance.evaluate(({ BrowserWindow, screen }) => {
     const windows = BrowserWindow.getAllWindows();
     const pet = windows.find(w => w.webContents.getURL().includes('surface=pet')).getBounds();
-    const card = windows.find(w => w.webContents.getURL().includes('surface=workspace')).getBounds();
+    const card = windows
+      .find(w => w.webContents.getURL().includes('surface=workspace'))
+      .getBounds();
     return { pet, card, area: screen.getDisplayMatching(pet).workArea };
   });
   expect(placement.pet.width).toBe(112);
@@ -72,14 +88,22 @@ try {
   await expect(workspace.getByLabel('OpenRouter model ID')).toBeVisible();
   const noCredentials = await workspace.evaluate(async () => {
     const state = await window.edi.agent();
-    try { await window.edi.command({ type: 'ask-agent', prompt: 'Should not send' }); return false; }
-    catch { return !state.configured && !('apiKey' in state); }
+    try {
+      await window.edi.command({ type: 'ask-agent', prompt: 'Should not send' });
+      return false;
+    } catch {
+      return !state.configured && !('apiKey' in state);
+    }
   });
   expect(noCredentials).toBe(true);
   await workspace.getByRole('button', { name: 'Back to content' }).click();
   const petCannotChangeSettings = await pet.evaluate(async () => {
-    try { await window.edi.command({ type: 'apply-skin', skin: 'sprout' }); return false; }
-    catch { return true; }
+    try {
+      await window.edi.command({ type: 'apply-skin', skin: 'sprout' });
+      return false;
+    } catch {
+      return true;
+    }
   });
   expect(petCannotChangeSettings).toBe(true);
   await workspace.getByRole('button', { name: 'More options' }).click();
@@ -89,7 +113,10 @@ try {
   await expect(pet.getByRole('img', { name: 'Sprout avatar' })).toBeVisible();
   await checkGeometry(pet, 'sprout');
   await workspace.getByRole('button', { name: 'Pin card', exact: true }).click();
-  await expect(workspace.getByRole('button', { name: 'Unpin card' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspace.getByRole('button', { name: 'Unpin card' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await workspace.getByRole('button', { name: 'More options' }).click();
   await workspace.getByRole('button', { name: /Extensions/ }).click();
   await workspace.getByRole('textbox', { name: 'Search extensions' }).fill('calendar');
@@ -99,18 +126,30 @@ try {
   await expect(workspace.getByRole('button', { name: /Preview a response/ })).toHaveCount(0);
   await expect(workspace.getByRole('button', { name: 'Illustration', exact: true })).toHaveCount(0);
   await workspace.getByRole('button', { name: 'Expand card' }).click();
-  await expect(workspace.getByRole('button', { name: 'Collapse card' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(workspace.getByRole('button', { name: 'Collapse card' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
   await workspace.getByRole('button', { name: 'Collapse card' }).click();
-  await expect.poll(() => workspace.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+  await expect
+    .poll(() => workspace.evaluate(() => document.documentElement.scrollHeight <= innerHeight))
+    .toBe(true);
   await workspace.screenshot({ path: 'tests/desktop/workspace.png' });
-  const bounds = () => instance.evaluate(({ BrowserWindow }) => {
-    const all = BrowserWindow.getAllWindows();
-    return {
-      pet: all.find(w => w.webContents.getURL().includes('surface=pet')).getBounds(),
-      card: all.find(w => w.webContents.getURL().includes('surface=workspace')).getBounds(),
-    };
-  });
-  const drag = (phase, point, pointerId = 1) => pet.evaluate(command => window.edi.command(command), { type: 'pet-drag', phase, point, pointerId });
+  const bounds = () =>
+    instance.evaluate(({ BrowserWindow }) => {
+      const all = BrowserWindow.getAllWindows();
+      return {
+        pet: all.find(w => w.webContents.getURL().includes('surface=pet')).getBounds(),
+        card: all.find(w => w.webContents.getURL().includes('surface=workspace')).getBounds(),
+      };
+    });
+  const drag = (phase, point, pointerId = 1) =>
+    pet.evaluate(command => window.edi.command(command), {
+      type: 'pet-drag',
+      phase,
+      point,
+      pointerId,
+    });
   await workspace.evaluate(() => window.edi.command({ type: 'hide-workspace' }));
   const beforePointer = await bounds();
   await pet.mouse.move(56, 65);
@@ -118,7 +157,13 @@ try {
   await pet.mouse.move(26, 45);
   await expect.poll(async () => (await bounds()).pet.x).toBe(beforePointer.pet.x - 30);
   await pet.mouse.up();
-  expect(await instance.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('surface=workspace')).isVisible())).toBe(false);
+  expect(
+    await instance.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find(w => w.webContents.getURL().includes('surface=workspace'))
+        .isVisible(),
+    ),
+  ).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
   const beforeDrag = await bounds();
   const origin = { x: beforeDrag.pet.x + 56, y: beforeDrag.pet.y + 65 };
@@ -140,17 +185,35 @@ try {
   const afterDrag = await bounds();
   expect(afterDrag.pet.x).toBe(beforeDrag.pet.x - 80);
   expect(afterDrag.card.x).not.toBe(beforeUnpinned.card.x);
-  expect((await workspace.evaluate(() => window.edi.settings())).petPosition).toEqual({ x: afterDrag.pet.x, y: afterDrag.pet.y });
+  expect((await workspace.evaluate(() => window.edi.settings())).petPosition).toEqual({
+    x: afterDrag.pet.x,
+    y: afterDrag.pet.y,
+  });
   await workspace.getByRole('button', { name: 'Pin card', exact: true }).click();
-  const cardCannotDragPet = await workspace.evaluate(async command => {
-    try { await window.edi.command(command); return false; } catch { return true; }
-  }, { type: 'pet-drag', phase: 'start', pointerId: 2, point: target });
+  const cardCannotDragPet = await workspace.evaluate(
+    async command => {
+      try {
+        await window.edi.command(command);
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    { type: 'pet-drag', phase: 'start', pointerId: 2, point: target },
+  );
   expect(cardCannotDragPet).toBe(true);
   await instance.close();
   ({ workspace, pet } = await launch());
   expect((await bounds()).pet).toEqual(afterDrag.pet);
   await expect(pet.getByRole('img', { name: 'Sprout avatar' })).toBeVisible();
-  await expect(workspace.getByRole('button', { name: 'Unpin card' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspace.getByRole('button', { name: 'Unpin card' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   expect(errors).toEqual([]);
-  console.log('PASS: hidden card at launch, two windows, avatar sync/persistence, pin persistence, extension search, expand/collapse, no renderer errors.');
-} finally { await instance?.close(); }
+  console.log(
+    'PASS: hidden card at launch, two windows, avatar sync/persistence, pin persistence, extension search, expand/collapse, no renderer errors.',
+  );
+} finally {
+  await instance?.close();
+}

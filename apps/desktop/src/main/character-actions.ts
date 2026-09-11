@@ -43,9 +43,20 @@ export class CharacterActions {
     const pet = this.pet.getBounds();
     const area = screen.getDisplayMatching(pet).workArea;
     const size = this.bubble.getBounds();
-    this.bubble.setBounds(clampWindow({ width: size.width, height: size.height,
-      x: pet.x + pet.width + size.width <= area.x + area.width ? pet.x + pet.width - 8 : pet.x - size.width + 8,
-      y: pet.y + 12 }, area));
+    this.bubble.setBounds(
+      clampWindow(
+        {
+          width: size.width,
+          height: size.height,
+          x:
+            pet.x + pet.width + size.width <= area.x + area.width
+              ? pet.x + pet.width - 8
+              : pet.x - size.width + 8,
+          y: pet.y + 12,
+        },
+        area,
+      ),
+    );
   };
 
   private hideBubble() {
@@ -54,8 +65,16 @@ export class CharacterActions {
     this.bubble = undefined;
   }
 
-  stop = () => { this.stopWork(); this.hideBubble(); };
-  sleep = () => { this.hideMenu(); this.stop(); this.card.hide(); this.pet.hide(); };
+  stop = () => {
+    this.stopWork();
+    this.hideBubble();
+  };
+  sleep = () => {
+    this.hideMenu();
+    this.stop();
+    this.card.hide();
+    this.pet.hide();
+  };
   releaseListening() {
     // No submission until capture exists; a release must never start conversation.
     if (this.mode === 'push-to-talk') this.stop();
@@ -64,7 +83,13 @@ export class CharacterActions {
   menuItems(): MenuItemConstructorOptions[] {
     return [
       { label: 'Listen', click: () => this.requestListening() },
-      { label: 'Show content', click: () => { this.hideBubble(); this.showContent(); } },
+      {
+        label: 'Show content',
+        click: () => {
+          this.hideBubble();
+          this.showContent();
+        },
+      },
       { label: 'Stop', click: this.stop },
       { type: 'separator' },
       { label: 'Sleep Edi', click: this.sleep },
@@ -72,12 +97,20 @@ export class CharacterActions {
     ];
   }
 
-  ownsMenu(contents: Electron.WebContents) { return this.menu?.webContents === contents; }
-  private hideMenu() { this.menu?.destroy(); this.menu = undefined; }
+  ownsMenu(contents: Electron.WebContents) {
+    return this.menu?.webContents === contents;
+  }
+  private hideMenu() {
+    this.menu?.destroy();
+    this.menu = undefined;
+  }
   action(action: 'conversation' | 'content' | 'stop' | 'sleep' | 'quit' | 'dismiss') {
     this.hideMenu();
     if (action === 'conversation') this.requestListening();
-    if (action === 'content') { this.hideBubble(); this.showContent(); }
+    if (action === 'content') {
+      this.hideBubble();
+      this.showContent();
+    }
     if (action === 'stop') this.stop();
     if (action === 'sleep') this.sleep();
     if (action === 'quit') this.quit();
@@ -88,10 +121,27 @@ export class CharacterActions {
     this.menu = menu;
     const pet = this.pet.getBounds();
     const size = menu.getBounds();
-    menu.setBounds(clampWindow({ x: pet.x - size.width + 24, y: pet.y - size.height + 40,
-      width: size.width, height: size.height }, screen.getDisplayMatching(pet).workArea));
-    menu.once('ready-to-show', () => { if (!menu.isDestroyed()) menu.show(); });
-    menu.on('blur', () => { if (this.menu === menu) this.hideMenu(); });
+    menu.setBounds(
+      clampWindow(
+        {
+          x: pet.x - size.width + 24,
+          y: pet.y - size.height + 40,
+          width: size.width,
+          height: size.height,
+        },
+        screen.getDisplayMatching(pet).workArea,
+      ),
+    );
+    menu.once('ready-to-show', () => {
+      if (!menu.isDestroyed()) menu.show();
+    });
+    menu.on('blur', () => {
+      if (this.menu === menu) this.hideMenu();
+    });
   };
-  dispose() { this.hideMenu(); this.hideBubble(); this.pet.removeListener('move', this.placeBubble); }
+  dispose() {
+    this.hideMenu();
+    this.hideBubble();
+    this.pet.removeListener('move', this.placeBubble);
+  }
 }

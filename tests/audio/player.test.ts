@@ -5,13 +5,34 @@ import { PcmPlayer } from '../../apps/desktop/src/renderer/src/audio/PcmPlayer';
 function setup() {
   const nodes: any[] = [];
   const context = {
-    state: 'running', currentTime: 1, destination: {},
-    resume: async () => {}, close: async () => { context.state = 'closed'; },
-    createBuffer: (_channels: number, length: number) => ({ getChannelData: () => new Float32Array(length) }),
+    state: 'running',
+    currentTime: 1,
+    destination: {},
+    resume: async () => {},
+    close: async () => {
+      context.state = 'closed';
+    },
+    createBuffer: (_channels: number, length: number) => ({
+      getChannelData: () => new Float32Array(length),
+    }),
     createBufferSource: () => {
-      const node = { buffer: null, onended: null, startTime: 0, stopped: false, disconnected: false,
-        connect() {}, start(time: number) { this.startTime = time; },
-        stop() { this.stopped = true; }, disconnect() { this.disconnected = true; } };
+      const node = {
+        buffer: null,
+        onended: null,
+        startTime: 0,
+        stopped: false,
+        disconnected: false,
+        connect() {},
+        start(time: number) {
+          this.startTime = time;
+        },
+        stop() {
+          this.stopped = true;
+        },
+        disconnect() {
+          this.disconnected = true;
+        },
+      };
       nodes.push(node);
       return node;
     },
@@ -50,7 +71,10 @@ test('Stop clears current and future sources and rejects old producers', async (
 test('Stop during device resume cannot revive playback', async () => {
   const { player, context } = setup();
   let resume!: () => void;
-  context.resume = () => new Promise<void>(resolve => { resume = resolve; });
+  context.resume = () =>
+    new Promise<void>(resolve => {
+      resume = resolve;
+    });
   const starting = player.begin();
   player.stop();
   resume();
