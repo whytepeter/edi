@@ -20,7 +20,7 @@ const runtime = {
 };
 let compiled = '';
 for (const name of ['MicrophoneCapture', 'DecodeRecording']) {
-  const text = await readFile(`apps/desktop/src/renderer/src/audio/${name}.ts`, 'utf8');
+  const text = await readFile(`apps/desktop/src/renderer/src/features/voice/${name}.ts`, 'utf8');
   compiled += ts.transpileModule(text.replaceAll('export ', ''), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;

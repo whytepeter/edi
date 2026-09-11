@@ -4,7 +4,7 @@ Local transcription provisioning and screening are now complete: whisper.cpp bas
 
 ## Capture adapter
 
-`renderer/src/audio/MicrophoneCapture.ts` owns one in-memory WebM/Opus recording. It requests audio only, resolves readiness after the recorder's start event, and releases all tracks on finish, cancellation, failure or device loss. Finishing waits for the encoder's final chunk; cancellation discards buffered audio. No files, object URLs, uploads, or provider calls are made.
+`renderer/src/features/voice/MicrophoneCapture.ts` owns one in-memory WebM/Opus recording. It requests audio only, resolves readiness after the recorder's start event, and releases all tracks on finish, cancellation, failure or device loss. Finishing waits for the encoder's final chunk; cancellation discards buffered audio. No files, object URLs, uploads, or provider calls are made.
 
 Limits: 30 seconds to resolve permission, five seconds to start recording, 60 seconds per recording, 8 MiB or 512 delivered chunks, and two seconds to flush after finish. Chunk delivery intervals are not treated as a precise clock. A permission grant arriving after cancellation is immediately closed. These renderer timers are a first safeguard; the native session supervisor must still enforce wall-clock limits and handle renderer failure/suspend.
 

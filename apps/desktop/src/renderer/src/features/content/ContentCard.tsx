@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { contentCardSchema, type ContentCard } from '@edi/contracts';
+import { contentCardSchema } from '@edi/contracts';
+import './content.css';
 
 function LocalVideo({ caption }: { caption: string }) {
   const [url, setUrl] = useState('');
@@ -50,18 +51,23 @@ function LocalVideo({ caption }: { caption: string }) {
           }}
         />
       </label>
-      <p className="fine-print">Stays on your Mac. Nothing is uploaded.</p>
-      {error && <p role="alert">{error}</p>}
+      <p className="ds-footnote ds-tertiary">Stays on your Mac. Nothing is uploaded.</p>
+      {error && (
+        <p role="alert" className="content-error">
+          {error}
+        </p>
+      )}
     </figure>
   );
 }
 
+/** Renders a validated content document. Unknown or invalid data never reaches the DOM. */
 export function CardContent({ data }: { data: unknown }) {
   const parsed = contentCardSchema.safeParse(data);
   if (!parsed.success) return <p role="alert">Edi couldn’t display this content.</p>;
   return (
     <section className="response-view">
-      <h1>{parsed.data.title}</h1>
+      <h1 className="ds-title">{parsed.data.title}</h1>
       {parsed.data.blocks.map((block, index) => {
         switch (block.type) {
           case 'text':
@@ -86,60 +92,5 @@ export function CardContent({ data }: { data: unknown }) {
         }
       })}
     </section>
-  );
-}
-
-const examples: Record<string, ContentCard> = {
-  Illustration: {
-    version: 1,
-    title: 'From a spark to something real.',
-    blocks: [
-      {
-        type: 'text',
-        text: 'Ideas get easier to work with when you can see how the pieces connect.',
-      },
-      { type: 'steps', labels: ['Imagine', 'Explore', 'Make'] },
-    ],
-  },
-  Text: {
-    version: 1,
-    title: 'Room for a thought.',
-    blocks: [
-      {
-        type: 'text',
-        text: 'A short answer belongs in a small card. Longer explanations can expand without taking you away from what you were doing.',
-      },
-      { type: 'text', text: 'This is sample content, not an agent response.' },
-    ],
-  },
-  Video: {
-    version: 1,
-    title: 'A little room to watch.',
-    blocks: [{ type: 'local-video', caption: 'Preview a video from your Mac.' }],
-  },
-};
-
-export function ContentPreview({ onBack }: { onBack: () => void }) {
-  const [selected, setSelected] = useState('Illustration');
-  return (
-    <div>
-      <div className="filters" aria-label="Content previews">
-        {Object.keys(examples).map(name => (
-          <button
-            key={name}
-            aria-pressed={selected === name}
-            className={selected === name ? 'selected' : ''}
-            onClick={() => setSelected(name)}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
-      <CardContent key={selected} data={examples[selected]} />
-      <button className="text-button" onClick={onBack}>
-        Back to preview
-      </button>
-      <span className="preview-label">SAMPLE CONTENT · NO MODEL CONNECTED</span>
-    </div>
   );
 }

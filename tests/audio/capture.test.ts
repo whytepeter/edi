@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   openMicrophone,
   type CaptureDependencies,
-} from '../../apps/desktop/src/renderer/src/audio/MicrophoneCapture';
+} from '../../apps/desktop/src/renderer/src/features/voice/MicrophoneCapture';
 
 function fixture() {
   const track = new EventTarget() as EventTarget & { readyState: string; stop(): void };

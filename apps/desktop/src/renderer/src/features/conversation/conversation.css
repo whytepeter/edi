@@ -1,0 +1,41 @@
+.agent-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+.agent-form {
+  display: grid;
+  gap: var(--space-4);
+}
+.agent-model {
+  overflow-wrap: anywhere;
+}
+.agent-status:empty {
+  display: none;
+}
+.agent-error {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: rgb(214 104 64 / 0.12);
+  color: #a4462a;
+  font: var(--text-footnote);
+}
+@media (prefers-color-scheme: dark) {
+  .agent-error {
+    color: #f2a283;
+  }
+}
+/* The reply sits on its own inset layer: content, not chrome. */
+.agent-response {
+  padding: var(--space-4);
+  border-radius: var(--radius-inset);
+  background: var(--accent-softer);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.agent-panel > .ds-button[data-variant='plain'] {
+  justify-self: start;
+}

@@ -1,0 +1,62 @@
+/* ---------- Desktop character ---------- */
+.pet-art {
+  overflow: visible;
+}
+
+.desktop-pet {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.desktop-pet .pet-art {
+  width: 100%;
+  height: 100%;
+}
+.desktop-pet:focus-visible {
+  box-shadow: none;
+}
+
+/* Only the painted character participates in hit testing. The surrounding
+   transparent window remains available to applications underneath it. */
+.desktop-pet,
+.desktop-pet .pet-art {
+  pointer-events: none;
+}
+.desktop-pet .pet-body path,
+.desktop-pet .pet-body rect {
+  pointer-events: visiblePainted;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.desktop-pet.is-dragging .pet-body path,
+.desktop-pet.is-dragging .pet-body rect {
+  cursor: grabbing;
+}
+.desktop-pet .pet-shadow {
+  pointer-events: none;
+}
+
+/* ---------- Status bubble window ---------- */
+/* Padding equals the window's shadow margin, so the tail corner lands on the anchor. */
+.status-bubble-surface {
+  height: 100%;
+  padding: 8px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+.status-bubble-surface[data-side='left'] {
+  justify-content: flex-end;
+}
+
+/* ---------- Character context menu window ---------- */
+.character-menu-surface {
+  padding: 8px;
+}
+.character-menu {
+  width: 100%;
+}

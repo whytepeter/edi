@@ -39,6 +39,41 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: reactHooks.configs['recommended-latest'].rules,
   },
+  // Renderer layering: shared → features → app. Keeps features independent.
+  {
+    files: ['apps/desktop/src/renderer/src/features/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^\\.\\./[^.]',
+              message:
+                'Features must not import other features. Move shared code to components/, hooks/ or lib/.',
+            },
+            { regex: '(^|/)app/', message: 'Features must not import the app layer.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['apps/desktop/src/renderer/src/{components,hooks,lib}/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '(^|/)(features|app)/',
+              message: 'Shared code must not depend on features or the app layer.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     // Playwright evaluates callbacks in pages; test doubles stand in for DOM/Electron types.
     files: ['tests/**', '**/*.test.ts'],

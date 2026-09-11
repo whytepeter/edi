@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PcmPlayer } from '../../apps/desktop/src/renderer/src/audio/PcmPlayer';
+import { PcmPlayer } from '../../apps/desktop/src/renderer/src/features/voice/PcmPlayer';
 
 function setup() {
   const nodes: any[] = [];

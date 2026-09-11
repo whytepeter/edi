@@ -1,0 +1,439 @@
+/* ---------- Buttons ---------- */
+.ds-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  font: var(--text-headline);
+  letter-spacing: var(--tracking-headline);
+  white-space: nowrap;
+  transition:
+    transform var(--press-duration) ease-out,
+    background-color 150ms ease-out;
+}
+.ds-button:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+.ds-button:disabled {
+  opacity: 0.45;
+}
+.ds-button[data-size='small'] {
+  height: 28px;
+  padding: 0 var(--space-3);
+  font: var(--text-callout);
+  font-weight: 600;
+}
+.ds-button[data-block] {
+  width: 100%;
+}
+.ds-button[data-variant='glass'] {
+  color: var(--label);
+}
+.ds-button[data-variant='glass']:hover:not(:disabled) {
+  background: var(--glass-fill-hover);
+}
+/* Tinted glass: color on a solid layer, a highlight on top for the lens. */
+.ds-button[data-variant='prominent'] {
+  position: relative;
+  color: var(--on-accent);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0)), var(--accent-strong);
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--accent-strong) 40%, transparent),
+    0 4px 12px color-mix(in oklab, var(--accent-strong) 22%, transparent),
+    inset 0 0.5px 0 rgb(255 255 255 / 0.45);
+}
+.ds-button[data-variant='prominent']:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0.04)), var(--accent-strong);
+}
+.ds-button[data-variant='plain'] {
+  background: transparent;
+  color: var(--accent-strong);
+  padding: 0 var(--space-2);
+}
+.ds-button[data-variant='plain']:hover:not(:disabled) {
+  background: var(--accent-softer);
+}
+
+/* ---------- Icon buttons & toolbar groups ---------- */
+.ds-icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: transparent;
+  color: var(--label-secondary);
+  transition:
+    transform var(--press-duration) ease-out,
+    background-color 150ms ease-out,
+    color 150ms ease-out;
+  -webkit-app-region: no-drag;
+}
+.ds-icon-button:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.ds-icon-button:active {
+  transform: scale(0.92);
+  background: var(--fill-pressed);
+}
+.ds-icon-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.ds-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-capsule);
+  -webkit-app-region: no-drag;
+}
+
+/* ---------- Text fields ---------- */
+.ds-field {
+  display: grid;
+  gap: 6px;
+}
+.ds-field-label {
+  font: var(--text-footnote);
+  font-weight: 500;
+  color: var(--label-secondary);
+}
+.ds-field-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ds-field-icon {
+  position: absolute;
+  left: 11px;
+  color: var(--label-tertiary);
+  pointer-events: none;
+}
+.ds-input {
+  width: 100%;
+  min-height: 36px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  color: var(--label);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  transition:
+    background-color 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+.ds-input[data-has-icon] {
+  padding-left: 33px;
+}
+.ds-input::placeholder {
+  color: var(--label-tertiary);
+}
+.ds-input:hover {
+  background: var(--fill-hover);
+}
+.ds-input:focus-visible {
+  background: var(--content-base);
+  box-shadow:
+    var(--focus-ring),
+    inset 0 0 0 1px var(--accent);
+}
+textarea.ds-input {
+  resize: vertical;
+  min-height: 76px;
+  max-height: 180px;
+  line-height: 1.5;
+}
+
+/* ---------- Segmented control ---------- */
+.ds-segmented {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 2px;
+  border-radius: var(--radius-capsule);
+  background: var(--fill);
+}
+/* The thumb is a small glass lens that slides between segments. */
+.ds-segmented-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--count));
+  border-radius: var(--radius-capsule);
+  transform: translateX(calc(100% * var(--index)));
+  transition: transform var(--spring-fast) var(--spring);
+}
+.ds-segmented-option {
+  position: relative;
+  z-index: 1;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ds-segmented-option[aria-checked='true'] {
+  color: var(--label);
+  font-weight: 600;
+}
+
+/* ---------- Lists ---------- */
+.ds-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ds-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  position: relative;
+}
+/* Inset separator: starts at the text, not the icon, like iOS lists. */
+.ds-row + .ds-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 48px;
+  right: 0;
+  height: 0.5px;
+  background: var(--separator);
+}
+.ds-row-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent-softer);
+  color: var(--accent-strong);
+}
+.ds-row-title {
+  font: var(--text-headline);
+  letter-spacing: var(--tracking-headline);
+}
+.ds-row-subtitle {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  margin-top: 1px;
+}
+.ds-row-meta {
+  font: var(--text-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--label-tertiary);
+  margin-top: 4px;
+}
+
+/* ---------- Menus (context menu window and in-card popover) ---------- */
+.ds-menu {
+  display: grid;
+  padding: 5px;
+  border-radius: 14px;
+  min-width: 168px;
+}
+.ds-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--label);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  text-align: left;
+  white-space: nowrap;
+}
+.ds-menu.ds-glass {
+  background: var(--glass-fill-dense);
+}
+.ds-menu-item .ds-icon {
+  color: var(--label-tertiary);
+}
+/* macOS highlights menu items with the accent, instantly — no fade on hover. */
+.ds-menu-item:hover,
+.ds-menu-item:focus-visible {
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.ds-menu-item:hover .ds-icon,
+.ds-menu-item:focus-visible .ds-icon {
+  color: inherit;
+}
+/* Focus starts on the first item for keyboard users, but like a native menu,
+   nothing is highlighted until an arrow key or the pointer picks something. */
+.ds-menu:not([data-navigating]) .ds-menu-item:focus-visible:not(:hover) {
+  background: transparent;
+  color: var(--label);
+}
+.ds-menu:not([data-navigating]) .ds-menu-item:focus-visible:not(:hover) .ds-icon {
+  color: var(--label-tertiary);
+}
+.ds-menu-separator {
+  height: 0.5px;
+  margin: 4px 10px;
+  background: var(--separator);
+}
+
+/* ---------- Speech bubble ---------- */
+.ds-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  color: var(--label-secondary);
+  font: var(--text-callout);
+  font-weight: 500;
+  white-space: nowrap;
+  animation: ds-bubble-in var(--spring-fast) var(--spring) both;
+}
+/* The small corner points at whoever is speaking. */
+.ds-bubble[data-side='right'] {
+  border-bottom-left-radius: 5px;
+  transform-origin: bottom left;
+}
+.ds-bubble[data-side='left'] {
+  border-bottom-right-radius: 5px;
+  transform-origin: bottom right;
+}
+@keyframes ds-bubble-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+.ds-thinking {
+  display: inline-flex;
+  gap: 5px;
+  padding: 0 2px;
+}
+.ds-thinking i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: ds-think 1.2s ease-in-out infinite;
+}
+.ds-thinking i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.ds-thinking i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes ds-think {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.ds-listening {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+}
+.ds-listening i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transform-origin: center;
+  animation: ds-listen 0.9s ease-in-out infinite alternate;
+}
+/* Uneven periods keep the bars from marching in lockstep. */
+.ds-listening i:nth-child(1) {
+  animation-duration: 0.8s;
+}
+.ds-listening i:nth-child(2) {
+  animation-duration: 1.05s;
+  animation-delay: -0.3s;
+}
+.ds-listening i:nth-child(3) {
+  animation-duration: 0.7s;
+  animation-delay: -0.5s;
+}
+.ds-listening i:nth-child(4) {
+  animation-duration: 0.95s;
+  animation-delay: -0.2s;
+}
+.ds-listening i:nth-child(5) {
+  animation-duration: 0.85s;
+  animation-delay: -0.6s;
+}
+@keyframes ds-listen {
+  from {
+    transform: scaleY(0.25);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-bubble {
+    animation: none;
+  }
+  /* Keep a gentle, non-vestibular cue: opacity only, no travel. */
+  .ds-thinking i {
+    animation-name: ds-think-fade;
+  }
+  .ds-listening i {
+    animation: none;
+    transform: scaleY(0.6);
+  }
+}
+@keyframes ds-think-fade {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+/* ---------- Status dot ---------- */
+.ds-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6fbf8a;
+  box-shadow: 0 0 0 3px rgb(111 191 138 / 0.18);
+  flex-shrink: 0;
+}

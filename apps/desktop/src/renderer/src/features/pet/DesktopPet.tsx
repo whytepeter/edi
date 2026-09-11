@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState, type PointerEvent } from 'react';
 import { petDragThreshold, type Command, type SkinId } from '@edi/contracts';
-import { Pet } from './Pet';
+import { Pet } from '../../components/Pet';
 
 interface Gesture {
   pointerId: number;
@@ -87,7 +87,7 @@ export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
       onContextMenu={event => {
         event.preventDefault();
         finish(true);
-        void send({ type: 'character-menu' });
+        void send({ type: 'character-menu', point: { x: event.screenX, y: event.screenY } });
       }}
       style={{ color }}
       onPointerDown={event => {

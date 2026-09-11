@@ -1,0 +1,77 @@
+/* Materials. See tokens.css for the content / glass / floating layering model. */
+
+/* Content layer: the card body. Solid enough for text over any desktop. */
+.ds-card {
+  position: relative;
+  border-radius: var(--radius-window);
+  background: var(--content-tint), var(--content-base);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 0 0 0.5px var(--hairline);
+}
+
+/* Glass: floats over content inside a window and blurs what scrolls beneath it. */
+.ds-glass {
+  position: relative;
+  background: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    var(--shadow-control),
+    inset 0 0 0 0.5px var(--hairline);
+}
+
+/* Thick glass: standalone floating windows with nothing in-page to blur. */
+.ds-glass-thick {
+  position: relative;
+  background: var(--glass-thick-fill);
+  box-shadow:
+    var(--shadow-floating),
+    inset 0 0 0 0.5px var(--hairline);
+}
+
+/*
+ * Specular rim: a 1px ring, brightest where light hits the top-left edge.
+ * Drawn on ::before with a mask so it follows any border radius.
+ */
+.ds-card::before,
+.ds-glass::before,
+.ds-glass-thick::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    150deg,
+    var(--rim-highlight),
+    var(--rim-mid) 36%,
+    var(--rim-mid) 64%,
+    var(--rim-shade)
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* Soft edge where content scrolls under floating chrome — replaces hard dividers. */
+.ds-scroll-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+.ds-scroll-edge[data-edge='top'] {
+  top: 0;
+  height: 64px;
+  background: linear-gradient(var(--content-base) 35%, transparent);
+  mask-image: linear-gradient(#000 45%, transparent);
+}
+.ds-scroll-edge[data-edge='bottom'] {
+  bottom: 0;
+  height: 64px;
+  background: linear-gradient(transparent, var(--content-base) 65%);
+  mask-image: linear-gradient(transparent, #000 55%);
+}

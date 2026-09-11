@@ -107,7 +107,7 @@ try {
   });
   expect(petCannotChangeSettings).toBe(true);
   await workspace.getByRole('button', { name: 'More options' }).click();
-  await workspace.getByRole('button', { name: /Appearance/ }).click();
+  await workspace.getByRole('menuitem', { name: /Appearance/ }).click();
   await workspace.getByRole('button', { name: 'Sprout avatar option' }).click();
   await workspace.getByRole('button', { name: 'Use Sprout' }).click();
   await expect(pet.getByRole('img', { name: 'Sprout avatar' })).toBeVisible();
@@ -118,8 +118,8 @@ try {
     'true',
   );
   await workspace.getByRole('button', { name: 'More options' }).click();
-  await workspace.getByRole('button', { name: /Extensions/ }).click();
-  await workspace.getByRole('textbox', { name: 'Search extensions' }).fill('calendar');
+  await workspace.getByRole('menuitem', { name: /Extensions/ }).click();
+  await workspace.getByRole('searchbox', { name: 'Search extensions' }).fill('calendar');
   await expect(workspace.getByRole('heading', { name: 'Your calendar' })).toBeVisible();
   await expect(workspace.getByRole('heading', { name: 'Meeting notes' })).toHaveCount(0);
   await workspace.getByRole('button', { name: 'Back to content' }).click();

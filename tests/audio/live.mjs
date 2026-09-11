@@ -9,7 +9,7 @@ import { speakPocket } from '../../apps/desktop/src/main/voice/pocket-process.ts
 
 const require = createRequire(resolve('apps/desktop/package.json'));
 const ts = require('typescript');
-const source = await readFile('apps/desktop/src/renderer/src/audio/PcmPlayer.ts', 'utf8');
+const source = await readFile('apps/desktop/src/renderer/src/features/voice/PcmPlayer.ts', 'utf8');
 const compiled = ts.transpileModule(source.replace('export class', 'class'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
 }).outputText;

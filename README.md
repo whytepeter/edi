@@ -53,7 +53,10 @@ Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRo
 
 ## Structure
 
-`apps/desktop/src/main` owns windows and preferences; `preload` exposes the validated bridge; `renderer` contains the React workspace and SVG avatars. `packages/contracts` owns command/settings schemas and the skin catalog. New domain packages will be created with their first working feature rather than empty placeholder directories.
+- `apps/desktop/src/main`: composition root (`index.ts`) plus `agent/`, `character/`, `ipc/` (route table and sender checks), `settings/`, `windows/` and `voice/`.
+- `apps/desktop/src/preload`: the narrow validated bridge.
+- `apps/desktop/src/renderer/src`: `app/` (shell and surface routing), `components/ui/` (shared UI primitives), `styles/` (tokens, materials, component styles), `features/*` (pet, conversation, content, appearance, extensions, activity, voice), `hooks/` and `lib/`. Features never import each other; ESLint enforces shared → features → app.
+- `packages/contracts`: command/settings schemas, skin geometry and pure placement logic.
 
 ## Next
 

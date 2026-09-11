@@ -8,7 +8,10 @@ import assert from 'node:assert/strict';
 
 const require = createRequire(resolve('apps/desktop/package.json'));
 const ts = require('typescript');
-const source = await readFile('apps/desktop/src/renderer/src/audio/MicrophoneCapture.ts', 'utf8');
+const source = await readFile(
+  'apps/desktop/src/renderer/src/features/voice/MicrophoneCapture.ts',
+  'utf8',
+);
 const compiled = ts.transpileModule(source.replaceAll('export ', ''), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
 }).outputText;

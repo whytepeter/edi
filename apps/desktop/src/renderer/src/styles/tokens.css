@@ -1,0 +1,214 @@
+/*
+ * Edi design tokens — Liquid Glass-inspired.
+ *
+ * Layering model (from Apple's Liquid Glass guidance):
+ *   content  — solid, legible base where text and media live
+ *   glass    — translucent functional layer floating above content (toolbars,
+ *              controls, segmented tracks). It blurs whatever scrolls beneath it.
+ *   floating — standalone windows over the desktop (menu, speech bubble). Electron
+ *              cannot blur the desktop behind a transparent window, so these use
+ *              the thick material: nearly opaque, with the same specular rim.
+ * Never stack light glass on light glass; legibility collapses.
+ */
+/*
+ * Accent. A skin sets --accent on an element marked [data-accent]. Derived tokens
+ * must be declared on that same element: a custom property computed on :root would
+ * keep using :root's accent. Relative oklch keeps the hue and adds chroma, so the
+ * strong variant stays vivid instead of turning grey.
+ */
+:root,
+[data-accent] {
+  --accent-strong: oklch(from var(--accent) calc(l - 0.15) calc(c + 0.04) h);
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-softer: color-mix(in oklab, var(--accent) 9%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root,
+  [data-accent] {
+    --accent-strong: oklch(from var(--accent) calc(l + 0.08) c h);
+    --accent-soft: color-mix(in oklab, var(--accent) 24%, transparent);
+    --accent-softer: color-mix(in oklab, var(--accent) 14%, transparent);
+  }
+}
+
+:root {
+  color-scheme: light dark;
+
+  --accent: #759bea;
+  --on-accent: #ffffff;
+
+  /* Labels (solid values keep contrast predictable on translucent layers). */
+  --label: #1c1e26;
+  --label-secondary: #565b69;
+  --label-tertiary: #767b89;
+  --label-quaternary: #a4a8b3;
+
+  /* Fills for controls sitting on content. */
+  --fill: rgb(118 124 142 / 0.1);
+  --fill-hover: rgb(118 124 142 / 0.15);
+  --fill-pressed: rgb(118 124 142 / 0.22);
+  --separator: rgb(60 66 84 / 0.12);
+
+  /* Materials. */
+  --content-base: rgb(250 251 253 / 0.97);
+  --content-tint: linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(244 246 251 / 0.4));
+  --glass-fill: rgb(255 255 255 / 0.58);
+  --glass-fill-hover: rgb(255 255 255 / 0.74);
+  /* Menus over content: still glass, denser so labels stay crisp. */
+  --glass-fill-dense: rgb(255 255 255 / 0.8);
+  --glass-blur: blur(22px) saturate(180%);
+  --glass-thick-fill: rgb(253 253 255 / 0.9);
+  /* Specular rim: light catches the top-left edge, fades toward the bottom-right. */
+  --rim-highlight: rgb(255 255 255 / 0.95);
+  --rim-mid: rgb(255 255 255 / 0.18);
+  --rim-shade: rgb(255 255 255 / 0.55);
+  --hairline: rgb(20 24 40 / 0.07);
+
+  /* Depth: bigger surfaces read thicker (deeper, softer shadow). */
+  --shadow-control: 0 1px 2px rgb(20 26 44 / 0.08), 0 2px 6px rgb(20 26 44 / 0.05);
+  --shadow-floating: 0 2px 6px rgb(20 26 44 / 0.1), 0 1px 1px rgb(20 26 44 / 0.06);
+  --shadow-card: 0 3px 8px rgb(20 26 44 / 0.08), 0 1px 2px rgb(20 26 44 / 0.05);
+
+  /* Typography: system font; tracking tightens as size grows. */
+  --font-text: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --text-large-title: 700 26px/1.12 var(--font-display);
+  --tracking-large-title: -0.022em;
+  --text-title: 700 21px/1.18 var(--font-display);
+  --tracking-title: -0.018em;
+  --text-headline: 600 13px/1.35 var(--font-text);
+  --tracking-headline: -0.006em;
+  --text-body: 400 13px/1.5 var(--font-text);
+  --tracking-body: -0.006em;
+  --text-callout: 400 12px/1.45 var(--font-text);
+  --text-footnote: 400 11px/1.4 var(--font-text);
+  --text-caption: 500 10px/1.3 var(--font-text);
+  --tracking-caption: 0.01em;
+  --tracking-eyebrow: 0.08em;
+
+  /* Shape: concentric radii — inner radius = outer radius − the padding between them. */
+  --radius-window: 26px;
+  --radius-inset: 18px;
+  --radius-control: 12px;
+  --radius-small: 8px;
+  --radius-capsule: 999px;
+
+  /* Spacing: 4-point grid. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Motion: critically damped spring (damping 1.0), response 0.3 s / 0.4 s. */
+  --spring: linear(
+    0,
+    0.114,
+    0.321,
+    0.516,
+    0.671,
+    0.783,
+    0.86,
+    0.911,
+    0.944,
+    0.966,
+    0.979,
+    0.987,
+    0.992,
+    0.995,
+    0.997,
+    0.998,
+    1
+  );
+  --spring-fast: 440ms;
+  --spring-slow: 590ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --press-duration: 100ms;
+  --press-scale: 0.97;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --on-accent: #0f121a;
+
+    --label: #f2f3f7;
+    --label-secondary: #b1b5c2;
+    --label-tertiary: #8d91a0;
+    --label-quaternary: #5f6372;
+
+    --fill: rgb(170 176 196 / 0.12);
+    --fill-hover: rgb(170 176 196 / 0.18);
+    --fill-pressed: rgb(170 176 196 / 0.26);
+    --separator: rgb(255 255 255 / 0.1);
+
+    --content-base: rgb(28 30 37 / 0.97);
+    --content-tint: linear-gradient(180deg, rgb(255 255 255 / 0.05), rgb(255 255 255 / 0));
+    --glass-fill: rgb(52 55 66 / 0.55);
+    --glass-fill-hover: rgb(64 68 80 / 0.7);
+    --glass-fill-dense: rgb(46 49 60 / 0.82);
+    --glass-thick-fill: rgb(38 40 49 / 0.92);
+    --rim-highlight: rgb(255 255 255 / 0.3);
+    --rim-mid: rgb(255 255 255 / 0.04);
+    --rim-shade: rgb(255 255 255 / 0.12);
+    --hairline: rgb(0 0 0 / 0.4);
+
+    --shadow-control: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px rgb(0 0 0 / 0.2);
+    --shadow-floating: 0 2px 6px rgb(0 0 0 / 0.35), 0 1px 1px rgb(0 0 0 / 0.3);
+    --shadow-card: 0 3px 8px rgb(0 0 0 / 0.35), 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+}
+
+/* Reduce Transparency: frost everything to solid, drop blur. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --content-base: rgb(250 251 253);
+    --glass-fill: rgb(240 242 247);
+    --glass-fill-hover: rgb(232 235 242);
+    --glass-thick-fill: rgb(253 253 255);
+    --glass-blur: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
+  :root {
+    --content-base: rgb(28 30 37);
+    --glass-fill: rgb(46 49 58);
+    --glass-fill-hover: rgb(56 59 70);
+    --glass-thick-fill: rgb(38 40 49);
+  }
+}
+
+/* Increase Contrast: defined borders, stronger secondary text. */
+@media (prefers-contrast: more) {
+  :root {
+    --label-secondary: #3b3f4b;
+    --label-tertiary: #4f5462;
+    --separator: rgb(40 44 58 / 0.4);
+    --hairline: rgb(40 44 58 / 0.55);
+    --rim-highlight: rgb(40 44 58 / 0.55);
+    --rim-mid: rgb(40 44 58 / 0.55);
+    --rim-shade: rgb(40 44 58 / 0.55);
+    --glass-blur: none;
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --label-secondary: #d6d9e2;
+    --label-tertiary: #c1c5d0;
+    --separator: rgb(255 255 255 / 0.4);
+    --rim-highlight: rgb(255 255 255 / 0.6);
+    --rim-mid: rgb(255 255 255 / 0.6);
+    --rim-shade: rgb(255 255 255 / 0.6);
+  }
+}
+
+/* Reduce Motion: no travel, no springs; opacity changes stay. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --spring: linear(0, 1);
+    --spring-fast: 1ms;
+    --spring-slow: 1ms;
+    --press-scale: 1;
+  }
+}

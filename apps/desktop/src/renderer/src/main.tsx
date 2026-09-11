@@ -1,21 +1,19 @@
-import React from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './CompactApp';
-import { VoiceStatusBubble } from './VoiceStatusBubble';
-import { CharacterMenu } from './CharacterMenu';
-import './compact.css';
-import './pet.css';
-const voiceStatus = new URLSearchParams(location.search).get('surface') === 'voice-status';
-const characterMenu = new URLSearchParams(location.search).get('surface') === 'character-menu';
-if (voiceStatus) document.body.classList.add('voice-status-surface');
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    {voiceStatus ? (
-      <VoiceStatusBubble state="unavailable" />
-    ) : characterMenu ? (
-      <CharacterMenu />
-    ) : (
-      <App />
-    )}
-  </React.StrictMode>,
-);
+import './styles/index.css';
+import { bubbleParams, surface } from './app/surface';
+import { WorkspaceCard } from './app/WorkspaceCard';
+import { PetSurface } from './features/pet/PetSurface';
+import { CharacterMenu } from './features/pet/CharacterMenu';
+import { StatusBubble } from './features/pet/StatusBubble';
+
+document.documentElement.dataset.surface = surface;
+
+const view = {
+  workspace: <WorkspaceCard />,
+  pet: <PetSurface />,
+  'character-menu': <CharacterMenu />,
+  'voice-status': <StatusBubble {...bubbleParams} />,
+}[surface];
+
+createRoot(document.getElementById('root')!).render(<StrictMode>{view}</StrictMode>);
