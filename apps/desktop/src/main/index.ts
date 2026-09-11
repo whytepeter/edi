@@ -270,6 +270,8 @@ async function start() {
     character.setThinking(state.status === 'running' && !state.text && !state.approval);
     if (!state.approval && (state.status === 'running' || state.status === 'done')) {
       character.showReply(presentationText(state.text), state.status === 'done');
+    } else if (state.status === 'error' || state.status === 'stopped') {
+      character.showReply('', true);
     }
     // A new review surfaces the card even if it was hidden, without stealing focus.
     const approval = state.approval?.callId ?? null;

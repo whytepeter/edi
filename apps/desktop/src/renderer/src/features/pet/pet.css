@@ -73,6 +73,29 @@
   line-height: 1.45;
 }
 
+.bubble-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: var(--accent);
+  animation: bubble-caret 1s step-end infinite;
+}
+
+@keyframes bubble-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble-caret {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 /* ---------- Character context menu window ---------- */
 .character-menu-surface {
   padding: 8px;

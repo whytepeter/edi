@@ -39,14 +39,20 @@ export class CharacterActions {
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
   private dismiss?: ReturnType<typeof setTimeout>;
   private replyText = '';
+  private replyDone = false;
+  private bubbleReady = false;
 
   /** Reuse the bubble window as tokens arrive; never reload it per token. */
   showReply = (text: string, done: boolean) => {
     this.replyText = text.slice(-600);
-    if (!this.replyText) return;
+    this.replyDone = done;
+    if (!this.replyText) {
+      if (done) this.hideBubble();
+      return;
+    }
     clearTimeout(this.dismiss);
     if (this.bubble?.state !== 'notice') this.showStatus('notice');
-    this.bubble?.window.webContents.send('edi:bubble-text', this.replyText);
+    this.pushReply();
     if (done) this.dismiss = setTimeout(() => this.hideBubble(), 12000);
   };
 
@@ -56,6 +62,7 @@ export class CharacterActions {
 
   requestListening = (mode: 'conversation' | 'push-to-talk' = 'conversation') => {
     this.replyText = '';
+    this.replyDone = false;
     this.hideMenu();
     this.mode = mode;
     this.options.stopWork();
@@ -68,13 +75,19 @@ export class CharacterActions {
 
   /** Mirror the agent: dots while waiting for the first words, gone once they arrive. */
   setThinking = (thinking: boolean) => {
-    if (thinking && this.bubble?.state !== 'thinking') this.showStatus('thinking');
-    else if (!thinking && this.bubble?.state === 'thinking') this.hideBubble();
+    if (thinking && this.bubble?.state !== 'thinking' && this.bubble?.state !== 'notice') {
+      this.replyText = '';
+      this.replyDone = false;
+      this.showStatus('thinking');
+    }
   };
 
   /** Voice session feedback: live listening, thinking, a short notice, or nothing. */
   showVoiceStatus = (status: 'listening' | 'thinking' | 'hidden' | { notice: string }) => {
-    if (status !== 'hidden') this.replyText = '';
+    if (status !== 'hidden') {
+      this.replyText = '';
+      this.replyDone = false;
+    }
     if (status === 'hidden') {
       if (!this.replyText) this.hideBubble();
     } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
@@ -86,14 +99,32 @@ export class CharacterActions {
     const { bounds, side } = this.bubblePlacement(statusBubbleSize[state]);
     const window = this.options.createBubble({ state, side, text, skin: this.options.skin() });
     this.bubble = { window, state, side };
+    this.bubbleReady = false;
     window.setIgnoreMouseEvents(true);
     window.setBounds(bounds);
-    window.once('ready-to-show', () => {
-      if (window.isDestroyed() || this.bubble?.window !== window) return;
+    let shown = false;
+    const show = () => {
+      if (shown || window.isDestroyed() || this.bubble?.window !== window) return;
+      shown = true;
+      this.bubbleReady = true;
       window.showInactive();
-      if (state === 'notice' && this.replyText)
-        window.webContents.send('edi:bubble-text', this.replyText);
+      this.pushReply();
       if (dismissAfterMs) this.dismiss = setTimeout(() => this.hideBubble(), dismissAfterMs);
+    };
+    // Tokens arrive while the window loads. Flush after the renderer can
+    // subscribe. ready-to-show covers a load that finished before we listened.
+    window.webContents.once('did-finish-load', show);
+    window.once('ready-to-show', show);
+    if (!window.webContents.isLoading() && window.webContents.getURL()) queueMicrotask(show);
+  }
+
+  private pushReply() {
+    const bubble = this.bubble;
+    if (!this.bubbleReady || !bubble || bubble.window.isDestroyed()) return;
+    if (bubble.state !== 'notice') return;
+    bubble.window.webContents.send('edi:bubble-text', {
+      text: this.replyText,
+      done: this.replyDone,
     });
   }
 
@@ -122,6 +153,7 @@ export class CharacterActions {
 
   private hideBubble() {
     clearTimeout(this.dismiss);
+    this.bubbleReady = false;
     this.bubble?.window.destroy();
     this.bubble = undefined;
   }
