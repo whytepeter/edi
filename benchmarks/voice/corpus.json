@@ -1,0 +1,8 @@
+[
+  {"id":"greeting","category":"short response","text":"Hi, I’m Edi. What are we working on today?"},
+  {"id":"status","category":"thinking status","text":"I’m checking how these pieces fit together. I’ll show you what I find."},
+  {"id":"technical","category":"technical vocabulary","text":"The connector uses OAuth. Keep the API key in secure storage, and restart the MCP server after updating its configuration."},
+  {"id":"numbers","category":"numbers and dates","text":"The meeting starts at 9:45 on September 11. The total is 1,250 naira, and the task is 75 percent complete."},
+  {"id":"names","category":"names and places","text":"Edi is a Fewer Labs project. Let’s plan a trip from Lagos to Abuja, then compare the options."},
+  {"id":"explanation","category":"longer explanation","text":"Start with the question you want to answer. Then gather the smallest amount of information that can help. Check where the sources agree and where they differ. I can show the comparison as a graph, but a graph does not make uncertain information reliable. When something is missing, I should ask you rather than invent an answer."}
+]
