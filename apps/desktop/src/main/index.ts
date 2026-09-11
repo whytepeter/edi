@@ -4,7 +4,7 @@ import { notesCapabilities } from '@edi/capabilities';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreens } from './capture/screens';
-import { speakPocket } from './voice/pocket-process';
+import { PocketVoice } from './voice/pocket-process';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
 import { VoiceController } from './voice/voice-controller';
@@ -61,6 +61,7 @@ async function start() {
   // that must never open a real microphone).
   const voiceRuntime =
     process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  const pocket = voiceRuntime ? new PocketVoice(voiceRuntime.pocket) : null;
   const voice = new VoiceController({
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
@@ -73,7 +74,9 @@ async function start() {
     whenFinished: (runId, signal) => agent.whenFinished(runId, signal),
     stopAgent: () => agent.stop(),
     transcribe: transcribePcm,
-    speak: speakPocket,
+    speak: (text, signal, consume) =>
+      pocket ? pocket.speak(text, signal, consume) : Promise.reject(new Error('No voice')),
+    warmSpeech: () => pocket?.warm(),
   });
 
   // Nothing is granted except the microphone, to the pet window, audio only, and
@@ -173,7 +176,10 @@ async function start() {
     petDrag.cancel();
     agent.stop();
   });
-  app.on('will-quit', () => database.close());
+  app.on('will-quit', () => {
+    pocket?.dispose();
+    database.close();
+  });
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

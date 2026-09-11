@@ -8,7 +8,6 @@ import {
   type VoiceMode,
   type VoiceSession,
 } from '@edi/contracts';
-import type { PocketRuntime } from './pocket-process';
 import type { VoiceRuntime } from './runtime';
 import type { TranscriptionRuntime } from './transcription-process';
 
@@ -28,11 +27,12 @@ export interface VoiceDependencies<Screens> {
   stopAgent(): void;
   transcribe(runtime: TranscriptionRuntime, pcm: Uint8Array, signal: AbortSignal): Promise<string>;
   speak(
-    runtime: PocketRuntime,
     text: string,
     signal: AbortSignal,
     consume: (pcm: Float32Array, sampleRate: number) => Promise<void>,
   ): Promise<void>;
+  /** Begin loading the speech model; called the moment a hold starts. */
+  warmSpeech(): void;
 }
 
 /** The player must accept each chunk within this time, backpressure included. */
@@ -90,6 +90,7 @@ export class VoiceController<Screens> {
 
   start(mode: VoiceMode) {
     if (!this.available) return false;
+    this.deps.warmSpeech();
     this.dispatch({ type: 'start', mode });
     return true;
   }
@@ -145,7 +146,7 @@ export class VoiceController<Screens> {
         return ended(reply.status === 'error' ? 'Something went wrong. Try again.' : undefined);
       }
       this.dispatch({ type: 'reply-started', generation });
-      await this.deps.speak(runtime.pocket, speech, turn.signal, (samples, rate) =>
+      await this.deps.speak(speech, turn.signal, (samples, rate) =>
         this.play(generation, samples, rate, turn.signal),
       );
       if (!turn.signal.aborted) ended();

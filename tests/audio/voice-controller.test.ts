@@ -44,7 +44,8 @@ function harness(overrides: Partial<VoiceDependencies<string>> = {}) {
     whenFinished: async () => reply,
     stopAgent: () => stopped++,
     transcribe: async () => ' What is this button? ',
-    speak: async (_runtime, _text, _signal, consume) => {
+    warmSpeech: () => {},
+    speak: async (_text, _signal, consume) => {
       await consume(new Float32Array(4).fill(0.1), 24000);
     },
     ...overrides,
@@ -118,7 +119,7 @@ test('an empty transcript asks nothing and says it did not catch that', async ()
 test('Stop while speaking aborts speech, silences the player and stops the agent', async () => {
   let aborted = false;
   const h = harness({
-    speak: (_runtime, _text, signal) =>
+    speak: (_text, signal) =>
       new Promise((_, reject) =>
         signal.addEventListener('abort', () => {
           aborted = true;
