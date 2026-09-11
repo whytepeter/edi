@@ -19,3 +19,4 @@ __pycache__/
 .codex/
 .claude/
 .cursor/
+native/hotkey/build/

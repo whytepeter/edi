@@ -15,7 +15,7 @@
     "dev": "pnpm --filter @edi/desktop dev",
     "build": "pnpm --filter @edi/desktop build",
     "typecheck": "pnpm -r typecheck",
-    "test": "node --import tsx --disable-warning=ExperimentalWarning --test packages/*/src/*.test.ts",
+    "test": "node --import tsx --disable-warning=ExperimentalWarning --test packages/*/src/*.test.ts tests/input/*.test.ts",
     "test:desktop": "node tests/desktop/smoke.mjs",
     "test:character": "node tests/desktop/character.mjs",
     "test:agent": "pnpm build && node --test tests/agent/worker.test.mjs",
@@ -24,7 +24,8 @@
     "test:capture:native": "node tests/audio/capture-native.mjs",
     "test:transcription:native": "node --import tsx tests/audio/transcription-native.mjs",
     "test:audio:native": "pnpm build && node tests/audio/native.mjs",
-    "package": "pnpm --filter @edi/desktop package"
+    "package": "pnpm --filter @edi/desktop package",
+    "build:native": "sh native/hotkey/build.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

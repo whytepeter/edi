@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "package": "electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist"
+    "package": "sh ../../native/hotkey/build.sh && electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist"
   },
   "dependencies": {
     "@edi/capabilities": "workspace:*",
@@ -51,6 +51,12 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Edi listens while you hold it down, so it can answer what you ask out loud."
       }
-    }
+    },
+    "extraResources": [
+      {
+        "from": "../../native/hotkey/build/edi-hotkey",
+        "to": "edi-hotkey"
+      }
+    ]
   }
 }

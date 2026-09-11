@@ -9,6 +9,7 @@ import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
 import { VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
+import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { CharacterActions } from './character/character-actions';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
@@ -95,6 +96,10 @@ async function start() {
     card: workspace,
     skin: () => settings.current.skin,
     voiceReady: () => voice.available,
+    holdHint: () =>
+      hotkey.status === 'ready'
+        ? `Hold ${optionSpace.label}, or hold me, to talk`
+        : 'Hold me down and talk to me',
     showContent: () => placement.show(),
     stopWork: () => {
       petDrag.cancel();
@@ -105,6 +110,26 @@ async function start() {
     createMenu: createCharacterMenuWindow,
     quit: () => app.quit(),
   });
+
+  // Global hold-to-talk: the same turn as holding the character, and it wakes Edi
+  // from Sleep. Only while voice works, so ⌥ Space is left alone otherwise.
+  const hotkey = new HoldHotkey(
+    voice.available
+      ? resolveHotkeyHelper(app.getAppPath(), app.isPackaged, process.resourcesPath)
+      : null,
+    optionSpace,
+    {
+      down: () => {
+        pet.showInactive();
+        if (!voice.start('push-to-talk')) character.requestListening('push-to-talk');
+      },
+      up: () => {
+        if (voice.phase !== 'idle') voice.release();
+        else character.releaseListening();
+      },
+    },
+  );
+  hotkey.start();
 
   settings.onChange(value => broadcast([workspace, pet], 'edi:settings', value));
   let shownApproval: string | null = null;
@@ -172,6 +197,7 @@ async function start() {
   app.on('second-instance', () => character.requestListening());
   app.on('before-quit', () => {
     quitting = true;
+    hotkey.dispose();
     character.dispose();
     petDrag.cancel();
     agent.stop();

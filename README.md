@@ -62,11 +62,12 @@ Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRo
 
 ### Voice (hold to talk)
 
-Hold Edi for a moment and talk; let go when you're done. Edi transcribes locally with whisper.cpp, looks at every screen at the moment you let go, and answers out loud with Pocket TTS. The card shows the full reply.
+Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're done. Edi transcribes locally with whisper.cpp, looks at every screen at the moment you let go, and answers out loud with Pocket TTS. The card shows the full reply.
 
 - Development builds use the pinned voice runtimes provisioned under `benchmarks/voice` (see its README). Packaged builds don't bundle them yet, so there the character says voice is unavailable.
 - macOS asks once for the microphone and once for Screen Recording. When launched from a terminal, macOS attributes both to the terminal app.
 - A single click shows a hint to hold instead: hands-free conversation isn't built yet.
+- ⌥ Space comes from a tiny native helper (`native/hotkey`, built by `pnpm build:native` and by `pnpm package`). It registers only that chord through Carbon, so it needs no Input Monitoring or Accessibility permission, never sees other keystrokes, and stops ⌥ Space from typing into the focused app. It runs only while voice is available and exits with Edi. macOS doesn't report when another app has also claimed ⌥ Space, so a conflict shows up as the key not reaching Edi. Rebinding under Settings → Keyboard Shortcut is still to come.
 - `EDI_VOICE=off pnpm dev` turns local voice off. The desktop tests set it so they never open a real microphone.
 
 ### Tools and approvals

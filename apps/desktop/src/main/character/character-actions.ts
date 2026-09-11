@@ -21,6 +21,8 @@ interface CharacterActionsOptions {
   skin: () => SkinId;
   /** Whether hold-to-talk works right now (a local voice runtime is present). */
   voiceReady: () => boolean;
+  /** How to start talking, shown when someone clicks instead of holding. */
+  holdHint: () => string;
   showContent: () => void;
   stopWork: () => void;
   createBubble: (options: StatusBubbleOptions) => BrowserWindow;
@@ -48,7 +50,7 @@ export class CharacterActions {
     this.options.pet.showInactive();
     // Hands-free conversation is not built yet; only hold-to-talk listens. Never claim
     // the microphone is active when it is not.
-    if (this.options.voiceReady()) this.showStatus('notice', 4000, 'Hold me down and talk to me');
+    if (this.options.voiceReady()) this.showStatus('notice', 4000, this.options.holdHint());
     else this.showStatus('unavailable', 5000);
   };
 
