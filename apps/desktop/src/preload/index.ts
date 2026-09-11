@@ -4,6 +4,7 @@ import {
   agentStateSchema,
   commandSchema,
   settingsSchema,
+  voiceHostEventSchema,
   type DesktopBridge,
 } from '@edi/contracts';
 
@@ -29,6 +30,14 @@ const bridge: DesktopBridge = {
     };
     ipcRenderer.on('edi:settings', listener);
     return () => ipcRenderer.removeListener('edi:settings', listener);
+  },
+  onVoice: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = voiceHostEventSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:voice', listener);
+    return () => ipcRenderer.removeListener('edi:voice', listener);
   },
 };
 contextBridge.exposeInMainWorld('edi', bridge);

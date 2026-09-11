@@ -1,4 +1,9 @@
-import { bubbleSideSchema, skinSchema, statusBubbleStateSchema } from '@edi/contracts';
+import {
+  bubbleNoticeSchema,
+  bubbleSideSchema,
+  skinSchema,
+  statusBubbleStateSchema,
+} from '@edi/contracts';
 
 /** Which window this renderer is. Main chooses it; unknown values fall back safely. */
 export type Surface = 'workspace' | 'pet' | 'voice-status' | 'character-menu';
@@ -14,4 +19,5 @@ export const bubbleParams = {
   state: statusBubbleStateSchema.catch('unavailable').parse(params.get('state')),
   side: bubbleSideSchema.catch('right').parse(params.get('side')),
   skin: skinSchema.catch('cloud').parse(params.get('skin')),
+  text: bubbleNoticeSchema.catch('').parse(params.get('text')),
 };

@@ -6,6 +6,8 @@ import {
   contentCardSchema,
   screenLabel,
   screenshotPointToScreen,
+  voiceHostEventSchema,
+  maxVoicePcmBytes,
 } from './index';
 import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
 import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
@@ -219,5 +221,26 @@ test('screenshots are labelled like heyclicky and points map back to displays', 
       x: 0,
       y: 0,
     },
+  );
+});
+
+test('voice messages carry typed audio and reject anything else', () => {
+  const pcm = { type: 'pcm', generation: 1, rate: 24000 };
+  assert.equal(
+    voiceHostEventSchema.safeParse({ ...pcm, samples: new Float32Array(10) }).success,
+    true,
+  );
+  assert.equal(voiceHostEventSchema.safeParse({ ...pcm, samples: [0.1, 0.2] }).success, false);
+  assert.equal(
+    voiceHostEventSchema.safeParse({ ...pcm, samples: new Float32Array(0) }).success,
+    false,
+  );
+  const audio = { type: 'voice-audio', generation: 1 };
+  assert.equal(commandSchema.safeParse({ ...audio, pcm: new Uint8Array(3200) }).success, true);
+  assert.equal(commandSchema.safeParse({ ...audio, pcm: Buffer.alloc(3200) }).success, true);
+  assert.equal(commandSchema.safeParse({ ...audio, pcm: new Uint8Array(3) }).success, false); // odd byte count
+  assert.equal(
+    commandSchema.safeParse({ ...audio, pcm: new Uint8Array(maxVoicePcmBytes + 2) }).success,
+    false,
   );
 });

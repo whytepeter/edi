@@ -4,7 +4,7 @@ import { ListeningBars, SpeechBubble, ThinkingDots } from '../../components/ui';
 import { accentFor } from '../../lib/bridge';
 import './pet.css';
 
-const announcement: Record<StatusBubbleState, string> = {
+const announcement: Record<Exclude<StatusBubbleState, 'notice'>, string> = {
   unavailable: 'voice coming soon',
   thinking: 'Edi is thinking',
   // Main only selects this state once the capture service confirms a live microphone.
@@ -16,12 +16,15 @@ export function StatusBubble({
   state,
   side,
   skin,
+  text: notice,
 }: {
   state: StatusBubbleState;
   side: BubbleSide;
   skin: SkinId;
+  text: string;
 }) {
-  const text = announcement[state];
+  const text = state === 'notice' ? notice || 'Edi' : announcement[state];
+  const visible = state === 'unavailable' || state === 'notice';
   return (
     <div
       className="status-bubble-surface"
@@ -35,7 +38,7 @@ export function StatusBubble({
         <span
           role="status"
           aria-live="polite"
-          className={state === 'unavailable' ? undefined : 'ds-visually-hidden'}
+          className={visible ? undefined : 'ds-visually-hidden'}
           title={state === 'unavailable' ? 'No microphone is active' : undefined}
         >
           {text}

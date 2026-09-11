@@ -1,9 +1,13 @@
-import { app, globalShortcut, Menu, screen, session } from 'electron';
+import { app, globalShortcut, Menu, screen, session, systemPreferences } from 'electron';
 import { join } from 'node:path';
 import { notesCapabilities } from '@edi/capabilities';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreens } from './capture/screens';
+import { speakPocket } from './voice/pocket-process';
+import { resolveVoiceRuntime } from './voice/runtime';
+import { transcribePcm } from './voice/transcription-process';
+import { VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { CharacterActions } from './character/character-actions';
 import { createCommandRoutes } from './ipc/commands';
@@ -40,11 +44,6 @@ async function start() {
   });
   await Promise.all([settings.load(), agent.load()]);
 
-  // Nothing is granted until a feature asks for exactly what it needs.
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
-    callback(false),
-  );
-
   const workspace = createWorkspaceWindow();
   const pet = createPetWindow(settings.current.petPosition);
   const placement = new WindowPlacement(
@@ -58,13 +57,45 @@ async function start() {
     () => placement.place(),
     petPosition => settings.update({ petPosition }),
   );
+  // Local voice. EDI_VOICE=off disables it (developer machines, automated desktop tests
+  // that must never open a real microphone).
+  const voiceRuntime =
+    process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  const voice = new VoiceController({
+    runtime: voiceRuntime,
+    send: event => broadcast([pet], 'edi:voice', event),
+    status: status => character.showVoiceStatus(status),
+    microphoneAccess: async () =>
+      systemPreferences.getMediaAccessStatus('microphone') === 'granted' ||
+      systemPreferences.askForMediaAccess('microphone'),
+    captureScreens,
+    ask: (prompt, options) => agent.ask(prompt, options),
+    whenFinished: (runId, signal) => agent.whenFinished(runId, signal),
+    stopAgent: () => agent.stop(),
+    transcribe: transcribePcm,
+    speak: speakPocket,
+  });
+
+  // Nothing is granted except the microphone, to the pet window, audio only, and
+  // only while a voice turn is opening or listening.
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const audioOnly =
+      permission === 'media' &&
+      'mediaTypes' in details &&
+      (details.mediaTypes ?? []).length > 0 &&
+      (details.mediaTypes ?? []).every(type => type === 'audio');
+    callback(audioOnly && contents === pet.webContents && voice.wantsMicrophone);
+  });
+
   const character = new CharacterActions({
     pet,
     card: workspace,
     skin: () => settings.current.skin,
+    voiceReady: () => voice.available,
     showContent: () => placement.show(),
     stopWork: () => {
       petDrag.cancel();
+      voice.stop();
       agent.stop();
     },
     createBubble: createStatusBubbleWindow,
@@ -117,6 +148,7 @@ async function start() {
       placement,
       petDrag,
       character,
+      voice,
     }),
     settings: () => settings.current,
     agentState: () => agent.state,

@@ -47,7 +47,10 @@
       "identity": null,
       "target": [
         "dir"
-      ]
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Edi listens while you hold it down, so it can answer what you ask out loud."
+      }
     }
   }
 }

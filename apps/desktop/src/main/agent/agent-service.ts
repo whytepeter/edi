@@ -10,6 +10,8 @@ import {
 import type { AgentState, ApprovalRequest, ToolStep } from '@edi/contracts';
 import type { Repositories } from '@edi/storage';
 import type { Screenshot, ScreenAccess } from '../capture/screens';
+
+type CapturedScreens = { screenshots: Screenshot[]; access: ScreenAccess };
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
@@ -26,7 +28,7 @@ interface AgentServiceOptions {
   repositories: Repositories;
   capabilities: readonly Capability[];
   /** Called on every request; there is no per-request screen prompt. */
-  captureScreens: () => Promise<{ screenshots: Screenshot[]; access: ScreenAccess }>;
+  captureScreens: () => Promise<CapturedScreens>;
 }
 
 interface ActiveRun {
@@ -106,7 +108,15 @@ export class AgentService {
     }
   }
 
-  async ask(prompt: string) {
+  /**
+   * Starts a run and resolves with its ID. Screens are captured now unless the caller
+   * already captured them (voice takes them the moment the question ends).
+   * `spoken` asks for a short answer that will be read aloud.
+   */
+  async ask(
+    prompt: string,
+    options: { screens?: CapturedScreens; spoken?: boolean } = {},
+  ): Promise<string | undefined> {
     const { credentials, repositories } = this.options;
     if (!credentials.configured || this.configuring) throw new Error('Set up OpenRouter first.');
     if (this.run || this.starting) throw new Error('A response is already running.');
@@ -122,11 +132,10 @@ export class AgentService {
       steps: [],
       approval: null,
     });
-    const { screenshots, access } = await this.options.captureScreens().catch(() => ({
-      screenshots: [] as Screenshot[],
-      access: 'unknown' as const,
-    }));
-    if (this.starting !== starting) return; // stopped while capturing
+    const { screenshots, access } = await (
+      options.screens ? Promise.resolve(options.screens) : this.options.captureScreens()
+    ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' }));
+    if (this.starting !== starting) return undefined; // stopped while capturing
     this.starting = undefined;
 
     const id = randomUUID();
@@ -143,6 +152,7 @@ export class AgentService {
       prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
+      spoken: options.spoken ?? false,
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {
@@ -162,6 +172,28 @@ export class AgentService {
     run.worker.on('exit', () =>
       this.finish(run, 'error', 'The response worker ended unexpectedly.'),
     );
+    return id;
+  }
+
+  /** Resolves with the final state of `runId`, or rejects if `signal` aborts first. */
+  whenFinished(runId: string, signal: AbortSignal): Promise<AgentState> {
+    return new Promise((resolve, reject) => {
+      const check = (state: AgentState) => {
+        if (state.runId !== runId || state.status === 'running') return;
+        unsubscribe();
+        resolve(state);
+      };
+      const unsubscribe = this.onChange(check);
+      signal.addEventListener(
+        'abort',
+        () => {
+          unsubscribe();
+          reject(new Error('Stopped'));
+        },
+        { once: true },
+      );
+      check(this.state);
+    });
   }
 
   stop() {

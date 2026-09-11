@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { approvalRequestSchema, toolStepSchema, type Activity } from './capabilities';
 export * from './capabilities';
 export * from './screen-context';
+export * from './voice';
+export * from './voice-session';
+import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 export {
   placeCard,
   placeSpeechBubble,
@@ -70,8 +73,11 @@ export const screenPointSchema = z
   .strict();
 export const petDragThreshold = 6;
 
-/** What the status bubble beside the character shows. Listening requires a live microphone. */
-export const statusBubbleStateSchema = z.enum(['unavailable', 'thinking', 'listening']);
+/**
+ * What the status bubble beside the character shows. `listening` only once a
+ * microphone is actually capturing; `notice` carries a short message.
+ */
+export const statusBubbleStateSchema = z.enum(['unavailable', 'thinking', 'listening', 'notice']);
 export type StatusBubbleState = z.infer<typeof statusBubbleStateSchema>;
 export const bubbleSideSchema = z.enum(['left', 'right']);
 export type BubbleSide = z.infer<typeof bubbleSideSchema>;
@@ -126,6 +132,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
   z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
   z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),
+  ...voiceCommandSchemas,
   z
     .object({
       type: z.literal('pet-drag'),
@@ -144,6 +151,8 @@ export interface DesktopBridge {
   settings(): Promise<Settings>;
   command(command: Command): Promise<void>;
   onSettings(callback: (settings: Settings) => void): () => void;
+  /** Voice session instructions for the pet window's microphone and speaker. */
+  onVoice(callback: (event: VoiceHostEvent) => void): () => void;
 }
 export const skins = [
   { id: 'cloud', name: 'Cloud', description: 'A little curious. Always nearby.', color: '#759bea' },

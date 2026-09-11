@@ -42,7 +42,12 @@ async function checkGeometry(pet, skin) {
   expect(result.box.bottom + 2).toBeLessThanOrEqual(146);
 }
 async function launch() {
-  instance = await electron.launch({ executablePath, args });
+  instance = await electron.launch({
+    // Desktop tests must never open a real microphone.
+    env: { ...process.env, EDI_VOICE: 'off' },
+    executablePath,
+    args,
+  });
   instance.on('window', page => page.on('pageerror', error => errors.push(error.message)));
   await expect.poll(() => instance.windows().length).toBe(2);
   await expect

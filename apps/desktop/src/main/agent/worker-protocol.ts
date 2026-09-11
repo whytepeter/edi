@@ -10,6 +10,8 @@ export interface WorkerInput {
   history: { prompt: string; reply: string }[];
   /** Taken when the person asked; JPEG bytes, labelled for the model. */
   screenshots: { label: string; jpeg: Uint8Array }[];
+  /** The question was spoken and the reply will be read aloud. */
+  spoken: boolean;
   tools: ToolManifestEntry[];
 }
 

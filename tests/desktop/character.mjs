@@ -7,6 +7,8 @@ const profile = await mkdtemp(join(tmpdir(), 'edi-character-'));
 let app;
 try {
   app = await electron.launch({
+    // Desktop tests must never open a real microphone.
+    env: { ...process.env, EDI_VOICE: 'off' },
     executablePath: resolve(
       'apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
     ),
@@ -103,6 +105,36 @@ try {
     .poll(() => app.windows().some(page => page.url().includes('surface=voice-status')))
     .toBe(false);
   expect(await visible('workspace')).toBe(false);
+  // Voice audio crosses the context bridge as typed arrays in both directions.
+  await pet.evaluate(() => {
+    window.__pcm = new Promise(resolve => {
+      const off = window.edi.onVoice(event => {
+        if (event.type !== 'pcm') return;
+        off();
+        resolve({ typed: event.samples instanceof Float32Array, length: event.samples.length });
+      });
+    });
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find(w =>
+      w.webContents.getURL().includes('surface=pet'),
+    );
+    win.webContents.send('edi:voice', {
+      type: 'pcm',
+      generation: 999,
+      rate: 24000,
+      samples: new Float32Array(2400),
+    });
+  });
+  expect(await pet.evaluate(() => window.__pcm)).toEqual({ typed: true, length: 2400 });
+  // A recording goes the other way as bytes; an idle session ignores it without error.
+  const accepted = await pet.evaluate(() =>
+    window.edi.command({ type: 'voice-audio', generation: 0, pcm: new Uint8Array(3200) }).then(
+      () => true,
+      () => false,
+    ),
+  );
+  expect(accepted).toBe(true);
   console.log(
     `Character interactions passed. Screenshot: ${join(profile, 'voice-unavailable.png')}`,
   );

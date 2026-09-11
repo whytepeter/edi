@@ -24,6 +24,7 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
   unavailable: { width: 160, height: 52 },
   thinking: { width: 88, height: 52 },
   listening: { width: 92, height: 52 },
+  notice: { width: 280, height: 52 },
 };
 export const characterMenuSize = { width: 200, height: 178 } as const;
 
@@ -74,7 +75,8 @@ export function createPetWindow(saved: { x: number; y: number } | null) {
     y: y + height - desktopPetSize.height - 25,
     hasShadow: false,
     skipTaskbar: true,
-    webPreferences: withBridge,
+    // Spoken replies start after an asynchronous turn, not inside the click handler.
+    webPreferences: { ...withBridge, autoplayPolicy: 'no-user-gesture-required' },
   });
   // Transparent margins pass clicks through; the renderer re-enables hits over the body.
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -89,9 +91,11 @@ export interface StatusBubbleOptions {
   state: StatusBubbleState;
   side: BubbleSide;
   skin: SkinId;
+  /** Only for `notice`; validated again by the renderer. */
+  text?: string;
 }
 
-export function createStatusBubbleWindow({ state, side, skin }: StatusBubbleOptions) {
+export function createStatusBubbleWindow({ state, side, skin, text }: StatusBubbleOptions) {
   const win = new BrowserWindow({
     ...floating,
     ...statusBubbleSize[state],
@@ -101,7 +105,7 @@ export function createStatusBubbleWindow({ state, side, skin }: StatusBubbleOpti
     // Display only: no preload, so this surface cannot send commands.
     webPreferences: isolated,
   });
-  return loadSurface(win, 'voice-status', { state, side, skin });
+  return loadSurface(win, 'voice-status', { state, side, skin, ...(text ? { text } : {}) });
 }
 
 export function createCharacterMenuWindow() {

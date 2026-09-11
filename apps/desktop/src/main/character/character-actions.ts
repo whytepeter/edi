@@ -19,6 +19,8 @@ interface CharacterActionsOptions {
   pet: BrowserWindow;
   card: BrowserWindow;
   skin: () => SkinId;
+  /** Whether hold-to-talk works right now (a local voice runtime is present). */
+  voiceReady: () => boolean;
   showContent: () => void;
   stopWork: () => void;
   createBubble: (options: StatusBubbleOptions) => BrowserWindow;
@@ -44,8 +46,10 @@ export class CharacterActions {
     this.mode = mode;
     this.options.stopWork();
     this.options.pet.showInactive();
-    // Capture/transcription is not connected yet. Never claim the mic is active.
-    this.showStatus('unavailable', 5000);
+    // Hands-free conversation is not built yet; only hold-to-talk listens. Never claim
+    // the microphone is active when it is not.
+    if (this.options.voiceReady()) this.showStatus('notice', 4000, 'Hold me down and talk to me');
+    else this.showStatus('unavailable', 5000);
   };
 
   /** Mirror the agent: dots while waiting for the first words, gone once they arrive. */
@@ -54,10 +58,17 @@ export class CharacterActions {
     else if (!thinking && this.bubble?.state === 'thinking') this.hideBubble();
   };
 
-  private showStatus(state: StatusBubbleState, dismissAfterMs?: number) {
+  /** Voice session feedback: live listening, thinking, a short notice, or nothing. */
+  showVoiceStatus = (status: 'listening' | 'thinking' | 'hidden' | { notice: string }) => {
+    if (status === 'hidden') this.hideBubble();
+    else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
+    else if (this.bubble?.state !== status) this.showStatus(status);
+  };
+
+  private showStatus(state: StatusBubbleState, dismissAfterMs?: number, text?: string) {
     this.hideBubble();
     const { bounds, side } = this.bubblePlacement(statusBubbleSize[state]);
-    const window = this.options.createBubble({ state, side, skin: this.options.skin() });
+    const window = this.options.createBubble({ state, side, text, skin: this.options.skin() });
     this.bubble = { window, state, side };
     window.setIgnoreMouseEvents(true);
     window.setBounds(bounds);

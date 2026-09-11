@@ -24,6 +24,12 @@ const SYSTEM = [
   'and say so plainly. Never claim an action happened unless its result status is "succeeded".',
 ].join(' ');
 
+// Voice turns are heard, not read: keep them short and free of formatting.
+const SPOKEN = [
+  'This question was spoken aloud and your reply will be read aloud.',
+  'Answer in one to three short sentences of plain words: no lists, headings, code or Markdown.',
+].join(' ');
+
 parentPort?.on('message', (message: HostMessage) => {
   if (message.type === 'stop') controller.abort();
   if (message.type === 'tool-result') {
@@ -82,7 +88,7 @@ async function run() {
     const provider = createOpenRouter({ apiKey: input.apiKey });
     const result = streamText({
       model: provider(input.model),
-      system: SYSTEM,
+      system: input.spoken ? `${SYSTEM} ${SPOKEN}` : SYSTEM,
       messages: conversation(),
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
