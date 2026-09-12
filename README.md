@@ -32,6 +32,7 @@ pnpm package
 - OpenRouter setup, streamed plain-text responses, cancellation, and request limits in a separate worker thread.
 - Just-in-time microphone and Screen Recording permission cards with explicit macOS Settings recovery.
 - Privacy-first screen context: screenshots are captured only when a prompt refers to visible UI, or as a short follow-up in that visual conversation.
+- Listening, thinking, and speaking bubble states; ordinary replies remain in chat. Pending writes can be approved from a compact action card or opened in the full review.
 - Compact content card with Appearance, Extensions, and Activity under More.
 - Cloud and Sprout avatars, synchronized across windows and persisted locally.
 - Expand/collapse, pin/hide controls, character context menu, Sleep, and global wake/listen shortcut.
@@ -68,7 +69,9 @@ Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're do
 
 - Development builds use the pinned voice runtimes provisioned under `benchmarks/voice` (see its README). Packaged builds don't bundle them yet, so there the character says voice is unavailable.
 - Edi asks for the microphone when voice is first used, and Screen Recording only when a screen-dependent question is asked. Denied access is recovered through the matching macOS Settings page.
-- A single click shows a hint to hold instead: hands-free conversation isn't built yet.
+- A single click starts hands-free conversation with voice-activity detection and follow-ups; Stop, Sleep, or a new session dismisses it.
+- Pocket uses Jane as Edi’s local female default. The host passes the voice ID explicitly and rejects a worker that
+  loads a different voice. Chatterbox Turbo, ElevenLabs, and Cartesia remain future selectable providers.
 - ⌥ Space comes from a tiny native helper (`native/hotkey`, built by `pnpm build:native` and by `pnpm package`). It registers only that chord through Carbon, so it needs no Input Monitoring or Accessibility permission, never sees other keystrokes, and stops ⌥ Space from typing into the focused app. It runs only while voice is available and exits with Edi. macOS doesn't report when another app has also claimed ⌥ Space, so a conflict shows up as the key not reaching Edi. Rebinding under Settings → Keyboard Shortcut is still to come.
 - `EDI_VOICE=off pnpm dev` turns local voice off. The desktop tests set it so they never open a real microphone.
 

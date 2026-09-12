@@ -22,7 +22,8 @@ export async function decodeRecording(blob: Blob, signal: AbortSignal): Promise<
     buffer.getChannelData(index),
   );
   for (let i = 0; i < buffer.length; i++) {
-    const value = channels.reduce((total, channel) => total + channel[i], 0) / channels.length;
+    const value =
+      channels.reduce((total, channel) => total + (channel[i] ?? 0), 0) / channels.length;
     if (!Number.isFinite(value)) throw new Error('Invalid decoded audio');
     const clamped = Math.max(-1, Math.min(1, value));
     view.setInt16(i * 2, Math.round(clamped * (clamped < 0 ? 32768 : 32767)), true);

@@ -15,6 +15,7 @@ ASSETS = [
     ("languages/english/tokenizer.model", 59339, "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6"),
     ("languages/english/embeddings/alba.safetensors", 6194424, "69c32db63ca56843d994f81f343f62e0bf2d73f7e4c9bc73e44bb1110b1d8845"),
     ("languages/english/embeddings/fantine.safetensors", 6538488, "51a8a4355d7f912d4959e4b1918314fda85ad47eba0a33a1d78a4a505d3465f5"),
+    ("languages/english/embeddings/jane.safetensors", 7374072, "37386227ca8ec5bf1b8e516c13d132ce5ff5437a304fe90129a1c62f41d9a008"),
 ]
 
 

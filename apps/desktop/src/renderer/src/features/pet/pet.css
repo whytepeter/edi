@@ -63,6 +63,83 @@
   white-space: normal;
 }
 
+.status-bubble-surface[data-state='approval'] .ds-bubble {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  padding: var(--space-4);
+  white-space: normal;
+}
+
+.bubble-approval {
+  align-items: stretch;
+}
+
+.bubble-approval h2,
+.bubble-approval p {
+  margin: 0;
+}
+
+.bubble-approval h2 {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--label-primary);
+  font: var(--text-headline);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble-approval > p:not(.ds-eyebrow) {
+  display: -webkit-box;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.bubble-approval-field {
+  display: grid;
+  grid-template-columns: minmax(52px, auto) minmax(0, 1fr);
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--label-tertiary);
+  font: var(--text-caption);
+}
+
+.bubble-approval-field strong {
+  overflow: hidden;
+  color: var(--label-secondary);
+  font-weight: 500;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble-approval-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.bubble-deny {
+  width: 100%;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  border: 0;
+  color: var(--label-tertiary);
+  background: transparent;
+  font: var(--text-caption);
+  cursor: pointer;
+}
+
+.bubble-deny:hover:not(:disabled) {
+  color: var(--label-secondary);
+}
+
 .bubble-reply {
   display: block;
   max-height: 120px;

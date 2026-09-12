@@ -8,6 +8,11 @@ export interface PocketRuntime {
   cache: string;
 }
 
+/** Provider-specific voice IDs stay inside the Pocket adapter. */
+export const pocketVoiceIds = ['jane'] as const;
+export type PocketVoiceId = (typeof pocketVoiceIds)[number];
+export const defaultPocketVoice: PocketVoiceId = 'jane';
+
 type Consume = (pcm: Float32Array, sampleRate: number) => Promise<void>;
 
 const MAX_LINE = 140_000;
@@ -30,8 +35,11 @@ class WorkerProcess {
   private killTimer?: ReturnType<typeof setTimeout>;
   readonly closed: Promise<void>;
 
-  constructor(runtime: PocketRuntime) {
-    this.child = spawn(runtime.python, ['-u', runtime.worker], {
+  constructor(
+    runtime: PocketRuntime,
+    readonly voice: PocketVoiceId,
+  ) {
+    this.child = spawn(runtime.python, ['-u', runtime.worker, '--voice', voice], {
       stdio: ['pipe', 'pipe', 'ignore'],
       // Do not inherit provider keys, Python injection variables, or HF credentials.
       env: {
@@ -156,7 +164,11 @@ export class PocketVoice {
 
   constructor(
     private readonly runtime: PocketRuntime,
-    private readonly options: { idleMs?: number; readyMs?: number } = {},
+    private readonly options: {
+      idleMs?: number;
+      readyMs?: number;
+      voice?: PocketVoiceId;
+    } = {},
   ) {}
 
   /** Start loading the model now, e.g. when a person starts holding to talk. */
@@ -187,7 +199,8 @@ export class PocketVoice {
 
   private ensure(): Promise<WorkerProcess> {
     if (this.ready && this.process?.alive) return this.ready;
-    const process = new WorkerProcess(this.runtime);
+    const voice = this.options.voice ?? defaultPocketVoice;
+    const process = new WorkerProcess(this.runtime, voice);
     this.process = process;
     const timeout = rejectAfter(
       this.options.readyMs ?? 120_000,
@@ -195,7 +208,7 @@ export class PocketVoice {
     );
     this.ready = Promise.race([process.next(), timeout.promise])
       .then(frame => {
-        if (frame.type !== 'ready' || frame.rate !== SAMPLE_RATE) {
+        if (frame.type !== 'ready' || frame.rate !== SAMPLE_RATE || frame.voice !== voice) {
           throw new Error('Invalid local voice frame');
         }
         return process;

@@ -56,13 +56,17 @@ export const presentationScriptSchema = z
   .max(maxPresentationActions);
 
 const tag = /\[(POINT|DRAW):([^\]]{1,200})\]/gi;
-const numbers = (text: string, count: number) => {
+function numbers(text: string, count: 2): [number, number] | null;
+function numbers(text: string, count: 3): [number, number, number] | null;
+function numbers(text: string, count: 4): [number, number, number, number] | null;
+function numbers(text: string, count: 2 | 3 | 4) {
   if (!/^\s*\d+(\s*,\s*\d+)*\s*$/.test(text)) return null;
   const values = text.split(',').map(value => Number(value.trim()));
+  // The overloads describe the tuple length established by this runtime check.
   return values.length === count && values.every(value => Number.isInteger(value) && value >= 0)
-    ? values
+    ? (values as [number, number] | [number, number, number] | [number, number, number, number])
     : null;
-};
+}
 
 const labelFrom = (parts: string[], start: number) =>
   parts.slice(start).join(':').trim().slice(0, 60);
@@ -114,7 +118,7 @@ export function parsePresentation(reply: string): {
   actions: PresentationAction[];
 } {
   const parsed = [...reply.matchAll(tag)]
-    .map(match => parseTag(match[1].toUpperCase(), match[2]))
+    .map(match => parseTag((match[1] ?? '').toUpperCase(), match[2] ?? ''))
     .filter(entry => entry !== null)
     .filter(
       entry =>

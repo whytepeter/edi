@@ -12,6 +12,9 @@ See [foundation validation](FOUNDATION-VALIDATION.md) for evidence and the remai
 
 See [engineering conventions](ENGINEERING.md) for module boundaries, state ownership, commenting, and verification expectations.
 
+See the [codebase guide](CODEBASE.md) for the current directory map, subsystem entry points, lifecycle, data
+flow, and where to make common changes.
+
 See [permission architecture](PERMISSIONS.md) for the just-in-time permission registry and privacy-first screen-context policy.
 
 See [audio runtime](AUDIO-RUNTIME.md) for the isolated playback module, cancellation contract, measured checks, and remaining integration work.

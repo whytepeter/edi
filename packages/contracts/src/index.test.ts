@@ -126,6 +126,11 @@ test('bridge rejects unknown capabilities and invalid skin selections', () => {
     commandSchema.safeParse({ type: 'pet-hit-test', interactive: 'yes' }).success,
     false,
   );
+  assert.equal(commandSchema.safeParse({ type: 'show-workspace', view: 'agent' }).success, true);
+  assert.equal(
+    commandSchema.safeParse({ type: 'show-workspace', view: 'settings' }).success,
+    false,
+  );
 });
 test('content accepts bounded presentation blocks without executable content', () => {
   const card = {
@@ -224,6 +229,9 @@ test('screen context is attached only for requests about visible content', () =>
     'Look at this code I pasted',
     'Explain desktop applications',
     'Point to the irony in this story',
+    'Reply to this message: see you tomorrow',
+    'Rewrite this email to sound warmer',
+    'Summarize this document I pasted below',
     'Better?',
     'Is it fixed now?',
     'What changed?',
@@ -448,7 +456,7 @@ test('presentations resolve onto the right display, and bad targets are rejected
     shots,
   );
   assert.deepEqual(second?.actions[0], { type: 'point', x: -960, y: 540, label: 'Here' });
-  assert.deepEqual(second?.display, shots[1].display);
+  assert.deepEqual(second?.display, shots[1]?.display);
   assert.equal(
     resolvePresentation({ screen: 3, actions: [{ type: 'point', x: 1, y: 1, label: '' }] }, shots),
     null,

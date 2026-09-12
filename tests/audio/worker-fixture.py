@@ -3,13 +3,17 @@
 Frame values encode which utterance this process is serving (0.25, 0.5, ...), so tests
 can tell a reused warm process from a fresh one.
 """
+import argparse
 import base64
 import json
 import struct
 import sys
 import time
 
-print(json.dumps({"type": "ready", "rate": 24000}), flush=True)
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--voice", required=True)
+args = parser.parse_args()
+print(json.dumps({"type": "ready", "rate": 24000, "voice": args.voice}), flush=True)
 served = 0
 while True:
     line = sys.stdin.readline()

@@ -11,7 +11,7 @@ import {
 import type { VoiceRuntime } from './runtime';
 import type { TranscriptionRuntime } from './transcription-process';
 
-export type VoiceStatus = 'listening' | 'thinking' | 'hidden' | { notice: string };
+export type VoiceStatus = 'listening' | 'thinking' | 'speaking' | 'hidden' | { notice: string };
 
 /** Everything the driver touches is injected, so it runs (and is tested) without Electron. */
 export interface VoiceDependencies<Screens> {
@@ -71,6 +71,7 @@ export class VoiceController<Screens> {
   private turn?: AbortController;
   private pendingAck?: () => void;
   private notice?: string;
+  private quietError = false;
 
   constructor(private readonly deps: VoiceDependencies<Screens>) {}
 
@@ -204,7 +205,9 @@ export class VoiceController<Screens> {
       void this.deps.microphoneAccess().then(granted => {
         if (generation !== this.session.generation) return;
         if (!granted) {
-          this.notice = 'Open Edi to allow the microphone.';
+          // The just-in-time permission card is already visible. Avoid a second,
+          // oversized bubble repeating the same instruction.
+          this.quietError = true;
           this.dispatch({ type: 'failed', generation });
           return;
         }
@@ -223,7 +226,11 @@ export class VoiceController<Screens> {
     if (notice && (phase === 'idle' || phase === 'error')) this.deps.status({ notice });
     else if (phase === 'listening') this.deps.status('listening');
     else if (phase === 'processing') this.deps.status('thinking');
-    else if (phase === 'error') this.deps.status({ notice: 'Voice stopped. Try again.' });
+    else if (phase === 'speaking') this.deps.status('speaking');
+    else if (phase === 'error' && this.quietError) {
+      this.quietError = false;
+      this.deps.status('hidden');
+    } else if (phase === 'error') this.deps.status({ notice: 'Voice stopped. Try again.' });
     else this.deps.status('hidden');
   }
 }

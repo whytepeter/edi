@@ -2,6 +2,8 @@
 
 These are implementation requirements, not a claim that the initial scaffold is finished.
 
+For the concrete map of the current repository, start with [the codebase guide](CODEBASE.md).
+
 ## Boundaries
 
 - Contracts: versioned schemas, domain types, geometry, and pure functions. No Electron, React, provider SDK, secrets, or filesystem dependencies.
@@ -21,3 +23,9 @@ Use strict TypeScript and validate data at process, provider, storage, and exten
 Tests accompany behavior: pure contract/state tests, mocked provider tests, renderer interactions, and packaged smoke checks. Manual platform evidence is recorded separately; a DOM hit test is not an OS click-through test. Never add test-only provider endpoints or secret bypasses to production code.
 
 Before a milestone closes, review structure, duplicated state, failure paths, accessible names/keyboard use, reduced motion, credential handling, and documentation. A successful build alone does not close an acceptance gate.
+
+## Change discipline
+
+Record meaningful changes in [`CHANGELOG.md`](../CHANGELOG.md) under Unreleased. Update the subsystem guide when
+ownership, an entry point, or a data flow changes. Remove the replaced implementation in the same change; do not
+leave two paths behind a vague “legacy” label.

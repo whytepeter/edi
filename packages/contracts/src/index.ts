@@ -109,10 +109,17 @@ export const screenPointSchema = z
 export const petDragThreshold = 6;
 
 /**
- * What the status bubble beside the character shows. `listening` only once a
- * microphone is actually capturing; `notice` carries a short message.
+ * What the bubble beside the character shows. Listening and speaking are live
+ * voice states; approval is the only interactive state.
  */
-export const statusBubbleStateSchema = z.enum(['unavailable', 'thinking', 'listening', 'notice']);
+export const statusBubbleStateSchema = z.enum([
+  'unavailable',
+  'thinking',
+  'listening',
+  'speaking',
+  'notice',
+  'approval',
+]);
 export type StatusBubbleState = z.infer<typeof statusBubbleStateSchema>;
 export const bubbleSideSchema = z.enum(['left', 'right']);
 export type BubbleSide = z.infer<typeof bubbleSideSchema>;
@@ -127,6 +134,14 @@ export const defaultSettings: Settings = {
   pinned: false,
   petPosition: null,
 };
+export const workspaceViewSchema = z.enum([
+  'content',
+  'agent',
+  'avatars',
+  'extensions',
+  'activity',
+]);
+export type WorkspaceView = z.infer<typeof workspaceViewSchema>;
 export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -165,7 +180,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       decision: z.enum(['approve', 'deny']),
     })
     .strict(),
-  z.object({ type: z.literal('show-workspace') }).strict(),
+  z.object({ type: z.literal('show-workspace'), view: workspaceViewSchema.optional() }).strict(),
   z.object({ type: z.literal('permissions-refresh') }).strict(),
   z.object({ type: z.literal('permission-request'), permission: permissionIdSchema }).strict(),
   z
@@ -191,6 +206,7 @@ export type Command = z.infer<typeof commandSchema>;
 export interface DesktopBridge {
   permissions(): Promise<PermissionSnapshot>;
   onPermissions(callback: (snapshot: PermissionSnapshot) => void): () => void;
+  onNavigate(callback: (view: WorkspaceView) => void): () => void;
   agent(): Promise<AgentState>;
   /** Recent runs and their tool outcomes, newest first. */
   activity(): Promise<Activity>;

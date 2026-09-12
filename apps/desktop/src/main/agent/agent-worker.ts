@@ -3,9 +3,11 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { jsonSchema, stepCountIs, streamText, tool, type ModelMessage, type ToolSet } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { ToolOutcome } from '@edi/capabilities';
-import type { HostMessage, WorkerInput, WorkerMessage } from './worker-protocol';
+import { workerInputSchema, type HostMessage, type WorkerMessage } from './worker-protocol';
 
-const input = workerData as WorkerInput;
+// The worker is a process boundary. Reject malformed or unexpectedly large startup data
+// before it reaches provider code, even though the current producer is trusted main.
+const input = workerInputSchema.parse(workerData);
 const controller = new AbortController();
 const pendingTools = new Map<string, (outcome: ToolOutcome) => void>();
 const send = (message: WorkerMessage) => parentPort?.postMessage(message);
@@ -88,7 +90,7 @@ function conversation(): ModelMessage[] {
   ]);
   const screens = input.screenshots.flatMap(shot => [
     { type: 'text' as const, text: shot.label },
-    { type: 'image' as const, image: shot.jpeg, mediaType: 'image/jpeg' },
+    { type: 'file' as const, data: shot.jpeg, mediaType: 'image/jpeg' },
   ]);
   return [
     ...history,

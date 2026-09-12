@@ -19,7 +19,7 @@ benchmarks/voice/.venv/bin/python benchmarks/voice/pocket_benchmark.py --output 
 
 The measurement runner disables Hugging Face network access. Missing assets fail rather than downloading during a timed run. `provision_pocket.py` is the explicit network step: it fetches only a pinned public checkpoint, tokenizer, and voice embedding, verifies sizes and SHA-256 hashes, and refuses to overwrite files or retry partial downloads silently.
 
-The approved budget is 2 GB for Pocket and dependencies, no paid calls. Dependency wheel upper bound: 191,865,520 bytes; selected assets: 225,282,959 bytes. Allow for metadata traffic. An earlier 6,194,424-byte Alba embedding was fetched before confirming the release-specific voice revision; it is not the audition voice. Model and voice revisions are distinct and recorded in results.
+The approved budget is 2 GB for Pocket and dependencies, no paid calls. Dependency wheel upper bound: 191,865,520 bytes; currently pinned assets: 239,195,519 bytes. Allow for metadata traffic. Alba and Fantine remain cached for historical benchmark reproduction; Jane is the current product default. Model and voice revisions are distinct and recorded in results.
 
 ## What the results mean
 

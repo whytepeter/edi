@@ -4,6 +4,7 @@ import {
   placeContextMenu,
   placeSpeechBubble,
   skinGeometry,
+  type ApprovalRequest,
   type BubbleSide,
   type SkinId,
   type StatusBubbleState,
@@ -19,10 +20,8 @@ interface CharacterActionsOptions {
   pet: BrowserWindow;
   card: BrowserWindow;
   skin: () => SkinId;
-  /** Whether hold-to-talk works right now (a local voice runtime is present). */
-  voiceReady: () => boolean;
-  /** How to start talking, shown when someone clicks instead of holding. */
-  holdHint: () => string;
+  /** Start real capture; false means the local voice runtime is unavailable. */
+  startVoice: (mode: 'conversation' | 'push-to-talk') => boolean;
   showContent: () => void;
   stopWork: () => void;
   createBubble: (options: StatusBubbleOptions) => BrowserWindow;
@@ -38,60 +37,49 @@ export class CharacterActions {
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
   private dismiss?: ReturnType<typeof setTimeout>;
-  private replyText = '';
-  private replyDone = false;
   private bubbleReady = false;
-
-  /** Reuse the bubble window as tokens arrive; never reload it per token. */
-  showReply = (text: string, done: boolean) => {
-    this.replyText = text.slice(-600);
-    this.replyDone = done;
-    if (!this.replyText) {
-      if (done) this.hideBubble();
-      return;
-    }
-    clearTimeout(this.dismiss);
-    if (this.bubble?.state !== 'notice') this.showStatus('notice');
-    this.pushReply();
-    if (done) this.dismiss = setTimeout(() => this.hideBubble(), 12000);
-  };
+  private approval?: ApprovalRequest;
 
   constructor(private readonly options: CharacterActionsOptions) {
     options.pet.on('move', this.followPet);
   }
 
   requestListening = (mode: 'conversation' | 'push-to-talk' = 'conversation') => {
-    this.replyText = '';
-    this.replyDone = false;
     this.hideMenu();
     this.mode = mode;
     this.options.stopWork();
     this.options.pet.showInactive();
-    // Hands-free conversation is not built yet; only hold-to-talk listens. Never claim
-    // the microphone is active when it is not.
-    if (this.options.voiceReady()) this.showStatus('notice', 4000, this.options.holdHint());
-    else this.showStatus('unavailable', 5000);
+    if (!this.options.startVoice(mode)) this.showStatus('unavailable', 5000);
   };
 
-  /** Mirror the agent: dots while waiting for the first words, gone once they arrive. */
+  /** Mirror text work with dots, but keep the conversation itself in the card. */
   setThinking = (thinking: boolean) => {
-    if (thinking && this.bubble?.state !== 'thinking' && this.bubble?.state !== 'notice') {
-      this.replyText = '';
-      this.replyDone = false;
+    if (thinking && this.bubble?.state !== 'thinking' && this.bubble?.state !== 'approval')
       this.showStatus('thinking');
-    }
+    else if (!thinking && this.bubble?.state === 'thinking') this.hideBubble();
   };
 
-  /** Voice session feedback: live listening, thinking, a short notice, or nothing. */
-  showVoiceStatus = (status: 'listening' | 'thinking' | 'hidden' | { notice: string }) => {
-    if (status !== 'hidden') {
-      this.replyText = '';
-      this.replyDone = false;
-    }
+  /** Voice session feedback: live listening, thinking, speaking, a notice, or nothing. */
+  showVoiceStatus = (
+    status: 'listening' | 'thinking' | 'speaking' | 'hidden' | { notice: string },
+  ) => {
     if (status === 'hidden') {
-      if (!this.replyText) this.hideBubble();
+      if (this.bubble?.state !== 'approval') this.hideBubble();
     } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
     else if (this.bubble?.state !== status) this.showStatus(status);
+  };
+
+  /** Compact, actionable preview; the full prepared effect stays in the content card. */
+  showApproval = (approval: ApprovalRequest | null) => {
+    if (!approval) {
+      this.approval = undefined;
+      if (this.bubble?.state === 'approval') this.hideBubble();
+      return;
+    }
+    if (this.approval?.callId === approval.callId) return;
+    this.approval = approval;
+    this.hideMenu();
+    this.showStatus('approval');
   };
 
   private showStatus(state: StatusBubbleState, dismissAfterMs?: number, text?: string) {
@@ -100,7 +88,7 @@ export class CharacterActions {
     const window = this.options.createBubble({ state, side, text, skin: this.options.skin() });
     this.bubble = { window, state, side };
     this.bubbleReady = false;
-    window.setIgnoreMouseEvents(true);
+    window.setIgnoreMouseEvents(state !== 'approval');
     window.setBounds(bounds);
     let shown = false;
     const show = () => {
@@ -108,24 +96,21 @@ export class CharacterActions {
       shown = true;
       this.bubbleReady = true;
       window.showInactive();
-      this.pushReply();
+      this.pushApproval();
       if (dismissAfterMs) this.dismiss = setTimeout(() => this.hideBubble(), dismissAfterMs);
     };
-    // Tokens arrive while the window loads. Flush after the renderer can
-    // subscribe. ready-to-show covers a load that finished before we listened.
+    // Approval data may arrive while the window loads. Flush after the renderer
+    // subscribes. ready-to-show covers a load that finished before we listened.
     window.webContents.once('did-finish-load', show);
     window.once('ready-to-show', show);
     if (!window.webContents.isLoading() && window.webContents.getURL()) queueMicrotask(show);
   }
 
-  private pushReply() {
+  private pushApproval() {
     const bubble = this.bubble;
     if (!this.bubbleReady || !bubble || bubble.window.isDestroyed()) return;
-    if (bubble.state !== 'notice') return;
-    bubble.window.webContents.send('edi:bubble-text', {
-      text: this.replyText,
-      done: this.replyDone,
-    });
+    if (bubble.state !== 'approval' || !this.approval) return;
+    bubble.window.webContents.send('edi:bubble-approval', this.approval);
   }
 
   private bubblePlacement(size: { width: number; height: number }, side?: BubbleSide) {
@@ -175,10 +160,14 @@ export class CharacterActions {
     if (this.mode === 'push-to-talk') this.stop();
   }
 
-  private showContent() {
-    this.hideBubble();
+  showContent = () => {
     this.options.showContent();
-  }
+    // Let an approval bubble's IPC reply complete before destroying its sender.
+    const bubble = this.bubble?.window;
+    setTimeout(() => {
+      if (bubble && this.bubble?.window === bubble) this.hideBubble();
+    }, 0);
+  };
 
   menuItems(): MenuItemConstructorOptions[] {
     return [
@@ -194,6 +183,14 @@ export class CharacterActions {
   ownsMenu(contents: Electron.WebContents) {
     return (
       this.menu !== undefined && !this.menu.isDestroyed() && this.menu.webContents === contents
+    );
+  }
+
+  ownsBubble(contents: Electron.WebContents) {
+    return (
+      this.bubble !== undefined &&
+      !this.bubble.window.isDestroyed() &&
+      this.bubble.window.webContents === contents
     );
   }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -223,6 +223,7 @@ test('manifest exposes model-safe names and JSON schemas', () => {
     manifest.map(entry => entry.name),
     ['notes_save', 'notes_list', 'notes_read', 'notes_edit', 'notes_delete'],
   );
+  assert.ok(manifest[0]);
   assert.equal((manifest[0].inputSchema as { type: string }).type, 'object');
 });
 
@@ -310,4 +311,24 @@ test('notes.edit and notes.delete refuse paths outside the notes folder', async 
   );
   assert.throws(() => remove.prepare({ id: noteId }, context), /outside the notes folder/);
   assert.equal(await readFile(outside, 'utf8'), 'secret');
+});
+
+test('notes.read refuses replacement links and oversized files', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
+  const outside = join(folder, '..', `edi-secret-${noteId}.md`);
+  const linked = join(folder, 'linked.md');
+  await writeFile(outside, 'secret');
+  await symlink(outside, linked);
+  const linkedStore = memoryStore([{ id: noteId, title: 'Linked', path: linked, createdAt: 1 }]);
+  const [, , linkedRead] = notesCapabilities({ directory: () => folder, store: linkedStore });
+  const context = { callId: '00000000-0000-4000-8000-000000000013', runId: run };
+  const linkedAction = await linkedRead.prepare({ id: noteId }, context);
+  await assert.rejects(() => linkedAction.execute(live()));
+
+  const large = join(folder, 'large.md');
+  await writeFile(large, 'x'.repeat(64 * 1024 + 1));
+  const largeStore = memoryStore([{ id: noteId, title: 'Large', path: large, createdAt: 1 }]);
+  const [, , largeRead] = notesCapabilities({ directory: () => folder, store: largeStore });
+  const largeAction = await largeRead.prepare({ id: noteId }, context);
+  await assert.rejects(() => largeAction.execute(live()), /too large/);
 });

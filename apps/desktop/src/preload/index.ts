@@ -5,11 +5,20 @@ import {
   commandSchema,
   settingsSchema,
   permissionSnapshotSchema,
+  workspaceViewSchema,
   voiceHostEventSchema,
   type DesktopBridge,
 } from '@edi/contracts';
 
 const bridge: DesktopBridge = {
+  onNavigate: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = workspaceViewSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:navigate', listener);
+    return () => ipcRenderer.removeListener('edi:navigate', listener);
+  },
   permissions: async () =>
     permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
   onPermissions: callback => {

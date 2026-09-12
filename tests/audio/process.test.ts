@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { PocketVoice, speakPocket } from '../../apps/desktop/src/main/voice/pocket-process';
+import {
+  defaultPocketVoice,
+  PocketVoice,
+  speakPocket,
+} from '../../apps/desktop/src/main/voice/pocket-process';
 
 const runtime = {
   python: '/usr/bin/python3',
@@ -13,6 +17,10 @@ const live = () => new AbortController().signal;
 const collect = (values: number[]) => async (pcm: Float32Array) => {
   values.push(pcm[0]);
 };
+
+test("the bundled Pocket adapter selects Edi's Jane voice by default", () => {
+  assert.equal(defaultPocketVoice, 'jane');
+});
 
 test('worker credits deliver validated frames in order', async () => {
   const values: number[] = [];

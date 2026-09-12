@@ -93,6 +93,7 @@ test('hold-to-talk transcribes before deciding whether the prompt needs screens'
   assert.equal(h.voice.phase, 'idle');
   // Opening clears any old bubble; listening only appears once capture is confirmed.
   assert.deepEqual(h.statuses.slice(0, 3), ['hidden', 'listening', 'thinking']);
+  assert.ok(h.statuses.includes('speaking'));
   assert.equal(h.statuses.at(-1), 'hidden');
 });
 
@@ -108,13 +109,13 @@ test('releasing without speech submits nothing', async () => {
   assert.equal(h.asked.length, 0);
 });
 
-test('a refused microphone never opens capture and says why', async () => {
+test('a refused microphone leaves guidance to the just-in-time permission card', async () => {
   const h = harness({ microphoneAccess: async () => false });
   h.voice.start('push-to-talk');
   await tick();
   assert.equal(h.types().includes('open'), false);
   assert.equal(h.voice.phase, 'error');
-  assert.match(JSON.stringify(h.statuses.at(-1)), /microphone/i);
+  assert.equal(h.statuses.at(-1), 'hidden');
 });
 
 test('a spoken turn without OpenRouter says so instead of a generic stop', async () => {

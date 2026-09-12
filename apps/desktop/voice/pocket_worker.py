@@ -8,14 +8,14 @@ Protocol (one JSON object per line):
   worker -> host  {"type": "done", "cancelled": bool}
 Closing stdin ends the worker. Any other credit is a protocol violation.
 """
+import argparse
 import base64
 import contextlib
 import json
 import os
 import sys
 
-# Pocket's published "alba" embedding is male-pitched (~130 Hz). Fantine is female.
-DEFAULT_VOICE = "fantine"
+SUPPORTED_VOICES = ("jane",)
 
 
 def emit(message):
@@ -42,6 +42,9 @@ def speak(model, voice, text):
 
 
 def main():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--voice", choices=SUPPORTED_VOICES, required=True)
+    args = parser.parse_args()
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -51,8 +54,8 @@ def main():
         from pocket_tts import TTSModel
         torch.set_num_threads(2)
         model = TTSModel.load_model()
-        voice = model.get_state_for_audio_prompt(DEFAULT_VOICE)
-    emit({"type": "ready", "rate": model.sample_rate})
+        voice = model.get_state_for_audio_prompt(args.voice)
+    emit({"type": "ready", "rate": model.sample_rate, "voice": args.voice})
 
     while True:
         request = sys.stdin.readline(16000)

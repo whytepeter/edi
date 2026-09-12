@@ -38,3 +38,16 @@ export function ListeningBars() {
     </span>
   );
 }
+
+/** Voice levels: shown while Edi is actively playing a spoken reply. */
+export function SpeakingBars() {
+  return (
+    <span className="ds-speaking speaking-bars" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+      <i />
+      <i />
+    </span>
+  );
+}

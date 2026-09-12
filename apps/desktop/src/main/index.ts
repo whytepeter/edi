@@ -1,13 +1,4 @@
-import {
-  app,
-  globalShortcut,
-  Menu,
-  screen,
-  session,
-  shell,
-  systemPreferences,
-  type WebContents,
-} from 'electron';
+import { app, globalShortcut, Menu, screen, systemPreferences } from 'electron';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -25,13 +16,12 @@ function recordMicrophoneStatus(phase: string) {
   }
 }
 recordMicrophoneStatus('boot');
-import { presentationText, type PermissionId, type PermissionStatus } from '@edi/contracts';
 import { notesCapabilities } from '@edi/capabilities';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreensForPrompt } from './capture/screens';
-import { ScreenRecording, shouldHideCardOnBlur } from './permissions';
-import { PermissionManager } from './permission-manager';
+import { shouldHideCardOnBlur } from './permissions';
+import type { PermissionManager } from './permission-manager';
 import { PocketVoice } from './voice/pocket-process';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
@@ -45,6 +35,7 @@ import { registerIpc } from './ipc/router';
 import { PetDrag } from './character/pet-drag';
 import { SettingsStore } from './settings/settings-store';
 import { WindowPlacement } from './windows/placement';
+import { createMacMediaPermissions } from './platform/macos-media-permissions';
 import {
   broadcast,
   createCharacterMenuWindow,
@@ -55,10 +46,6 @@ import {
 } from './windows/factory';
 
 let quitting = false;
-
-function microphoneStatus(): PermissionStatus {
-  return systemPreferences.getMediaAccessStatus('microphone');
-}
 
 /** Composition root: construct services, wire them together, own app lifecycle. */
 async function start() {
@@ -125,114 +112,20 @@ async function start() {
     warmSpeech: () => pocket?.warm(),
   });
 
-  // Hiding the card on blur dismisses macOS permission prompts. Hold it up
-  // for the ask, including the Chromium getUserMedia fallback.
-  let holdCard = false;
-  const screenRecording = new ScreenRecording();
-  const requestScreenRecording = async () => {
-    const cardWasOpen = !workspace.isDestroyed() && workspace.isVisible();
-    holdCard = true;
-    try {
-      // The conversation button is on the card. Focusing the pet blurs it, and
-      // hide-on-blur then closes Talk to Edi. Keep the card if it is already up.
-      if (cardWasOpen && !workspace.isDestroyed()) {
-        workspace.show();
-        workspace.focus();
-      } else if (!pet.isDestroyed()) pet.show();
-      return await screenRecording.request();
-    } finally {
-      // The system sheet can appear after CGRequest returns. Keep the card
-      // up so hide-on-blur does not dismiss it. Do not block the click.
-      setTimeout(() => {
-        holdCard = false;
-        if (cardWasOpen && !workspace.isDestroyed()) workspace.show();
-      }, 8_000);
-    }
-  };
-  let microphoneProbe = false;
-  const requestMicrophoneAccess = async (): Promise<PermissionStatus> => {
-    if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return 'granted';
-    holdCard = true;
-    microphoneProbe = true;
-    try {
-      if (!workspace.isDestroyed()) {
-        workspace.show();
-        workspace.focus();
-      }
-      try {
-        if (await systemPreferences.askForMediaAccess('microphone')) return 'granted';
-      } catch {
-        // Chromium's getUserMedia can still raise the prompt.
-      }
-      if (!pet.isDestroyed()) {
-        await pet.webContents.executeJavaScript(
-          'navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{s.getTracks().forEach(t=>t.stop());true}).catch(()=>false)',
-        );
-      }
-      return microphoneStatus();
-    } catch {
-      return microphoneStatus();
-    } finally {
-      microphoneProbe = false;
-      holdCard = false;
-    }
-  };
-
-  const settingsUrls: Record<PermissionId, string> = {
-    microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
-    'screen-recording':
-      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
-  };
-  const permissions = new PermissionManager(
-    {
-      microphone: {
-        status: microphoneStatus,
-        request: requestMicrophoneAccess,
-        openSettings: () => shell.openExternal(settingsUrls.microphone).then(() => undefined),
-      },
-      'screen-recording': {
-        status: () => screenRecording.status(),
-        request: requestScreenRecording,
-        openSettings: () =>
-          shell.openExternal(settingsUrls['screen-recording']).then(() => undefined),
-      },
-    },
-    () => placement.reveal(),
-  );
-  permissionPort.current = permissions;
-  permissions.onChange(snapshot => broadcast([workspace], 'edi:permissions', snapshot));
-
-  // Nothing is granted except the microphone, to the pet window, audio only, and
-  // only while a voice turn is opening or listening.
-  const audioOnly = (details: object) => {
-    const types = 'mediaTypes' in details ? details.mediaTypes : undefined;
-    if (Array.isArray(types)) return types.length > 0 && types.every(type => type === 'audio');
-    const type = 'mediaType' in details ? details.mediaType : undefined;
-    return type === undefined || type === 'audio';
-  };
-  const allowMicrophone = (contents: WebContents | null, permission: string, details: object) => {
-    if (permission !== 'microphone' && permission !== 'audioCapture' && permission !== 'media')
-      return false;
-    if (permission === 'media' && !audioOnly(details)) return false;
-    // Chromium pre-checks with no window. Denying those suppresses the prompt.
-    if (!contents) return voice.wantsMicrophone || microphoneProbe;
-    return contents === pet.webContents && (voice.wantsMicrophone || microphoneProbe);
-  };
-  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
-    allowMicrophone(contents, permission, details),
-  );
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-    callback(allowMicrophone(contents, permission, details));
+  const mediaPermissions = createMacMediaPermissions({
+    workspace,
+    pet,
+    voice,
+    revealPermissionCard: () => placement.reveal(),
+    onChange: snapshot => broadcast([workspace], 'edi:permissions', snapshot),
   });
+  const permissions = mediaPermissions.manager;
+  permissionPort.current = permissions;
   const character = new CharacterActions({
     pet,
     card: workspace,
     skin: () => settings.current.skin,
-    voiceReady: () => voice.available,
-    holdHint: () =>
-      hotkey.status === 'ready'
-        ? `Hold ${optionSpace.label}, or hold me, to talk`
-        : 'Hold me down and talk to me',
+    startVoice: mode => voice.start(mode),
     showContent: () => placement.show(),
     stopWork: () => {
       pointer.dismiss();
@@ -255,7 +148,7 @@ async function start() {
     {
       down: () => {
         pet.showInactive();
-        if (!voice.start('push-to-talk')) character.requestListening('push-to-talk');
+        character.requestListening('push-to-talk');
       },
       up: () => {
         if (voice.phase !== 'idle') voice.release();
@@ -266,20 +159,13 @@ async function start() {
   hotkey.start();
 
   settings.onChange(value => broadcast([workspace, pet], 'edi:settings', value));
-  let shownApproval: string | null = null;
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
+    character.showApproval(state.approval);
     character.setThinking(state.status === 'running' && !state.text && !state.approval);
-    if (!state.approval && (state.status === 'running' || state.status === 'done')) {
-      character.showReply(presentationText(state.text), state.status === 'done');
-    } else if (state.status === 'error' || state.status === 'stopped') {
-      character.showReply('', true);
-    }
-    // A new review surfaces the card even if it was hidden, without stealing focus.
-    const approval = state.approval?.callId ?? null;
-    if (approval && approval !== shownApproval) placement.reveal();
-    shownApproval = approval;
+    // A new review appears beside Edi first. The person can act there or reveal
+    // the already-prepared full review in the content card.
   });
 
   placement.place();
@@ -298,7 +184,9 @@ async function start() {
     workspace.hide();
   });
   workspace.on('blur', () => {
-    if (shouldHideCardOnBlur(settings.current.pinned, holdCard)) workspace.hide();
+    if (shouldHideCardOnBlur(settings.current.pinned, mediaPermissions.holdsCardOpen())) {
+      workspace.hide();
+    }
   });
 
   // Registered in the same tick as window creation, before any renderer can run.
@@ -307,6 +195,7 @@ async function start() {
       if (!workspace.isDestroyed() && sender === workspace.webContents) return 'workspace';
       if (!pet.isDestroyed() && sender === pet.webContents) return 'pet';
       if (character.ownsMenu(sender)) return 'menu';
+      if (character.ownsBubble(sender)) return 'bubble';
       return undefined;
     },
     routes: createCommandRoutes({

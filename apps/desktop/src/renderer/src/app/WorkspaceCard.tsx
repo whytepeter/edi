@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import type { WorkspaceView } from '@edi/contracts';
 import { IconButton, Menu, ToolbarGroup } from '../components/ui';
 import { accentFor, type Command } from '../lib/bridge';
 import { useSettings } from '../hooks/useSettings';
@@ -14,8 +15,6 @@ import './workspace.css';
 import { PermissionCard } from '../features/permissions/PermissionCard';
 import { usePermissions } from '../hooks/usePermissions';
 
-type View = 'content' | 'agent' | 'avatars' | 'extensions' | 'activity';
-
 /** The floating content card: navigation, card controls, and the active view. */
 export function WorkspaceCard() {
   const { settings, setSettings, error: loadError } = useSettings();
@@ -26,7 +25,7 @@ export function WorkspaceCard() {
   useEffect(() => {
     blockedRef.current = blocked;
   }, [blocked]);
-  const [view, setView] = useState<View>('content');
+  const [view, setView] = useState<WorkspaceView>('content');
   const permissionSnapshot = usePermissions();
   const activePermission = permissionSnapshot.permissions.find(
     permission => permission.id === permissionSnapshot.active,
@@ -35,6 +34,10 @@ export function WorkspaceCard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState('');
   const moreButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    return window.edi?.onNavigate(setView);
+  }, []);
 
   async function send(command: Command) {
     try {
@@ -54,7 +57,7 @@ export function WorkspaceCard() {
     moreButton.current?.focus();
   }
 
-  function navigate(next: View) {
+  function navigate(next: WorkspaceView) {
     setView(next);
     setMenuOpen(false);
   }

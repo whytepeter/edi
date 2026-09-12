@@ -22,7 +22,9 @@ export function SegmentedControl<T extends string>({
     if (!step) return;
     event.preventDefault();
     const next = (index + step + options.length) % options.length;
-    onChange(options[next]);
+    const option = options[next];
+    if (option === undefined) return;
+    onChange(option);
     root.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
   }
 

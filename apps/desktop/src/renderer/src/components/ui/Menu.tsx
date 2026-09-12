@@ -49,7 +49,7 @@ export function Menu({ label, items, onDismiss, material = 'glass', className = 
     if (next >= 0) {
       event.preventDefault();
       setNavigating(true);
-      entries[next].focus();
+      entries[next]?.focus();
     }
   }
 

@@ -21,7 +21,7 @@ const params = new URLSearchParams(location.search);
 export const surface: Surface =
   surfaces.find(name => name === params.get('surface')) ?? 'workspace';
 
-/** The bubble has no bridge, so main passes its state in the URL. Validate it anyway. */
+/** Main passes static bubble state in the URL. Validate it before rendering. */
 export const bubbleParams = {
   state: statusBubbleStateSchema.catch('unavailable').parse(params.get('state')),
   side: bubbleSideSchema.catch('right').parse(params.get('side')),

@@ -56,7 +56,6 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ mode }) => {
         // Keep receiving the held pointer even if it leaves the painted body.
         if (mode === 'push-to-talk') pet.setIgnoreMouseEvents(false);
-        if (mode === 'push-to-talk' && voice.start('push-to-talk')) return;
         character.requestListening(mode);
       },
     },
@@ -87,7 +86,13 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       },
     },
 
-    'show-workspace': { from: ['workspace', 'pet'], handle: () => placement.show() },
+    'show-workspace': {
+      from: ['workspace', 'pet', 'bubble'],
+      handle: ({ view }) => {
+        if (view) workspace.webContents.send('edi:navigate', view);
+        character.showContent();
+      },
+    },
     'hide-workspace': { from: fromWorkspace, handle: () => workspace.hide() },
     'set-expanded': {
       from: fromWorkspace,
@@ -105,7 +110,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'ask-agent': { from: fromWorkspace, handle: ({ prompt }) => agent.ask(prompt) },
     'stop-agent': { from: fromWorkspace, handle: () => agent.stop() },
     'respond-approval': {
-      from: fromWorkspace,
+      from: ['workspace', 'bubble'],
       handle: ({ callId, decision }) => agent.respondToApproval(callId, decision),
     },
   };

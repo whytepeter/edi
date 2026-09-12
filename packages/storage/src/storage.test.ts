@@ -64,6 +64,7 @@ test('activity returns runs newest first with their tool steps in order', () => 
       [uuid(1), 'running'],
     ],
   );
+  assert.ok(activity[0]);
   assert.deepEqual(
     activity[0].steps.map(s => [s.callId, s.status]),
     [
@@ -110,6 +111,7 @@ test('startup recovery never replays: runs interrupt, approvals cancel, in-fligh
 
   assert.deepEqual(repos.recoverInterrupted(50), { runs: 1, approvals: 1, uncertain: 1 });
   const [recovered] = repos.activity(1);
+  assert.ok(recovered);
   assert.equal(recovered.status, 'interrupted');
   assert.deepEqual(
     recovered.steps.map(s => s.status),
@@ -156,7 +158,7 @@ test('recent exchanges are completed turns, oldest first, clipped', () => {
     { prompt: 'question 3', reply: 'answer 3' },
     { prompt: 'question 4', reply: 'answer 4' },
   ]);
-  assert.equal(repos.runs.recentExchanges(10, { prompt: 4, reply: 3 })[0].reply, 'ans');
+  assert.equal(repos.runs.recentExchanges(10, { prompt: 4, reply: 3 })[0]?.reply, 'ans');
 });
 
 test('thread includes finished turns for the chat, oldest first', () => {
@@ -176,6 +178,8 @@ test('thread includes finished turns for the chat, oldest first', () => {
     turns.map(turn => turn.prompt),
     ['question 2', 'question 3', 'question 4'],
   );
+  assert.ok(turns[0]);
+  assert.ok(turns[1]);
   assert.equal(turns[0].error, 'Could not reach the model.');
   assert.equal(turns[1].reply, 'partial');
 });
@@ -183,7 +187,7 @@ test('thread includes finished turns for the chat, oldest first', () => {
 test('activity reports how many screens were sent', () => {
   const repos = createRepositories(openDatabase(':memory:'));
   repos.runs.start({ ...run(uuid(1)), screens: 2 });
-  assert.equal(repos.activity(1)[0].screens, 2);
+  assert.equal(repos.activity(1)[0]?.screens, 2);
 });
 
 test('notes can be looked up, updated and removed', () => {

@@ -8,8 +8,8 @@ Replies may end with up to six `POINT` or `DRAW` tags. Contracts parse these int
 
 The overlay expires automatically and is destroyed when replaced or stopped. Reduced-motion users see immediate drawing rather than progressive tracing.
 
-The speech bubble receives bounded text through a separate, receive-only preload. It has no command API. Streaming updates reuse the window. Presentation tags are hidden while incomplete as well as after parsing. The full response remains available in the content window; the bubble is a brief preview, not a replacement for it.
+Ordinary reply text stays in the conversation card and never streams into the character bubble. The bubble shows live listening, thinking, and speaking animation. When a capability needs approval, the same surface becomes a compact action card with a validated summary, a request-specific approve/deny action, and **View details** for the full review in the content card. Its isolated preload exposes only those approval actions; it cannot ask the agent, change settings, or access native APIs.
 
 ## Verification still needed
 
-Check fingertip alignment for both skins, tracing across several shapes, negative-origin displays, reduced motion, edge placement, long text and interruption during drawing. Verify spoken replies retain their bubble and Sleep leaves no overlay. The unit suites and production build pass; this change has not yet been visually verified in a packaged build.
+Check fingertip alignment for both skins, tracing across several shapes, negative-origin displays, reduced motion, edge placement and interruption during drawing. Verify speaking animation and that Sleep leaves no overlay. The synthetic native approval check verifies compact layout, arming and response without a live tool call; a packaged approval flow still needs a manual check.

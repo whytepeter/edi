@@ -20,6 +20,10 @@ function launch(mode, tools = [], context = {}) {
   const worker = new Worker(
     `
     const { workerData, parentPort } = require('node:worker_threads');
+    const workerEntry = workerData.entry;
+    const testMode = workerData.mode;
+    delete workerData.entry;
+    delete workerData.mode;
     let requests = 0;
     const sse = values => new Response(
       values.map(value => 'data: ' + JSON.stringify(value) + '\\n\\n').join('') + 'data: [DONE]\\n\\n',
@@ -34,21 +38,21 @@ function launch(mode, tools = [], context = {}) {
       if (body.model !== 'test/model' || !body.stream) throw Error('Unexpected request');
       parentPort.postMessage({ type: 'debug-request', body });
       requests++;
-      if (workerData.mode === 'error') return new Response('test-only-secret must not escape', { status: 401 });
-      if (workerData.mode === 'wait') return new Promise((resolve, reject) => {
+      if (testMode === 'error') return new Response('test-only-secret must not escape', { status: 401 });
+      if (testMode === 'wait') return new Promise((resolve, reject) => {
         options.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
       });
-      if (workerData.mode === 'tool' && requests === 1) {
+      if (testMode === 'tool' && requests === 1) {
         return sse([
           chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_1', type: 'function',
             function: { name: 'notes_save', arguments: '{"title":"Groceries","body":"- milk"}' } }] }),
           end('tool_calls'),
         ]);
       }
-      return sse([chunk({ content: workerData.mode === 'tool' ? 'Saved it.' : 'Hello ' }),
-        ...(workerData.mode === 'tool' ? [] : [chunk({ content: 'from Edi.' })]), end('stop')]);
+      return sse([chunk({ content: testMode === 'tool' ? 'Saved it.' : 'Hello ' }),
+        ...(testMode === 'tool' ? [] : [chunk({ content: 'from Edi.' })]), end('stop')]);
     };
-    require(workerData.entry);
+    require(workerEntry);
   `,
     {
       eval: true,
@@ -59,6 +63,7 @@ function launch(mode, tools = [], context = {}) {
         prompt: 'Hello',
         history: context.history ?? [],
         screenshots: context.screenshots ?? [],
+        spoken: false,
         tools,
         mode,
       },

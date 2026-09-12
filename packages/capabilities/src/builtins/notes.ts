@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { access, link, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, link, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { defineCapability, OutcomeUnknownError } from '../types';
@@ -66,6 +67,7 @@ function formatBytes(bytes: number) {
 }
 
 const noteId = z.string().uuid().describe('Id from notes.list or notes.read');
+const MAX_NOTE_READ_BYTES = 64 * 1024;
 
 function locate(store: NoteStore, directory: () => string, id: string) {
   const note = store.get(id);
@@ -80,6 +82,20 @@ function locate(store: NoteStore, directory: () => string, id: string) {
 
 function noteContent(title: string, body: string) {
   return `# ${title}\n\n${body}\n`;
+}
+
+/** Open the reviewed path without following a replacement symbolic link. */
+async function readNote(path: string) {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('That note is not a regular file. Nothing was read.');
+    if (stat.size > MAX_NOTE_READ_BYTES)
+      throw new Error('That note is too large for Edi to read safely.');
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
 }
 
 export function notesCapabilities({ directory, store, now = Date.now }: NotesDependencies) {
@@ -212,7 +228,7 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
         async execute() {
           let body: string;
           try {
-            body = await readFile(path, 'utf8');
+            body = await readNote(path);
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
               throw new Error('That note’s file is gone. Nothing was read.', { cause: error });

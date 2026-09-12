@@ -15,7 +15,7 @@ export const initialScreenContextState: ScreenContextState = {
  * Kept as a noun class, not a list of prompts.
  */
 const VISIBLE_NOUN =
-  'window|dialog|popup|modal|menu|button|field|form|tab|browser|webpage|website|page|image|photo|chart|graph|error|document|app|email|message|notification';
+  'window|dialog|popup|modal|menu|button|field|form|tab|browser|webpage|website|page|image|photo|chart|graph|error|app|notification';
 
 const DEMONSTRATIVE = 'this|that|these|those|current|open|visible|my';
 

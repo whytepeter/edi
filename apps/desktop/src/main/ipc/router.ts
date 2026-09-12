@@ -8,8 +8,8 @@ import {
   type PermissionSnapshot,
 } from '@edi/contracts';
 
-/** Renderers allowed to call the main process. The voice-status bubble has no bridge. */
-export type Caller = 'workspace' | 'pet' | 'menu';
+/** Every renderer surface is identified; route allowlists still grant each command explicitly. */
+export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble';
 
 type CommandOf<T extends Command['type']> = Extract<Command, { type: T }>;
 interface Route<T extends Command['type']> {
@@ -62,6 +62,10 @@ export function registerIpc({
   ipcMain.handle('edi:permissions:get', event => {
     authorize(callerOf(event), ['workspace']);
     return permissions();
+  });
+  ipcMain.handle('edi:bubble-approval:get', event => {
+    authorize(callerOf(event), ['bubble']);
+    return agentState().approval;
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

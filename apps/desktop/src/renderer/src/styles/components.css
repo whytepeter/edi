@@ -361,19 +361,39 @@ textarea.ds-input {
   }
 }
 
-.ds-listening {
+.ds-listening,
+.ds-speaking {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   height: 20px;
 }
-.ds-listening i {
+.ds-listening i,
+.ds-speaking i {
   width: 3px;
   height: 100%;
   border-radius: 2px;
   background: var(--accent);
   transform-origin: center;
   animation: ds-listen 0.9s ease-in-out infinite alternate;
+}
+.ds-speaking i {
+  animation-name: ds-speak;
+}
+.ds-speaking i:nth-child(2) {
+  animation-delay: -0.45s;
+}
+.ds-speaking i:nth-child(3) {
+  animation-duration: 0.7s;
+  animation-delay: -0.2s;
+}
+.ds-speaking i:nth-child(4) {
+  animation-duration: 1.05s;
+  animation-delay: -0.7s;
+}
+.ds-speaking i:nth-child(5) {
+  animation-duration: 0.75s;
+  animation-delay: -0.35s;
 }
 /* Uneven periods keep the bars from marching in lockstep. */
 .ds-listening i:nth-child(1) {
@@ -403,6 +423,17 @@ textarea.ds-input {
     transform: scaleY(1);
   }
 }
+@keyframes ds-speak {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scaleY(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(0.9);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ds-bubble {
@@ -412,7 +443,8 @@ textarea.ds-input {
   .ds-thinking i {
     animation-name: ds-think-fade;
   }
-  .ds-listening i {
+  .ds-listening i,
+  .ds-speaking i {
     animation: none;
     transform: scaleY(0.6);
   }
