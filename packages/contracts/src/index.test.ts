@@ -15,6 +15,9 @@ import {
   localizeActions,
   presentationScriptSchema,
   presentationText,
+  needsScreenContext,
+  createScreenContextSession,
+  permissionSnapshotSchema,
 } from './index';
 
 test('agent state carries a bounded chat thread', () => {
@@ -169,17 +172,128 @@ test('pet drag commands require a valid phase, pointer, and finite screen point'
   assert.equal(commandSchema.safeParse({ ...command, point: { x: NaN, y: 0 } }).success, false);
   assert.equal(commandSchema.safeParse({ ...command, pointerId: -1 }).success, false);
 });
-test('microphone permission commands have no extra fields', () => {
+test('permission commands are generic, bounded and typed', () => {
+  assert.equal(commandSchema.safeParse({ type: 'permissions-refresh' }).success, true);
   for (const type of [
-    'open-microphone-settings',
-    'open-screen-recording-settings',
-    'check-microphone-permission',
-    'request-microphone-permission',
-    'request-screen-recording',
+    'permission-request',
+    'permission-open-settings',
+    'permission-dismiss',
   ] as const) {
-    assert.equal(commandSchema.safeParse({ type }).success, true);
-    assert.equal(commandSchema.safeParse({ type, extra: true }).success, false);
+    assert.equal(commandSchema.safeParse({ type, permission: 'microphone' }).success, true);
+    assert.equal(commandSchema.safeParse({ type, permission: 'camera' }).success, false);
+    assert.equal(
+      commandSchema.safeParse({ type, permission: 'microphone', extra: true }).success,
+      false,
+    );
   }
+  assert.equal(
+    permissionSnapshotSchema.safeParse({
+      active: 'microphone',
+      permissions: [
+        { id: 'microphone', status: 'denied', requested: true },
+        { id: 'screen-recording', status: 'not-determined', requested: false },
+      ],
+    }).success,
+    true,
+  );
+  assert.equal(
+    permissionSnapshotSchema.safeParse({
+      active: null,
+      permissions: [
+        { id: 'microphone', status: 'granted', requested: false },
+        { id: 'microphone', status: 'denied', requested: true },
+      ],
+    }).success,
+    false,
+  );
+});
+
+test('screen context is attached only for requests about visible content', () => {
+  for (const prompt of [
+    'Hello',
+    "What's my name?",
+    'Explain closures in JavaScript',
+    'Write a polite follow-up email',
+    'What is 37 times 19?',
+    'Brainstorm names for my coffee shop',
+    'Build a webpage about coffee',
+    'Create a chart from these numbers',
+    'Explain what a browser is',
+    'Write a form validation function',
+    'What is this?',
+    'Look at this code I pasted',
+    'Explain desktop applications',
+    'Point to the irony in this story',
+    'Better?',
+    'Is it fixed now?',
+    'What changed?',
+    'Send it',
+  ])
+    assert.equal(needsScreenContext(prompt), false, prompt);
+  for (const prompt of [
+    "What's on my screen?",
+    'What does this error mean?',
+    "What's wrong with this error?",
+    "What's wrong with this page?",
+    'Which button should I click?',
+    'Summarize this webpage',
+    'Point to the settings menu',
+    'Read the visible chart',
+    'Where should I click?',
+    'What is on my desktop?',
+    'Look at the current app',
+    'What does this dialog say?',
+    'Read this image',
+  ])
+    assert.equal(needsScreenContext(prompt), true, prompt);
+});
+
+test('short follow-ups recapture only during an active visual conversation', () => {
+  const visual = { visualContextActive: true };
+  for (const prompt of [
+    'Better?',
+    'Better now?',
+    'Is it fixed now?',
+    'Is it fixed?',
+    'What changed?',
+    'Still broken?',
+    'Same issue?',
+    'And now?',
+    'Now what?',
+    'This?',
+    'That one?',
+    'Can you see?',
+    'Does this look better?',
+    'What is this?',
+    'Why is this happening?',
+    'Why is it doing that?',
+  ])
+    assert.equal(needsScreenContext(prompt, visual), true, prompt);
+  for (const prompt of [
+    'Write an email to John',
+    'Send it',
+    'Explain closures in JavaScript',
+    'Hello',
+    'What is 37 times 19?',
+  ])
+    assert.equal(needsScreenContext(prompt, visual), false, prompt);
+});
+
+test('a non-visual request ends the visual conversation', () => {
+  const session = createScreenContextSession();
+  assert.equal(session.decide("What's wrong with this error?"), true);
+  assert.equal(session.decide('Better?'), true);
+  assert.equal(session.decide('Is it fixed now?'), true);
+  assert.equal(session.decide('What changed?'), true);
+  assert.equal(session.decide('Write an email to John'), false);
+  assert.equal(session.decide('Send it'), false);
+  assert.equal(session.state.visualContextActive, false);
+
+  const page = createScreenContextSession();
+  assert.equal(page.decide("What's wrong with this page?"), true);
+  assert.equal(page.decide('Better now?'), true);
+  assert.equal(page.decide('Write an email to John'), false);
+  assert.equal(page.decide('Send it'), false);
 });
 test('agent commands bound prompts, keys, and model IDs', () => {
   assert.equal(commandSchema.safeParse({ type: 'ask-agent', prompt: 'hello' }).success, true);

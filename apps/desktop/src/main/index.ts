@@ -4,6 +4,7 @@ import {
   Menu,
   screen,
   session,
+  shell,
   systemPreferences,
   type WebContents,
 } from 'electron';
@@ -16,22 +17,21 @@ function recordMicrophoneStatus(phase: string) {
   const out = process.env.EDI_MIC_OUT;
   if (!out) return;
   try {
-    writeFileSync(
-      out,
-      `${phase}=${systemPreferences.getMediaAccessStatus('microphone')}\n`,
-      { flag: 'a' },
-    );
+    writeFileSync(out, `${phase}=${systemPreferences.getMediaAccessStatus('microphone')}\n`, {
+      flag: 'a',
+    });
   } catch {
     // Probe path only; ignore a failed write.
   }
 }
 recordMicrophoneStatus('boot');
-import { presentationText } from '@edi/contracts';
+import { presentationText, type PermissionId, type PermissionStatus } from '@edi/contracts';
 import { notesCapabilities } from '@edi/capabilities';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
-import { captureScreens } from './capture/screens';
+import { captureScreensForPrompt } from './capture/screens';
 import { ScreenRecording, shouldHideCardOnBlur } from './permissions';
+import { PermissionManager } from './permission-manager';
 import { PocketVoice } from './voice/pocket-process';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
@@ -56,6 +56,10 @@ import {
 
 let quitting = false;
 
+function microphoneStatus(): PermissionStatus {
+  return systemPreferences.getMediaAccessStatus('microphone');
+}
+
 /** Composition root: construct services, wire them together, own app lifecycle. */
 async function start() {
   // One SQLite writer, owned here. Nothing in flight at the last quit is replayed.
@@ -64,6 +68,7 @@ async function start() {
   repositories.recoverInterrupted(Date.now());
 
   const settings = new SettingsStore();
+  const permissionPort: { current?: PermissionManager } = {};
   const agent = new AgentService({
     credentials: new OpenRouterCredentials(),
     repositories,
@@ -71,7 +76,8 @@ async function start() {
       directory: () => join(app.getPath('documents'), 'Edi Notes'),
       store: repositories.notes,
     }),
-    captureScreens,
+    captureScreens: captureScreensForPrompt,
+    screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
   });
   await Promise.all([settings.load(), agent.load()]);
@@ -103,8 +109,8 @@ async function start() {
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
     status: status => character.showVoiceStatus(status),
-    microphoneAccess: () => requestMicrophoneAccess(),
-    captureScreens,
+    microphoneAccess: async () => permissionPort.current?.require('microphone') ?? false,
+    captureScreens: captureScreensForPrompt,
     ask: (prompt, options) =>
       agent.ask(prompt, options).catch((error: unknown) => {
         if (error instanceof Error && error.message === 'Set up OpenRouter first.')
@@ -122,17 +128,7 @@ async function start() {
   // Hiding the card on blur dismisses macOS permission prompts. Hold it up
   // for the ask, including the Chromium getUserMedia fallback.
   let holdCard = false;
-  const screenRecording = new ScreenRecording({
-    read: () => ({
-      prompted: settings.current.screenRecordingPrompted,
-      confirmed: settings.current.screenRecordingConfirmed,
-    }),
-    write: next =>
-      settings.update({
-        screenRecordingPrompted: next.prompted,
-        screenRecordingConfirmed: next.confirmed,
-      }),
-  });
+  const screenRecording = new ScreenRecording();
   const requestScreenRecording = async () => {
     const cardWasOpen = !workspace.isDestroyed() && workspace.isVisible();
     holdCard = true;
@@ -143,16 +139,7 @@ async function start() {
         workspace.show();
         workspace.focus();
       } else if (!pet.isDestroyed()) pet.show();
-      const { access } = await screenRecording.request();
-      agent.rememberScreenAccess(access);
-      if (
-        access === 'granted' &&
-        systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
-        !workspace.isDestroyed()
-      ) {
-        workspace.webContents.send('edi:microphone-permission', 'blocked');
-      }
-      return access;
+      return await screenRecording.request();
     } finally {
       // The system sheet can appear after CGRequest returns. Keep the card
       // up so hide-on-blur does not dismiss it. Do not block the click.
@@ -163,40 +150,57 @@ async function start() {
     }
   };
   let microphoneProbe = false;
-  const requestMicrophoneAccess = async () => {
-    if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
+  const requestMicrophoneAccess = async (): Promise<PermissionStatus> => {
+    if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return 'granted';
     holdCard = true;
+    microphoneProbe = true;
     try {
       if (!workspace.isDestroyed()) {
         workspace.show();
         workspace.focus();
       }
       try {
-        if (await systemPreferences.askForMediaAccess('microphone')) return true;
+        if (await systemPreferences.askForMediaAccess('microphone')) return 'granted';
       } catch {
         // Chromium's getUserMedia can still raise the prompt.
       }
-      if (pet.isDestroyed()) return false;
-      microphoneProbe = true;
-      return (
-        (await pet.webContents.executeJavaScript(
+      if (!pet.isDestroyed()) {
+        await pet.webContents.executeJavaScript(
           'navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{s.getTracks().forEach(t=>t.stop());true}).catch(()=>false)',
-        )) === true
-      );
+        );
+      }
+      return microphoneStatus();
     } catch {
-      return false;
+      return microphoneStatus();
     } finally {
       microphoneProbe = false;
       holdCard = false;
-      if (
-        systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
-        !workspace.isDestroyed()
-      ) {
-        workspace.webContents.send('edi:microphone-permission', 'blocked');
-        placement.reveal();
-      }
     }
   };
+
+  const settingsUrls: Record<PermissionId, string> = {
+    microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+    'screen-recording':
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  };
+  const permissions = new PermissionManager(
+    {
+      microphone: {
+        status: microphoneStatus,
+        request: requestMicrophoneAccess,
+        openSettings: () => shell.openExternal(settingsUrls.microphone).then(() => undefined),
+      },
+      'screen-recording': {
+        status: () => screenRecording.status(),
+        request: requestScreenRecording,
+        openSettings: () =>
+          shell.openExternal(settingsUrls['screen-recording']).then(() => undefined),
+      },
+    },
+    () => placement.reveal(),
+  );
+  permissionPort.current = permissions;
+  permissions.onChange(snapshot => broadcast([workspace], 'edi:permissions', snapshot));
 
   // Nothing is granted except the microphone, to the pet window, audio only, and
   // only while a voice turn is opening or listening.
@@ -211,8 +215,7 @@ async function start() {
       return false;
     if (permission === 'media' && !audioOnly(details)) return false;
     // Chromium pre-checks with no window. Denying those suppresses the prompt.
-    if (!contents) return true;
-    if (contents === workspace.webContents) return true;
+    if (!contents) return voice.wantsMicrophone || microphoneProbe;
     return contents === pet.webContents && (voice.wantsMicrophone || microphoneProbe);
   };
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
@@ -287,34 +290,8 @@ async function start() {
   };
   screen.on('display-removed', onDisplayChange);
   screen.on('display-metrics-changed', onDisplayChange);
-  const presentPermissionGate = () => {
-    const access = screenRecording.status();
-    agent.rememberScreenAccess(access);
-    if (access === 'granted') {
-      if (
-        systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
-        !workspace.isDestroyed()
-      ) {
-        workspace.webContents.send('edi:microphone-permission', 'blocked');
-      } else {
-        return;
-      }
-    }
-    placement.show();
-  };
   pet.once('ready-to-show', () => pet.showInactive());
-  workspace.webContents.once('did-finish-load', presentPermissionGate);
-  workspace.on('focus', () => {
-    const access = screenRecording.status();
-    agent.rememberScreenAccess(access);
-    if (
-      access === 'granted' &&
-      systemPreferences.getMediaAccessStatus('microphone') !== 'granted' &&
-      !workspace.isDestroyed()
-    ) {
-      workspace.webContents.send('edi:microphone-permission', 'blocked');
-    }
-  });
+  workspace.on('focus', () => permissions?.refresh());
   workspace.on('close', event => {
     if (quitting) return;
     event.preventDefault();
@@ -341,12 +318,12 @@ async function start() {
       petDrag,
       character,
       voice,
-      requestMicrophoneAccess,
-      requestScreenRecording,
+      permissions,
     }),
     settings: () => settings.current,
     agentState: () => agent.state,
     activity: () => repositories.activity(30),
+    permissions: () => permissions.snapshot(),
   });
 
   Menu.setApplicationMenu(

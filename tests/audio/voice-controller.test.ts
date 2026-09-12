@@ -19,6 +19,7 @@ function harness(overrides: Partial<VoiceDependencies<string>> = {}) {
   const sent: VoiceHostEvent[] = [];
   const statuses: VoiceStatus[] = [];
   const asked: { prompt: string; screens: string }[] = [];
+  const captured: string[] = [];
   let stopped = 0;
   const reply: AgentState = {
     configured: true,
@@ -38,7 +39,10 @@ function harness(overrides: Partial<VoiceDependencies<string>> = {}) {
     send: event => sent.push(event),
     status: status => statuses.push(status),
     microphoneAccess: async () => true,
-    captureScreens: async () => 'screens-at-release',
+    captureScreens: async prompt => {
+      captured.push(prompt);
+      return 'screens-after-transcription';
+    },
     ask: async (prompt, { screens }) => {
       asked.push({ prompt, screens });
       return 'run-1';
@@ -54,7 +58,7 @@ function harness(overrides: Partial<VoiceDependencies<string>> = {}) {
   };
   const voice = new VoiceController(deps);
   const types = () => sent.map(event => event.type);
-  return { voice, sent, statuses, asked, types, stopped: () => stopped };
+  return { voice, sent, statuses, asked, captured, types, stopped: () => stopped };
 }
 
 /** Hold, get a live mic, speak, release. Returns the generation of the turn. */
@@ -68,7 +72,7 @@ async function holdAndSpeak(h: ReturnType<typeof harness>) {
   return open.generation;
 }
 
-test('hold-to-talk runs end to end: listen, transcribe, ask with release-time screens, speak', async () => {
+test('hold-to-talk transcribes before deciding whether the prompt needs screens', async () => {
   const h = harness();
   const generation = await holdAndSpeak(h);
   assert.equal(h.voice.phase, 'processing');
@@ -82,7 +86,10 @@ test('hold-to-talk runs end to end: listen, transcribe, ask with release-time sc
   h.voice.played(generation);
   await done;
 
-  assert.deepEqual(h.asked, [{ prompt: 'What is this button?', screens: 'screens-at-release' }]);
+  assert.deepEqual(h.captured, ['What is this button?']);
+  assert.deepEqual(h.asked, [
+    { prompt: 'What is this button?', screens: 'screens-after-transcription' },
+  ]);
   assert.equal(h.voice.phase, 'idle');
   // Opening clears any old bubble; listening only appears once capture is confirmed.
   assert.deepEqual(h.statuses.slice(0, 3), ['hidden', 'listening', 'thinking']);

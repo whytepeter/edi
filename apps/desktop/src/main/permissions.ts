@@ -5,41 +5,9 @@ import { systemPreferences } from 'electron';
 import type { AgentState } from '@edi/contracts';
 
 export type ScreenAccess = NonNullable<AgentState['screenAccess']>;
-export type PermissionPresentation = 'already-granted' | 'system-prompt';
-
-export interface ScreenAccessMemory {
-  prompted: boolean;
-  confirmed: boolean;
-}
-
-export const microphoneSettingsUrl =
-  'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone';
-
-export const screenRecordingSettingsUrl =
-  'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
-
-/**
- * Until Screen Recording is granted, every ask uses the system prompt.
- * Opening Settings cannot add Edi to the list.
- */
-export function permissionPresentation(hasPermissionNow: boolean): PermissionPresentation {
-  return hasPermissionNow ? 'already-granted' : 'system-prompt';
-}
-
 /** Unpinned cards hide on blur, except while a system permission ask is up. */
 export function shouldHideCardOnBlur(pinned: boolean, holdingForPermission: boolean): boolean {
   return !pinned && !holdingForPermission;
-}
-
-/**
- * Electron can report a false deny after Screen Recording was already
- * allowed. Trust a previous confirmed grant at launch.
- */
-export function treatScreenRecordingAsGranted(
-  hasPermissionNow: boolean,
-  previouslyConfirmed: boolean,
-): boolean {
-  return hasPermissionNow || previouslyConfirmed;
 }
 
 const ASK_SHEET_MS = 800;
@@ -48,33 +16,21 @@ const CAPTURE_WAIT_MS = 8_000;
 
 /** Asks macOS for Screen Recording. Never a window-share picker. */
 export class ScreenRecording {
-  constructor(
-    private readonly memory: {
-      read: () => ScreenAccessMemory;
-      write: (next: ScreenAccessMemory) => Promise<void>;
-    },
-  ) {}
-
   status(): ScreenAccess {
     if (macScreenCaptureGranted()) return 'granted';
     return systemPreferences.getMediaAccessStatus('screen');
   }
 
-  async request(): Promise<{
-    access: ScreenAccess;
-    presentation: PermissionPresentation;
-  }> {
-    const stored = this.memory.read();
+  async request(): Promise<ScreenAccess> {
     const access = this.status();
-    if (access === 'granted' && !stored.confirmed) {
-      await this.memory.write({ ...stored, confirmed: true });
+    if (access === 'granted') {
+      return 'granted';
     }
-    const granted = treatScreenRecordingAsGranted(access === 'granted', stored.confirmed);
-    if (granted) {
-      return {
-        access: access === 'granted' ? 'granted' : access,
-        presentation: 'already-granted',
-      };
+
+    // macOS will not repeat a denied/restricted prompt. The permission card
+    // routes those states to System Settings instead.
+    if (access === 'denied' || access === 'restricted') {
+      return access;
     }
 
     await requestMacScreenCapture();
@@ -82,15 +38,7 @@ export class ScreenRecording {
     // treat that as a failed ask. Capture usually works only after relaunch.
     // Never call desktopCapturer.getSources here: that preflights and can
     // write a Screen Recording deny before the person has answered.
-    const next = this.status();
-    await this.memory.write({
-      prompted: true,
-      confirmed: stored.confirmed || next === 'granted',
-    });
-    return {
-      access: next,
-      presentation: next === 'granted' ? 'already-granted' : 'system-prompt',
-    };
+    return this.status();
   }
 }
 

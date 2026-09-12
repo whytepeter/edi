@@ -4,17 +4,21 @@ import {
   agentStateSchema,
   commandSchema,
   settingsSchema,
+  permissionSnapshotSchema,
   voiceHostEventSchema,
   type DesktopBridge,
 } from '@edi/contracts';
 
 const bridge: DesktopBridge = {
-  onMicrophonePermission: callback => {
+  permissions: async () =>
+    permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
+  onPermissions: callback => {
     const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
-      if (status === 'granted' || status === 'blocked') callback(status);
+      const parsed = permissionSnapshotSchema.safeParse(status);
+      if (parsed.success) callback(parsed.data);
     };
-    ipcRenderer.on('edi:microphone-permission', listener);
-    return () => ipcRenderer.removeListener('edi:microphone-permission', listener);
+    ipcRenderer.on('edi:permissions', listener);
+    return () => ipcRenderer.removeListener('edi:permissions', listener);
   },
   agent: async () => agentStateSchema.parse(await ipcRenderer.invoke('edi:agent:get')),
   activity: async () => activitySchema.parse(await ipcRenderer.invoke('edi:activity:get')),

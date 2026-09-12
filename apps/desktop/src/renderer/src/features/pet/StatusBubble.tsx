@@ -15,7 +15,9 @@ const announcement: Record<Exclude<StatusBubbleState, 'notice'>, string> = {
 function useRevealedText(incoming: string) {
   const [shown, setShown] = useState('');
   const target = useRef(incoming);
-  target.current = incoming;
+  useEffect(() => {
+    target.current = incoming;
+  }, [incoming]);
   useEffect(() => {
     const tick = () => {
       const next = target.current;

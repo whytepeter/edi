@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { presentationText } from '@edi/contracts';
 import { Button, Icon, TextField, ThinkingDots } from '../../components/ui';
 import type { Command } from '../../lib/bridge';
-import { askForScreenRecording } from '../../lib/ask-screen-recording';
 import { useAgentState } from '../../hooks/useAgentState';
 import { StepList } from '../../components/StepList';
 import './conversation.css';
@@ -158,8 +157,7 @@ export function AgentPanel() {
         )}
         {state.messages.map(message => {
           const pending = message.id === streamingId;
-          const body =
-            message.role === 'assistant' ? presentationText(message.text) : message.text;
+          const body = message.role === 'assistant' ? presentationText(message.text) : message.text;
           return (
             <article
               key={message.id}
@@ -195,23 +193,29 @@ export function AgentPanel() {
       )}
       {state.screenAccess && state.screenAccess !== 'granted' && (
         <div role="note" className="agent-notice">
-          <p>Edi can’t see your screen yet. Allow Screen Recording, then ask again.</p>
-          <Button
-            variant="plain"
-            size="small"
-            disabled={busy || running}
-            onClick={() => void askForScreenRecording()}
-          >
-            Allow Screen Recording
-          </Button>
-          {state.screenAccess === 'denied' && (
+          <p>
+            {state.screenAccess === 'restricted'
+              ? 'Screen Recording is restricted on this Mac.'
+              : 'Edi can’t see your screen yet. Turn on Screen Recording, then ask again.'}
+          </p>
+          {state.screenAccess !== 'restricted' && (
             <Button
               variant="plain"
               size="small"
               disabled={busy || running}
-              onClick={() => void window.edi?.command({ type: 'open-screen-recording-settings' })}
+              onClick={() =>
+                void window.edi?.command({
+                  type:
+                    state.screenAccess === 'denied'
+                      ? 'permission-open-settings'
+                      : 'permission-request',
+                  permission: 'screen-recording',
+                })
+              }
             >
-              Open Screen Recording Settings
+              {state.screenAccess === 'denied'
+                ? 'Open Screen Recording Settings'
+                : 'Allow Screen Recording'}
             </Button>
           )}
         </div>

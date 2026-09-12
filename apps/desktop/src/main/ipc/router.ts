@@ -5,6 +5,7 @@ import {
   type AgentState,
   type Command,
   type Settings,
+  type PermissionSnapshot,
 } from '@edi/contracts';
 
 /** Renderers allowed to call the main process. The voice-status bubble has no bridge. */
@@ -24,9 +25,17 @@ interface IpcDependencies {
   settings(): Settings;
   agentState(): AgentState;
   activity(): Activity;
+  permissions(): PermissionSnapshot;
 }
 
-export function registerIpc({ identify, routes, settings, agentState, activity }: IpcDependencies) {
+export function registerIpc({
+  identify,
+  routes,
+  settings,
+  agentState,
+  activity,
+  permissions,
+}: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
     // Subframes never inherit their window's privileges.
     const caller =
@@ -49,6 +58,10 @@ export function registerIpc({ identify, routes, settings, agentState, activity }
   ipcMain.handle('edi:activity:get', event => {
     authorize(callerOf(event), ['workspace']);
     return activity();
+  });
+  ipcMain.handle('edi:permissions:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return permissions();
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

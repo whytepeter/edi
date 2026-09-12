@@ -17,9 +17,9 @@ import {
   type ToolStep,
 } from '@edi/contracts';
 import type { Repositories, ThreadTurn } from '@edi/storage';
-import type { Screenshot, ScreenAccess } from '../capture/screens';
+import type { ScreenContext, Screenshot } from '../capture/screens';
 
-type CapturedScreens = { screenshots: Screenshot[]; access: ScreenAccess };
+type CapturedScreens = ScreenContext;
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
@@ -35,8 +35,9 @@ interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
   capabilities: readonly Capability[];
-  /** Called on every request; there is no per-request screen prompt. */
-  captureScreens: () => Promise<CapturedScreens>;
+  /** Privacy gate decides locally whether this prompt needs current screen context. */
+  captureScreens: (prompt: string) => Promise<CapturedScreens>;
+  screenPermissionRequired?: () => void;
   /** A finished reply pointed at something on screen (global logical coordinates). */
   point?: (target: PointTarget) => void;
 }
@@ -80,11 +81,6 @@ export class AgentService {
   onChange(listener: (state: AgentState) => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
-  }
-
-  /** Launch / Settings flow updates this before the first ask. */
-  rememberScreenAccess(access: ScreenAccess) {
-    this.update({ ...this.state, screenAccess: access });
   }
 
   async load() {
@@ -144,10 +140,21 @@ export class AgentService {
       approval: null,
     });
     const { screenshots, access } = await (
-      options.screens ? Promise.resolve(options.screens) : this.options.captureScreens()
+      options.screens ? Promise.resolve(options.screens) : this.options.captureScreens(prompt)
     ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' }));
     if (this.starting !== starting) return undefined; // stopped while capturing
     this.starting = undefined;
+    if (access !== null && access !== 'granted') {
+      this.options.screenPermissionRequired?.();
+      this.update({
+        ...this.state,
+        status: 'stopped',
+        runId: null,
+        screenAccess: access,
+        text: 'I need Screen Recording to see that. Allow it, then ask me again.',
+      });
+      return undefined;
+    }
 
     const id = randomUUID();
     repositories.runs.start({
@@ -176,7 +183,7 @@ export class AgentService {
       ),
     };
     this.run = run;
-    this.update({ ...this.state, runId: id, screenAccess: access });
+    this.update({ ...this.state, runId: id, screenAccess: access ?? null });
 
     run.worker.on('message', raw => this.onWorkerMessage(run, raw));
     run.worker.on('error', () => this.finish(run, 'error', 'The response worker could not start.'));

@@ -21,7 +21,7 @@ export interface VoiceDependencies<Screens> {
   status(status: VoiceStatus): void;
   /** macOS microphone permission; asks the first time, false if refused. */
   microphoneAccess(): Promise<boolean>;
-  captureScreens(): Promise<Screens>;
+  captureScreens(prompt: string): Promise<Screens>;
   ask(prompt: string, options: { screens: Screens; spoken: true }): Promise<string | undefined>;
   whenFinished(runId: string, signal: AbortSignal): Promise<AgentState>;
   stopAgent(): void;
@@ -62,14 +62,13 @@ export function speakable(text: string) {
 
 /**
  * Drives one voice session through the pure policy in @edi/contracts:
- * hold → microphone opens → release → screens captured → transcript → agent →
+ * hold → microphone opens → release → transcript → optional screen context → agent →
  * spoken reply. Every step is bound to the session generation; Stop or a new
  * hold invalidates everything in flight.
  */
 export class VoiceController<Screens> {
   private session: VoiceSession = initialVoiceSession;
   private turn?: AbortController;
-  private screens?: Promise<Screens>;
   private pendingAck?: () => void;
   private notice?: string;
 
@@ -134,10 +133,11 @@ export class VoiceController<Screens> {
       if (turn.signal.aborted) return;
       if (!heard) return ended('I didn’t catch that.');
 
-      const screens = await (this.screens ?? this.deps.captureScreens());
+      const screens = await this.deps.captureScreens(heard);
       if (turn.signal.aborted) return;
       const runId = await this.deps.ask(heard, { screens, spoken: true });
-      if (!runId || turn.signal.aborted) return;
+      if (turn.signal.aborted) return;
+      if (!runId) return ended('Open Edi to continue.');
       const reply = await this.deps.whenFinished(runId, turn.signal);
       if (turn.signal.aborted) return;
 
@@ -196,7 +196,6 @@ export class VoiceController<Screens> {
     if (effect === 'cancel-all') {
       this.turn?.abort();
       this.turn = undefined;
-      this.screens = undefined;
       this.pendingAck = undefined;
       this.deps.send({ type: 'cancel', generation: previous.generation });
       this.deps.send({ type: 'stop-audio' });
@@ -205,7 +204,7 @@ export class VoiceController<Screens> {
       void this.deps.microphoneAccess().then(granted => {
         if (generation !== this.session.generation) return;
         if (!granted) {
-          this.notice = 'Allow the microphone when macOS asks.';
+          this.notice = 'Open Edi to allow the microphone.';
           this.dispatch({ type: 'failed', generation });
           return;
         }
@@ -213,9 +212,6 @@ export class VoiceController<Screens> {
       });
     } else if (effect === 'close-microphone') {
       this.deps.send({ type: 'finish', generation });
-      // Capture the screens the moment the question ends.
-      this.screens = this.deps.captureScreens();
-      this.screens.catch(() => {});
     }
     // 'submit-turn': the recording arrives through audio().
   }

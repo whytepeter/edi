@@ -30,11 +30,9 @@ for (const [name, value] of Object.entries(process.env)) {
 envArgs.push('--env', `EDI_CWD=${process.cwd()}`);
 
 const forwarded = process.argv.slice(2).map(arg => (arg === '.' ? process.cwd() : arg));
-const child = spawn(
-  '/usr/bin/open',
-  ['-n', '-W', ediApp, ...envArgs, '--args', ...forwarded],
-  { stdio: 'inherit' },
-);
+const child = spawn('/usr/bin/open', ['-n', '-W', ediApp, ...envArgs, '--args', ...forwarded], {
+  stdio: 'inherit',
+});
 
 const quit = () => {
   spawn('osascript', ['-e', 'tell application "Edi" to quit'], { stdio: 'ignore' });

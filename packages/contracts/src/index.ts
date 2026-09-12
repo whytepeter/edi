@@ -3,9 +3,12 @@ import { approvalRequestSchema, toolStepSchema, type Activity } from './capabili
 export * from './capabilities';
 export * from './screen-context';
 export * from './presentation';
+export * from './permissions';
+export * from './screen-intent';
 export * from './voice';
 export * from './voice-session';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
+import { permissionIdSchema, type PermissionSnapshot } from './permissions';
 export {
   placeCard,
   placeSpeechBubble,
@@ -117,18 +120,12 @@ export const settingsSchema = z.object({
   skin: skinSchema,
   pinned: z.boolean(),
   petPosition: screenPointSchema.nullable().default(null),
-  /** After the first Screen Recording prompt, later asks open Settings. */
-  screenRecordingPrompted: z.boolean().default(false),
-  /** Trust a prior grant when the live check is a false deny. */
-  screenRecordingConfirmed: z.boolean().default(false),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export const defaultSettings: Settings = {
   skin: 'cloud',
   pinned: false,
   petPosition: null,
-  screenRecordingPrompted: false,
-  screenRecordingConfirmed: false,
 };
 export const commandSchema = z.discriminatedUnion('type', [
   z
@@ -169,11 +166,12 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('show-workspace') }).strict(),
-  z.object({ type: z.literal('open-microphone-settings') }).strict(),
-  z.object({ type: z.literal('open-screen-recording-settings') }).strict(),
-  z.object({ type: z.literal('check-microphone-permission') }).strict(),
-  z.object({ type: z.literal('request-microphone-permission') }).strict(),
-  z.object({ type: z.literal('request-screen-recording') }).strict(),
+  z.object({ type: z.literal('permissions-refresh') }).strict(),
+  z.object({ type: z.literal('permission-request'), permission: permissionIdSchema }).strict(),
+  z
+    .object({ type: z.literal('permission-open-settings'), permission: permissionIdSchema })
+    .strict(),
+  z.object({ type: z.literal('permission-dismiss'), permission: permissionIdSchema }).strict(),
   z.object({ type: z.literal('hide-workspace') }).strict(),
   z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
@@ -191,7 +189,8 @@ export const commandSchema = z.discriminatedUnion('type', [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export interface DesktopBridge {
-  onMicrophonePermission(callback: (status: 'granted' | 'blocked') => void): () => void;
+  permissions(): Promise<PermissionSnapshot>;
+  onPermissions(callback: (snapshot: PermissionSnapshot) => void): () => void;
   agent(): Promise<AgentState>;
   /** Recent runs and their tool outcomes, newest first. */
   activity(): Promise<Activity>;

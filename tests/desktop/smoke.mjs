@@ -65,16 +65,11 @@ async function launch() {
           ?.isVisible(),
       ),
     );
-  if (await cardVisible()) {
-    const skip = workspace.getByRole('button', { name: 'Not now' });
-    for (let step = 0; step < 2 && (await skip.isVisible().catch(() => false)); step += 1) {
-      await skip.click();
-    }
-    await workspace.evaluate(() => window.edi.command({ type: 'hide-workspace' }));
-  }
-  expect(await cardVisible()).toBe(false);
+  // Permissions are requested by the feature that needs them, never at launch.
+  await expect.poll(cardVisible).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
   await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
+  await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   return { workspace, pet };
 }
 try {

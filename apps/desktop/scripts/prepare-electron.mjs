@@ -62,11 +62,9 @@ if (ready && !cloned) process.exit(0);
 for (const [key, value] of Object.entries(needed)) {
   plutil(['-replace', key, '-string', value, plist]);
 }
-execFileSync(
-  'codesign',
-  ['--force', '--sign', '-', '--entitlements', entitlements, host],
-  { stdio: 'inherit' },
-);
+execFileSync('codesign', ['--force', '--sign', '-', '--entitlements', entitlements, host], {
+  stdio: 'inherit',
+});
 const lsregister =
   '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 try {

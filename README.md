@@ -1,6 +1,6 @@
 # Edi
 
-A desktop companion by Fewer Labs. The foundation includes optional OpenRouter text responses; tools and voice are not connected yet.
+A desktop companion by Fewer Labs. The current foundation includes OpenRouter conversations, reviewed note tools, local hold-to-talk voice in development, and temporary on-screen presentation effects.
 
 ## Run
 
@@ -12,9 +12,9 @@ pnpm setup:electron
 pnpm dev
 ```
 
-Only the transparent pet window appears at launch. Click Edi or press **Command–Shift–E** to request listening; neither opens the content card. Microphone/transcription is not connected yet, so a small status bubble explains that no microphone is active. Right-click Edi → **Show content** to open the card, then expand it for more room. The card dismisses on focus loss unless pinned. Right-click → **Sleep Edi** hides the character and card; the shortcut wakes Edi and requests listening. **Quit Edi** exits fully. This is a macOS app, not an iOS app or a notch integration.
+Only the transparent pet window appears at launch. Click Edi to request conversation mode or hold Edi / **⌥ Space** for push-to-talk; neither opens the content card. Right-click Edi → **Show content** opens the card. The card dismisses on focus loss unless pinned. Right-click → **Sleep Edi** hides the character and card; a listening shortcut wakes it. **Quit Edi** exits fully. This is a macOS app, not an iOS app or a notch integration.
 
-Character gestures now distinguish a short click (conversation request), a stationary 350 ms hold (push-to-talk request), and moving before the hold threshold (drag). Releasing a hold never starts conversation. Until microphone capture and VAD are connected, these requests display “voice coming soon”; they do not record or submit speech. The custom right-click menu supports arrow keys, Home/End and Escape. The global shortcut currently requests conversation, not hold-to-talk.
+Character gestures distinguish a short click (conversation request), a stationary 350 ms hold (push-to-talk), and moving before the hold threshold (drag). Releasing a hold never starts conversation. The custom right-click menu supports arrow keys, Home/End and Escape. Hands-free follow-ups and shortcut rebinding are still pending.
 
 ```sh
 pnpm typecheck
@@ -30,6 +30,8 @@ pnpm package
 
 - Independent Electron pet/workspace windows and narrow validated IPC.
 - OpenRouter setup, streamed plain-text responses, cancellation, and request limits in a separate worker thread.
+- Just-in-time microphone and Screen Recording permission cards with explicit macOS Settings recovery.
+- Privacy-first screen context: screenshots are captured only when a prompt refers to visible UI, or as a short follow-up in that visual conversation.
 - Compact content card with Appearance, Extensions, and Activity under More.
 - Cloud and Sprout avatars, synchronized across windows and persisted locally.
 - Expand/collapse, pin/hide controls, character context menu, Sleep, and global wake/listen shortcut.
@@ -37,7 +39,7 @@ pnpm package
 - Search/filter of the clearly labeled extension catalog preview.
 - Validated text, step-diagram, and local-video renderer foundations. Example selectors are no longer exposed in the main UI; inline agent-generated rich content is still pending. Remote media remains blocked.
 
-Preferences use an atomic JSON file in Electron's user-data directory for this foundation. Move them into SQLite when conversation/run persistence arrives. Previews need no key. Microphone permissions are not requested.
+Preferences use an atomic JSON file in Electron's user-data directory. Conversation, tool, and activity history use local SQLite. Previews need no key. OS permissions are requested only when a feature needs them and only after the person clicks the permission card's action.
 
 ## Connect OpenRouter
 
@@ -45,7 +47,7 @@ Open **Talk to Edi**, enter your OpenRouter API key and an exact model ID from y
 
 The key is entered in a password field, cleared after submission, and stored in `openrouter.enc` in the app's user-data directory using Electron safeStorage encryption. It is never returned through the settings bridge. This is Keychain-backed encryption on macOS, not a claim that the key exists only in Keychain. Unsigned development builds may trigger Keychain prompts. Removing the saved key deletes Edi's local encrypted copy; it does not revoke the key at OpenRouter.
 
-Only your typed prompt and Edi's system instructions go to OpenRouter. Requests start fresh without chat history, screen capture, or files. Limits: one active request, 8,000 input characters, 2,048 output tokens, a 120-second timeout, and no automatic retries. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
+Your prompt, recent completed conversation turns, Edi's system instructions, and any screen images required by that prompt go to OpenRouter. Generic questions do not trigger capture and contain no screenshot. Limits: one active request, 8,000 input characters, 2,048 output tokens, a 120-second timeout, and no automatic retries. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
 
 `pnpm test:agent` exercises the real SDK with mocked network responses. The user confirmed a live OpenRouter response on 2026-09-11. “Talk to Edi” remains a temporary integration interface, not the final product entry point.
 
@@ -62,10 +64,10 @@ Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRo
 
 ### Voice (hold to talk)
 
-Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're done. Edi transcribes locally with whisper.cpp, looks at every screen at the moment you let go, and answers out loud with Pocket TTS. The card shows the full reply.
+Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're done. Edi transcribes locally with whisper.cpp and answers out loud with Pocket TTS. If the spoken question clearly refers to visible UI, Edi captures the screens at the moment the question ends; ordinary questions do not touch screen capture. The card shows the full reply.
 
 - Development builds use the pinned voice runtimes provisioned under `benchmarks/voice` (see its README). Packaged builds don't bundle them yet, so there the character says voice is unavailable.
-- macOS asks once for the microphone and once for Screen Recording. When launched from a terminal, macOS attributes both to the terminal app.
+- Edi asks for the microphone when voice is first used, and Screen Recording only when a screen-dependent question is asked. Denied access is recovered through the matching macOS Settings page.
 - A single click shows a hint to hold instead: hands-free conversation isn't built yet.
 - ⌥ Space comes from a tiny native helper (`native/hotkey`, built by `pnpm build:native` and by `pnpm package`). It registers only that chord through Carbon, so it needs no Input Monitoring or Accessibility permission, never sees other keystrokes, and stops ⌥ Space from typing into the focused app. It runs only while voice is available and exits with Edi. macOS doesn't report when another app has also claimed ⌥ Space, so a conflict shows up as the key not reaching Edi. Rebinding under Settings → Keyboard Shortcut is still to come.
 - `EDI_VOICE=off pnpm dev` turns local voice off. The desktop tests set it so they never open a real microphone.
@@ -73,6 +75,8 @@ Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're do
 ### Pointing
 
 When showing you where something is helps, Edi ends its reply with a pointing tag (`[POINT:x,y:label:screenN]`). Edi removes the tag from what you read and hear, maps the point from the screenshot back to that display, and sends its pointer from its hand to the spot with a short label. The pointer layer covers the whole display, including the menu bar, and never takes clicks or focus. It clears after eight seconds, on your next question, or on Stop or Sleep.
+
+See [permission architecture](docs/PERMISSIONS.md) for the permission states, least-privilege boundary, and extension process.
 
 ### Tools and approvals
 

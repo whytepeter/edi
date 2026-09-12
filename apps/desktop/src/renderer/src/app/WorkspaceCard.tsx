@@ -7,12 +7,12 @@ import { ApprovalSheet } from '../features/conversation/ApprovalSheet';
 import { Pet } from '../components/Pet';
 import { IntroView } from '../features/content/IntroView';
 import { AgentPanel } from '../features/conversation/AgentPanel';
-import { ScreenRecordingPermission } from '../features/conversation/ScreenRecordingPermission';
 import { AppearanceView } from '../features/appearance/AppearanceView';
 import { ExtensionsView } from '../features/extensions/ExtensionsView';
 import { ActivityView } from '../features/activity/ActivityView';
 import './workspace.css';
-import { MicrophonePermission } from '../features/voice/MicrophonePermission';
+import { PermissionCard } from '../features/permissions/PermissionCard';
+import { usePermissions } from '../hooks/usePermissions';
 
 type View = 'content' | 'agent' | 'avatars' | 'extensions' | 'activity';
 
@@ -27,16 +27,10 @@ export function WorkspaceCard() {
     blockedRef.current = blocked;
   }, [blocked]);
   const [view, setView] = useState<View>('content');
-  const [microphone, setMicrophone] = useState<'granted' | 'blocked' | null>(null);
-  const [skipScreen, setSkipScreen] = useState(false);
-  useEffect(() => window.edi?.onMicrophonePermission(setMicrophone), []);
-  const screenKnown = agent.screenAccess !== null;
-  const needScreen = !skipScreen && screenKnown && agent.screenAccess !== 'granted';
-  const needMicrophone = screenKnown && !needScreen && microphone === 'blocked';
-  useEffect(() => {
-    if (!screenKnown || needScreen) return;
-    void window.edi?.command({ type: 'check-microphone-permission' });
-  }, [screenKnown, needScreen]);
+  const permissionSnapshot = usePermissions();
+  const activePermission = permissionSnapshot.permissions.find(
+    permission => permission.id === permissionSnapshot.active,
+  );
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState('');
@@ -92,13 +86,8 @@ export function WorkspaceCard() {
             {shownError}
           </div>
         )}
-        {needScreen && (
-          <ScreenRecordingPermission onDismiss={() => setSkipScreen(true)} />
-        )}
-        {needMicrophone && (
-          <MicrophonePermission status="blocked" onDismiss={() => setMicrophone(null)} />
-        )}
-        <div className="workspace-view" hidden={needScreen || needMicrophone}>
+        {activePermission && <PermissionCard permission={activePermission} />}
+        <div className="workspace-view" hidden={Boolean(activePermission)}>
           {view === 'content' && (
             <IntroView skin={settings.skin} onTalk={() => navigate('agent')} />
           )}

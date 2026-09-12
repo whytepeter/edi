@@ -30,22 +30,19 @@ try {
           ?.isVisible(),
       ),
     );
-  await expect.poll(cardVisible).toBe(true);
-  const allowScreen = workspace.getByRole('button', { name: 'Allow Screen Recording' });
-  await expect(workspace.getByRole('heading', { name: 'Let Edi see your screen' })).toBeVisible();
-  await expect(allowScreen).toBeVisible();
-  await allowScreen.click();
-  await expect.poll(cardVisible).toBe(true);
-  await expect(workspace.getByRole('heading', { name: 'Let Edi see your screen' })).toBeVisible();
-  await expect(workspace.getByText(/quit Edi and open it again/)).toBeVisible();
-  await workspace.getByRole('button', { name: 'Not now' }).click();
-  await expect(workspace.getByRole('heading', { name: 'Let Edi hear you' })).toBeVisible();
-  await expect.poll(cardVisible).toBe(true);
-  await workspace.getByRole('button', { name: 'Not now' }).click();
+  await expect.poll(cardVisible).toBe(false);
+  const permissions = await workspace.evaluate(() => window.edi.permissions());
+  expect(permissions.active).toBeNull();
+  expect(permissions.permissions.map(item => item.id).sort()).toEqual([
+    'microphone',
+    'screen-recording',
+  ]);
+  await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
   await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
+  await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   expect(errors).toEqual([]);
   console.log(
-    'PASS: launch shows Screen Recording in the card, Allow keeps it open, then microphone, then intro.',
+    'PASS: launch stays quiet; both permissions are registered but neither is requested.',
   );
 } finally {
   await app?.close();

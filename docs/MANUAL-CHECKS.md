@@ -205,23 +205,24 @@ Expected:
 
 This sends one short request to OpenRouter with your own key and model, which may cost a small amount. Skip it if you'd rather not.
 
-**Screens are sent too.** Since commit `ed046f9`, every request also sends a screenshot of each display to OpenRouter. The first request makes macOS ask for Screen Recording permission. Before step 2, close anything on screen you don't want to send, or choose **Don't Allow** at the prompt; the request then goes as text only.
+**This request is text-only.** It does not need the screen, so Edi must not capture a display or ask for Screen Recording. A separate screen-dependent check appears below.
 
 Steps:
 
 1. Right-click Edi, choose **Show content**, then **Talk to Edi**. If OpenRouter isn't connected, enter your key and model and choose **Save connection**.
 2. Send: `Save a note titled Manual check that says: written from the manual checklist.`
-3. If macOS asks for Screen Recording permission, record which choice you made.
-4. When the review sheet appears, read the title, the file path and the content preview. Wait for **Save Note** to become clickable, then click it.
-5. In Finder, open `~/Documents/Edi Notes`.
-6. Back in the card, open **More options → Activity**.
+3. When the review sheet appears, read the title, the file path and the content preview. Wait for **Save Note** to become clickable, then click it.
+4. In Finder, open `~/Documents/Edi Notes`.
+5. Back in the card, open **More options → Activity**.
 
 Expected:
 
-- Step 3: the only prompt is macOS's own Screen Recording dialog, and no microphone prompt appears. If you denied it, the request still goes ahead and the card explains how to turn access on.
-- Step 4: nothing is written before you click **Save Note**. The path is inside `~/Documents/Edi Notes`.
-- Step 5: a new file `manual-check.md` (or `manual-check-2.md` if one already existed) containing `# Manual check` and the text. No existing file was replaced.
-- Step 6: the run appears at the top of the list, with its note-saving step marked **Done**. If you allowed Screen Recording, it also shows how many screens were sent.
+- No microphone or Screen Recording prompt appears for this request.
+- Step 3: nothing is written before you click **Save Note**. The path is inside `~/Documents/Edi Notes`.
+- Step 4: a new file `manual-check.md` (or `manual-check-2.md` if one already existed) containing `# Manual check` and the text. No existing file was replaced.
+- Step 5: the run appears at the top of the list, with its note-saving step marked **Done** and zero screens sent.
+
+Then send `What’s on my screen?` Screen Recording should be requested just in time. Choosing **Allow Screen Recording** invokes the macOS permission request. If access was previously denied, the one primary action opens Screen Recording Settings. After granting access, ask again and confirm Activity records the number of screens sent.
 
 **Result:** Pass / Fail: \_\_\_\_\_\_ Notes: \_\_\_\_\_\_
 
