@@ -1,0 +1,110 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  /* Every surface is a transparent native window; only painted UI may scroll. */
+  overflow: hidden;
+}
+
+#root {
+  display: flow-root;
+}
+
+body {
+  background: transparent;
+  color: var(--label);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
+  font-optical-sizing: auto;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.ds-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Type scale. Hierarchy comes from size, weight and leading together. */
+.ds-large-title {
+  font: var(--text-large-title);
+  letter-spacing: var(--tracking-large-title);
+  text-wrap: balance;
+}
+.ds-title {
+  font: var(--text-title);
+  letter-spacing: var(--tracking-title);
+  text-wrap: balance;
+}
+.ds-headline {
+  font: var(--text-headline);
+  letter-spacing: var(--tracking-headline);
+}
+.ds-body {
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+}
+.ds-callout {
+  font: var(--text-callout);
+}
+.ds-footnote {
+  font: var(--text-footnote);
+}
+.ds-caption {
+  font: var(--text-caption);
+  letter-spacing: var(--tracking-caption);
+}
+.ds-eyebrow {
+  font: var(--text-caption);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+}
+.ds-secondary {
+  color: var(--label-secondary);
+}
+.ds-tertiary {
+  color: var(--label-tertiary);
+}

@@ -1,0 +1,91 @@
+/* Dim to focus: a modal decision pushes the card's content back. */
+.approval-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  padding: var(--space-3);
+  border-radius: inherit;
+  background: rgb(16 18 26 / 0.28);
+  animation: approval-fade 200ms ease-out both;
+}
+.approval-sheet {
+  width: 100%;
+  max-height: calc(100% - 48px);
+  overflow: auto;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-radius: var(--radius-inset);
+  background: var(--glass-fill-dense);
+  transform-origin: bottom center;
+  animation: approval-rise var(--spring-fast) var(--spring) both;
+}
+.approval-sheet:focus-visible {
+  box-shadow: var(--shadow-control), var(--focus-ring);
+}
+.approval-fields {
+  display: grid;
+  gap: 6px;
+  margin: var(--space-2) 0 0;
+}
+.approval-fields > div {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: var(--space-2);
+}
+.approval-fields dt {
+  font: var(--text-footnote);
+  color: var(--label-tertiary);
+}
+.approval-fields dd {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.approval-body {
+  max-height: 128px;
+  overflow: auto;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  font:
+    11px/1.5 ui-monospace,
+    'SF Mono',
+    Menlo,
+    monospace;
+  color: var(--label-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.approval-error {
+  font: var(--text-footnote);
+  color: #c2502e;
+}
+.approval-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+@keyframes approval-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes approval-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-sheet {
+    animation: approval-fade 150ms ease-out both;
+  }
+}

@@ -1,0 +1,2 @@
+# Audition environment only; not part of the desktop application distribution.
+pocket-tts==3.1.0

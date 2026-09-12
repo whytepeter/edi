@@ -1,15 +1,37 @@
 import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
 
 export default defineConfig({
-  main: {},
-  preload: { build: { rollupOptions: { output: { inlineDynamicImports: true } } } },
-  renderer: { plugins: [react(), {
-    name: 'development-refresh-policy',
-    apply: 'serve',
-    transformIndexHtml(html) {
-      // React Refresh injects an inline preamble during development only.
-      return html.replace("script-src 'self';", "script-src 'self' 'unsafe-inline';");
+  main: {
+    build: {
+      rollupOptions: {
+        external: ['koffi'],
+        input: {
+          index: resolve('src/main/index.ts'),
+          'agent-worker': resolve('src/main/agent/agent-worker.ts'),
+        },
+      },
     },
-  }] },
+  },
+  preload: {
+    build: {
+      rollupOptions: {
+        input: { index: resolve('src/preload/index.ts'), bubble: resolve('src/preload/bubble.ts') },
+      },
+    },
+  },
+  renderer: {
+    plugins: [
+      react(),
+      {
+        name: 'development-refresh-policy',
+        apply: 'serve',
+        transformIndexHtml(html) {
+          // React Refresh injects an inline preamble during development only.
+          return html.replace("script-src 'self';", "script-src 'self' 'unsafe-inline';");
+        },
+      },
+    ],
+  },
 });

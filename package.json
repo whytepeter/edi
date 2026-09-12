@@ -2,23 +2,49 @@
   "name": "edi-workspace",
   "private": true,
   "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "setup:electron": "pnpm --filter @edi/desktop exec install-electron",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:audio",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "setup:electron": "pnpm --filter @edi/desktop exec install-electron && pnpm --filter @edi/desktop exec node scripts/prepare-electron.mjs",
     "dev": "pnpm --filter @edi/desktop dev",
     "build": "pnpm --filter @edi/desktop build",
-    "typecheck": "pnpm --filter @edi/desktop typecheck",
-    "test": "tsx --test packages/contracts/src/index.test.ts",
+    "typecheck": "pnpm -r typecheck",
+    "test": "node --import tsx --disable-warning=ExperimentalWarning --test packages/*/src/*.test.ts tests/input/*.test.ts",
     "test:desktop": "node tests/desktop/smoke.mjs",
-    "package": "pnpm --filter @edi/desktop package"
+    "test:character": "node tests/desktop/character.mjs",
+    "test:approval": "node tests/desktop/approval-bubble.mjs",
+    "test:agent": "pnpm build && node --test tests/agent/worker.test.mjs",
+    "test:audio": "node --import tsx --test tests/audio/player.test.ts tests/audio/process.test.ts tests/audio/session.test.ts tests/audio/capture.test.ts tests/audio/transcription.test.ts tests/audio/voice-controller.test.ts",
+    "test:audio:live": "node --import tsx tests/audio/live.mjs",
+    "test:capture:native": "node tests/audio/capture-native.mjs",
+    "test:transcription:native": "node --import tsx tests/audio/transcription-native.mjs",
+    "test:audio:native": "pnpm build && node tests/audio/native.mjs",
+    "package": "pnpm --filter @edi/desktop package",
+    "build:native": "sh native/hotkey/build.sh"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
-    "tsx": "^4.20.0"
+    "@types/node": "^22.20.2",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "koffi"
     ]
   }
 }
