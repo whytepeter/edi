@@ -14,6 +14,9 @@ import json
 import os
 import sys
 
+# Pocket's published "alba" embedding is male-pitched (~130 Hz). Fantine is female.
+DEFAULT_VOICE = "fantine"
+
 
 def emit(message):
     print(json.dumps(message), file=sys.__stdout__, flush=True)
@@ -48,7 +51,7 @@ def main():
         from pocket_tts import TTSModel
         torch.set_num_threads(2)
         model = TTSModel.load_model()
-        voice = model.get_state_for_audio_prompt("alba")
+        voice = model.get_state_for_audio_prompt(DEFAULT_VOICE)
     emit({"type": "ready", "rate": model.sample_rate})
 
     while True:

@@ -54,7 +54,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--corpus", type=Path, default=Path(__file__).with_name("corpus.json"))
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--voice", default="alba")
+    parser.add_argument("--voice", default="fantine")
     parser.add_argument("--repeats", type=int, choices=range(1, 6), default=3)
     args = parser.parse_args()
     corpus = load_corpus(args.corpus)
