@@ -6,15 +6,21 @@
   "author": "Fewer Labs",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/prepare-electron.mjs && sh ../../native/screen-capture/build.sh && ELECTRON_EXEC_PATH=\"$PWD/scripts/electron-open.mjs\" electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "package": "electron-vite build && electron-builder --dir"
+    "package": "sh ../../native/hotkey/build.sh && sh ../../native/screen-capture/build.sh && electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist"
   },
   "dependencies": {
+    "@edi/capabilities": "workspace:*",
     "@edi/contracts": "workspace:*",
+    "@edi/storage": "workspace:*",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "ai": "^7.0.97",
+    "koffi": "^2.16.3",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -30,8 +36,36 @@
   "build": {
     "appId": "com.fewerlabs.edi",
     "productName": "Edi",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "package.json"],
-    "mac": { "category": "public.app-category.productivity", "target": ["dir"] }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "afterPack": "./scripts/after-pack.cjs",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        "dir"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Edi listens while you hold it down, so it can answer what you ask out loud.",
+        "NSScreenCaptureUsageDescription": "Edi looks at your screen when you ask, so it can answer what you see."
+      }
+    },
+    "extraResources": [
+      {
+        "from": "../../native/hotkey/build/edi-hotkey",
+        "to": "edi-hotkey"
+      },
+      {
+        "from": "../../native/screen-capture/build/libedi_screen_ask.dylib",
+        "to": "libedi_screen_ask.dylib"
+      }
+    ]
   }
 }

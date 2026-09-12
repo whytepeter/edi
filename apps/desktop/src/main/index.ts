@@ -1,92 +1,255 @@
-import { app, BrowserWindow, ipcMain, Menu, screen, globalShortcut, session } from 'electron';
+import { app, globalShortcut, Menu, screen, systemPreferences } from 'electron';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
-import { commandSchema, defaultSettings, settingsSchema, type Settings } from '@edi/contracts';
 
-let workspace: BrowserWindow;
-let pet: BrowserWindow;
-let settings: Settings = { ...defaultSettings };
-let writes = Promise.resolve();
-const settingsPath = () => join(app.getPath('userData'), 'preferences.json');
+if (process.env.EDI_CWD) process.chdir(process.env.EDI_CWD);
 
-function persist() {
-  const snapshot = JSON.stringify(settings);
-  writes = writes.catch(() => {}).then(async () => {
-    await mkdir(app.getPath('userData'), { recursive: true });
-    await writeFile(`${settingsPath()}.tmp`, snapshot, { mode: 0o600 });
-    await rename(`${settingsPath()}.tmp`, settingsPath());
-  });
-  return writes;
-}
-function publish() {
-  for (const win of [workspace, pet]) if (!win.isDestroyed()) win.webContents.send('edi:settings', settings);
-}
-function load(win: BrowserWindow, surface: string) {
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', event => event.preventDefault());
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/?surface=${surface}`);
-  } else void win.loadFile(join(__dirname, '../renderer/index.html'), { query: { surface } });
-}
-function createWindows() {
-  const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
-  const webPreferences = { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: true, nodeIntegration: false };
-  workspace = new BrowserWindow({ width: Math.min(408, width), height: Math.min(480, height),
-    minWidth: 340, minHeight: 400, x: x + Math.max(0, width - 550), y: y + Math.max(0, height - 540),
-    title: 'Edi', frame: false, transparent: true, backgroundColor: '#00000000', show: false,
-    resizable: false, hasShadow: true, alwaysOnTop: true, webPreferences });
-  pet = new BrowserWindow({ width: 140, height: 150, x: x + width - 160, y: y + height - 175,
-    transparent: true, frame: false, hasShadow: false, resizable: false, alwaysOnTop: true,
-    skipTaskbar: true, show: false, webPreferences });
-  pet.setIgnoreMouseEvents(true, { forward: true });
-  pet.once('ready-to-show', () => pet.showInactive());
-  workspace.on('close', event => { if (!quitting) { event.preventDefault(); workspace.hide(); } });
-  workspace.on('blur', () => { if (!settings.pinned) workspace.hide(); });
-  load(workspace, 'workspace'); load(pet, 'pet');
-}
-let quitting = false;
-if (!app.requestSingleInstanceLock()) app.quit();
-else {
-  app.on('second-instance', () => workspace?.show());
-  void app.whenReady().then(async () => {
-    try { settings = settingsSchema.parse(JSON.parse(await readFile(settingsPath(), 'utf8'))); } catch { /* first launch or invalid preferences */ }
-    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    createWindows();
-    const trusted = (event: Electron.IpcMainInvokeEvent) => {
-      if (![workspace.webContents, pet.webContents].includes(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted window');
-    };
-    ipcMain.handle('edi:settings:get', event => { trusted(event); return settings; });
-    ipcMain.handle('edi:command', async (event, raw: unknown) => {
-      trusted(event);
-      const command = commandSchema.parse(raw);
-      if (command.type === 'pet-hit-test') {
-        if (event.sender !== pet.webContents) throw new Error('Pet command only');
-        pet.setIgnoreMouseEvents(!command.interactive, { forward: true }); return;
-      }
-      if (command.type === 'show-workspace') { workspace.show(); return; }
-      if (event.sender !== workspace.webContents) throw new Error('Workspace command only');
-      if (command.type === 'hide-workspace') workspace.hide();
-      if (command.type === 'set-expanded') {
-        const old = workspace.getBounds();
-        const area = screen.getDisplayMatching(old).workArea;
-        const width = Math.min(command.expanded ? 740 : 408, area.width);
-        const height = Math.min(command.expanded ? 650 : 480, area.height);
-        workspace.setBounds({ width, height,
-          x: Math.max(area.x, Math.min(old.x + old.width - width, area.x + area.width - width)),
-          y: Math.max(area.y, Math.min(old.y, area.y + area.height - height)) });
-        return;
-      }
-      if (command.type === 'apply-skin') settings = { ...settings, skin: command.skin };
-      if (command.type === 'set-pinned') settings = { ...settings, pinned: command.pinned };
-      await persist(); publish();
+function recordMicrophoneStatus(phase: string) {
+  const out = process.env.EDI_MIC_OUT;
+  if (!out) return;
+  try {
+    writeFileSync(out, `${phase}=${systemPreferences.getMediaAccessStatus('microphone')}\n`, {
+      flag: 'a',
     });
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Edi', submenu: [{ label: 'Show Edi', click: () => workspace.show() }, { type: 'separator' }, { role: 'quit' }] },
-      { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
-    ]));
-    globalShortcut.register('CommandOrControl+Shift+E', () => workspace.isVisible() ? workspace.hide() : workspace.show());
-    app.on('activate', () => workspace.show());
+  } catch {
+    // Probe path only; ignore a failed write.
+  }
+}
+recordMicrophoneStatus('boot');
+import { notesCapabilities } from '@edi/capabilities';
+import { createRepositories, openDatabase } from '@edi/storage';
+import { AgentService } from './agent/agent-service';
+import { captureScreensForPrompt } from './capture/screens';
+import { shouldHideCardOnBlur } from './permissions';
+import type { PermissionManager } from './permission-manager';
+import { PocketVoice } from './voice/pocket-process';
+import { resolveVoiceRuntime } from './voice/runtime';
+import { transcribePcm } from './voice/transcription-process';
+import { VoiceController } from './voice/voice-controller';
+import { OpenRouterCredentials } from './agent/credentials';
+import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
+import { PointerOverlay } from './presentation/pointer';
+import { CharacterActions } from './character/character-actions';
+import { createCommandRoutes } from './ipc/commands';
+import { registerIpc } from './ipc/router';
+import { PetDrag } from './character/pet-drag';
+import { SettingsStore } from './settings/settings-store';
+import { WindowPlacement } from './windows/placement';
+import { createMacMediaPermissions } from './platform/macos-media-permissions';
+import {
+  broadcast,
+  createCharacterMenuWindow,
+  createPointerWindow,
+  createPetWindow,
+  createStatusBubbleWindow,
+  createWorkspaceWindow,
+} from './windows/factory';
+
+let quitting = false;
+
+/** Composition root: construct services, wire them together, own app lifecycle. */
+async function start() {
+  // One SQLite writer, owned here. Nothing in flight at the last quit is replayed.
+  const database = openDatabase(join(app.getPath('userData'), 'edi.sqlite'));
+  const repositories = createRepositories(database);
+  repositories.recoverInterrupted(Date.now());
+
+  const settings = new SettingsStore();
+  const permissionPort: { current?: PermissionManager } = {};
+  const agent = new AgentService({
+    credentials: new OpenRouterCredentials(),
+    repositories,
+    capabilities: notesCapabilities({
+      directory: () => join(app.getPath('documents'), 'Edi Notes'),
+      store: repositories.notes,
+    }),
+    captureScreens: captureScreensForPrompt,
+    screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
+    point: target => pointer.show(target),
+  });
+  await Promise.all([settings.load(), agent.load()]);
+
+  const workspace = createWorkspaceWindow();
+  const pet = createPetWindow(settings.current.petPosition);
+  const pointer = new PointerOverlay({
+    pet,
+    skin: () => settings.current.skin,
+    create: createPointerWindow,
+  });
+  const placement = new WindowPlacement(
+    pet,
+    workspace,
+    () => settings.current.skin,
+    () => settings.current.pinned,
+  );
+  const petDrag = new PetDrag(
+    pet,
+    () => placement.place(),
+    petPosition => settings.update({ petPosition }),
+  );
+  // Local voice. EDI_VOICE=off disables it (developer machines, automated desktop tests
+  // that must never open a real microphone).
+  const voiceRuntime =
+    process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  const pocket = voiceRuntime ? new PocketVoice(voiceRuntime.pocket) : null;
+  const voice = new VoiceController({
+    runtime: voiceRuntime,
+    send: event => broadcast([pet], 'edi:voice', event),
+    status: status => character.showVoiceStatus(status),
+    microphoneAccess: async () => permissionPort.current?.require('microphone') ?? false,
+    captureScreens: captureScreensForPrompt,
+    ask: (prompt, options) =>
+      agent.ask(prompt, options).catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'Set up OpenRouter first.')
+          placement.reveal();
+        throw error;
+      }),
+    whenFinished: (runId, signal) => agent.whenFinished(runId, signal),
+    stopAgent: () => agent.stop(),
+    transcribe: transcribePcm,
+    speak: (text, signal, consume) =>
+      pocket ? pocket.speak(text, signal, consume) : Promise.reject(new Error('No voice')),
+    warmSpeech: () => pocket?.warm(),
+  });
+
+  const mediaPermissions = createMacMediaPermissions({
+    workspace,
+    pet,
+    voice,
+    revealPermissionCard: () => placement.reveal(),
+    onChange: snapshot => broadcast([workspace], 'edi:permissions', snapshot),
+  });
+  const permissions = mediaPermissions.manager;
+  permissionPort.current = permissions;
+  const character = new CharacterActions({
+    pet,
+    card: workspace,
+    skin: () => settings.current.skin,
+    startVoice: mode => voice.start(mode),
+    showContent: () => placement.show(),
+    stopWork: () => {
+      pointer.dismiss();
+      petDrag.cancel();
+      voice.stop();
+      agent.stop();
+    },
+    createBubble: createStatusBubbleWindow,
+    createMenu: createCharacterMenuWindow,
+    quit: () => app.quit(),
+  });
+
+  // Global hold-to-talk: the same turn as holding the character, and it wakes Edi
+  // from Sleep. Only while voice works, so ⌥ Space is left alone otherwise.
+  const hotkey = new HoldHotkey(
+    voice.available
+      ? resolveHotkeyHelper(app.getAppPath(), app.isPackaged, process.resourcesPath)
+      : null,
+    optionSpace,
+    {
+      down: () => {
+        pet.showInactive();
+        character.requestListening('push-to-talk');
+      },
+      up: () => {
+        if (voice.phase !== 'idle') voice.release();
+        else character.releaseListening();
+      },
+    },
+  );
+  hotkey.start();
+
+  settings.onChange(value => broadcast([workspace, pet], 'edi:settings', value));
+  agent.onChange(state => {
+    broadcast([workspace], 'edi:agent', state);
+    if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
+    character.showApproval(state.approval);
+    character.setThinking(state.status === 'running' && !state.text && !state.approval);
+    // A new review appears beside Edi first. The person can act there or reveal
+    // the already-prepared full review in the content card.
+  });
+
+  placement.place();
+  pet.webContents.on('render-process-gone', petDrag.cancel);
+  const onDisplayChange = () => {
+    petDrag.cancel();
+    placement.recover();
+  };
+  screen.on('display-removed', onDisplayChange);
+  screen.on('display-metrics-changed', onDisplayChange);
+  pet.once('ready-to-show', () => pet.showInactive());
+  workspace.on('focus', () => permissions?.refresh());
+  workspace.on('close', event => {
+    if (quitting) return;
+    event.preventDefault();
+    workspace.hide();
+  });
+  workspace.on('blur', () => {
+    if (shouldHideCardOnBlur(settings.current.pinned, mediaPermissions.holdsCardOpen())) {
+      workspace.hide();
+    }
+  });
+
+  // Registered in the same tick as window creation, before any renderer can run.
+  registerIpc({
+    identify: sender => {
+      if (!workspace.isDestroyed() && sender === workspace.webContents) return 'workspace';
+      if (!pet.isDestroyed() && sender === pet.webContents) return 'pet';
+      if (character.ownsMenu(sender)) return 'menu';
+      if (character.ownsBubble(sender)) return 'bubble';
+      return undefined;
+    },
+    routes: createCommandRoutes({
+      workspace,
+      pet,
+      settings,
+      agent,
+      placement,
+      petDrag,
+      character,
+      voice,
+      permissions,
+    }),
+    settings: () => settings.current,
+    agentState: () => agent.state,
+    activity: () => repositories.activity(30),
+    permissions: () => permissions.snapshot(),
+  });
+
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { label: 'Edi', submenu: character.menuItems() },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]),
+  );
+  // Temporary conversation shortcut; ⌥ Space push-to-talk needs a native key-up adapter.
+  globalShortcut.register('CommandOrControl+Shift+E', () => character.requestListening());
+  app.on('activate', () => character.requestListening());
+  app.on('second-instance', () => character.requestListening());
+  app.on('before-quit', () => {
+    quitting = true;
+    hotkey.dispose();
+    character.dispose();
+    petDrag.cancel();
+    agent.stop();
+  });
+  app.on('will-quit', () => {
+    pocket?.dispose();
+    database.close();
   });
 }
-app.on('before-quit', () => { quitting = true; });
+
+if (process.platform === 'darwin') app.setName('Edi');
+if (process.env.EDI_VOICE !== 'off' && !app.requestSingleInstanceLock()) {
+  void app.whenReady().then(() => {
+    recordMicrophoneStatus('ready');
+    app.quit();
+  });
+} else {
+  void app.whenReady().then(() => {
+    recordMicrophoneStatus('ready');
+    return start();
+  });
+}
 app.on('will-quit', () => globalShortcut.unregisterAll());

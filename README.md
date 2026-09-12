@@ -1,6 +1,6 @@
 # Edi
 
-A desktop companion by Fewer Labs. This is the first runnable foundation, not a connected agent yet.
+A desktop companion by Fewer Labs. The current foundation includes OpenRouter conversations, reviewed note tools, local hold-to-talk voice in development, and temporary on-screen presentation effects.
 
 ## Run
 
@@ -12,7 +12,9 @@ pnpm setup:electron
 pnpm dev
 ```
 
-Only the transparent pet window appears at launch. Click Edi or press **Command–Shift–E** to summon a small, iOS-inspired content card. Expand it for more room. The card dismisses on focus loss unless pinned; closing it hides it. Quit from the Edi menu or Command–Q. This is a macOS app, not an iOS app or a notch integration.
+Only the transparent pet window appears at launch. Click Edi to request conversation mode or hold Edi / **⌥ Space** for push-to-talk; neither opens the content card. Right-click Edi → **Show content** opens the card. The card dismisses on focus loss unless pinned. Right-click → **Sleep Edi** hides the character and card; a listening shortcut wakes it. **Quit Edi** exits fully. This is a macOS app, not an iOS app or a notch integration.
+
+Character gestures distinguish a short click (conversation request), a stationary 350 ms hold (push-to-talk), and moving before the hold threshold (drag). Releasing a hold never starts conversation. The custom right-click menu supports arrow keys, Home/End and Escape. Hands-free follow-ups and shortcut rebinding are still pending.
 
 ```sh
 pnpm typecheck
@@ -27,21 +29,65 @@ pnpm package
 ## Working now
 
 - Independent Electron pet/workspace windows and narrow validated IPC.
+- OpenRouter setup, streamed plain-text responses, cancellation, and request limits in a separate worker thread.
+- Just-in-time microphone and Screen Recording permission cards with explicit macOS Settings recovery.
+- Privacy-first screen context: screenshots are captured only when a prompt refers to visible UI, or as a short follow-up in that visual conversation.
+- Listening, thinking, and speaking bubble states; ordinary replies remain in chat. Pending writes can be approved from a compact action card or opened in the full review.
 - Compact content card with Appearance, Extensions, and Activity under More.
 - Cloud and Sprout avatars, synchronized across windows and persisted locally.
-- Expand/collapse, pin/hide controls, and global summon shortcut.
+- Expand/collapse, pin/hide controls, character context menu, Sleep, and global wake/listen shortcut.
+- Drag Edi to reposition it; Escape cancels a drag. Position persists across restarts. Unpinned cards follow; pinned cards stay in place.
 - Search/filter of the clearly labeled extension catalog preview.
-- A sample response with a diagram; no model or video playback is connected yet.
+- Validated text, step-diagram, and local-video renderer foundations. Example selectors are no longer exposed in the main UI; inline agent-generated rich content is still pending. Remote media remains blocked.
 
-Preferences use an atomic JSON file in Electron's user-data directory for this foundation. Move them into SQLite when conversation/run persistence arrives. No API keys are needed, no accounts are connected, and microphone permissions are not requested.
+Preferences use an atomic JSON file in Electron's user-data directory. Conversation, tool, and activity history use local SQLite. Previews need no key. OS permissions are requested only when a feature needs them and only after the person clicks the permission card's action.
+
+## Connect OpenRouter
+
+Open **Talk to Edi**, enter your OpenRouter API key and an exact model ID from your OpenRouter account, then choose **Save connection**. Do not paste the key into chat or commit it to this project. Saving is local only; the first message tests the connection and may incur provider charges.
+
+The key is entered in a password field, cleared after submission, and stored in `openrouter.enc` in the app's user-data directory using Electron safeStorage encryption. It is never returned through the settings bridge. This is Keychain-backed encryption on macOS, not a claim that the key exists only in Keychain. Unsigned development builds may trigger Keychain prompts. Removing the saved key deletes Edi's local encrypted copy; it does not revoke the key at OpenRouter.
+
+Your prompt, recent completed conversation turns, Edi's system instructions, and any screen images required by that prompt go to OpenRouter. Generic questions do not trigger capture and contain no screenshot. Limits: one active request, 8,000 input characters, 2,048 output tokens, a 120-second timeout, and no automatic retries. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
+
+`pnpm test:agent` exercises the real SDK with mocked network responses. The user confirmed a live OpenRouter response on 2026-09-11. “Talk to Edi” remains a temporary integration interface, not the final product entry point.
+
+Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRouterTeam/ai-sdk-provider), [Electron credential encryption](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 ## Structure
 
-`apps/desktop/src/main` owns windows and preferences; `preload` exposes the validated bridge; `renderer` contains the React workspace and SVG avatars. `packages/contracts` owns command/settings schemas and the skin catalog. New domain packages will be created with their first working feature rather than empty placeholder directories.
+- `apps/desktop/src/main`: composition root (`index.ts`) plus `agent/`, `character/`, `ipc/` (route table and sender checks), `settings/`, `windows/` and `voice/`.
+- `apps/desktop/src/preload`: the narrow validated bridge.
+- `apps/desktop/src/renderer/src`: `app/` (shell and surface routing), `components/ui/` (shared UI primitives), `styles/` (tokens, materials, component styles), `features/*` (pet, conversation, content, appearance, extensions, activity, voice), `hooks/` and `lib/`. Features never import each other; ESLint enforces shared → features → app.
+- `packages/contracts`: command/settings schemas, skin geometry and pure placement logic.
+- `packages/storage`: the local SQLite history (runs, tool calls and approvals, notes). Built on Node's `node:sqlite`; only the main process writes.
+- `packages/capabilities`: the capability broker and built-in tools. Every tool call is validated, writes are reviewed by you first, and each outcome is recorded.
+
+### Voice (hold to talk)
+
+Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're done. Edi transcribes locally with whisper.cpp and answers out loud with Pocket TTS. If the spoken question clearly refers to visible UI, Edi captures the screens at the moment the question ends; ordinary questions do not touch screen capture. The card shows the full reply.
+
+- Development builds use the pinned voice runtimes provisioned under `benchmarks/voice` (see its README). Packaged builds don't bundle them yet, so there the character says voice is unavailable.
+- Edi asks for the microphone when voice is first used, and Screen Recording only when a screen-dependent question is asked. Denied access is recovered through the matching macOS Settings page.
+- A single click starts hands-free conversation with voice-activity detection and follow-ups; Stop, Sleep, or a new session dismisses it.
+- Pocket uses Jane as Edi’s local female default. The host passes the voice ID explicitly and rejects a worker that
+  loads a different voice. Chatterbox Turbo, ElevenLabs, and Cartesia remain future selectable providers.
+- ⌥ Space comes from a tiny native helper (`native/hotkey`, built by `pnpm build:native` and by `pnpm package`). It registers only that chord through Carbon, so it needs no Input Monitoring or Accessibility permission, never sees other keystrokes, and stops ⌥ Space from typing into the focused app. It runs only while voice is available and exits with Edi. macOS doesn't report when another app has also claimed ⌥ Space, so a conflict shows up as the key not reaching Edi. Rebinding under Settings → Keyboard Shortcut is still to come.
+- `EDI_VOICE=off pnpm dev` turns local voice off. The desktop tests set it so they never open a real microphone.
+
+### Pointing
+
+When showing you where something is helps, Edi ends its reply with a pointing tag (`[POINT:x,y:label:screenN]`). Edi removes the tag from what you read and hear, maps the point from the screenshot back to that display, and sends its pointer from its hand to the spot with a short label. The pointer layer covers the whole display, including the menu bar, and never takes clicks or focus. It clears after eight seconds, on your next question, or on Stop or Sleep.
+
+See [permission architecture](docs/PERMISSIONS.md) for the permission states, least-privilege boundary, and extension process.
+
+### Tools and approvals
+
+Edi can list its notes and save a new note to `~/Documents/Edi Notes`. Saving always shows the exact file path and content first; nothing is written until you choose **Save Note**, and existing files are never replaced. Stopping a response cancels any pending review. Every request and action appears in **Activity**.
 
 ## Next
 
-1. Agent worker with AI SDK streaming and cancellation.
+1. Finish milestone 0: packaged acceptance, desktop behavior, skin attachment geometry, and measured audio/runtime selection.
 2. Screen capture and a capability broker with reviewed writes.
 3. SQLite conversation/run history.
 4. Voice runtime measurements and integration.
