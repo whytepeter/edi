@@ -11,4 +11,4 @@ export {
   type ToolManifestEntry,
   type ToolOutcome,
 } from './types';
-export { notesCapabilities, slugify, type NoteStore } from './builtins/notes';
+export { notesCapabilities, slugify, type ListedNote, type NoteStore } from './builtins/notes';

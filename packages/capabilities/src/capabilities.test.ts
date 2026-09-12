@@ -11,6 +11,8 @@ import {
   slugify,
   type ApprovalGate,
   type Capability,
+  type ListedNote,
+  type NoteStore,
   type ToolCallRecorder,
 } from './index';
 
@@ -56,6 +58,42 @@ function counter(effect: 'read' | 'write' = 'write', work = async () => {}) {
 
 const run = '00000000-0000-4000-8000-000000000001';
 const live = () => new AbortController().signal;
+const noteId = '00000000-0000-4000-8000-000000000020';
+
+function emptyStore(): NoteStore {
+  return { add() {}, get: () => undefined, list: () => [], update() {}, remove() {} };
+}
+
+function memoryStore(seed: ListedNote[] = []): NoteStore & { records: ListedNote[] } {
+  const records = [...seed];
+  return {
+    records,
+    add(note) {
+      records.unshift({
+        id: note.id,
+        title: note.title,
+        path: note.path,
+        createdAt: note.createdAt,
+      });
+    },
+    get(id) {
+      return records.find(note => note.id === id);
+    },
+    list(limit) {
+      return records.slice(0, limit);
+    },
+    update(note) {
+      const current = records.find(entry => entry.id === note.id);
+      if (!current) throw new Error('missing');
+      current.title = note.title;
+    },
+    remove(id) {
+      const index = records.findIndex(entry => entry.id === id);
+      if (index < 0) throw new Error('missing');
+      records.splice(index, 1);
+    },
+  };
+}
 
 test('approved writes execute once and are recorded in order', async () => {
   const { state, capability } = counter();
@@ -172,18 +210,18 @@ test('writes are serialized: the second waits for the first', async () => {
 });
 
 test('manifest exposes model-safe names and JSON schemas', () => {
-  const [save, list] = notesCapabilities({
+  const capabilities = notesCapabilities({
     directory: () => '/tmp',
-    store: { add() {}, list: () => [] },
+    store: emptyStore(),
   });
-  const broker = new CapabilityBroker([save as Capability, list as Capability], {
+  const broker = new CapabilityBroker([...capabilities], {
     approvals: gate('never'),
     recorder: recorder().sink,
   });
   const manifest = broker.manifest();
   assert.deepEqual(
     manifest.map(entry => entry.name),
-    ['notes_save', 'notes_list'],
+    ['notes_save', 'notes_list', 'notes_read', 'notes_edit', 'notes_delete'],
   );
   assert.equal((manifest[0].inputSchema as { type: string }).type, 'object');
 });
@@ -196,10 +234,10 @@ test('slugs cannot escape the folder', () => {
 
 test('notes.save previews the exact path, writes it, and never overwrites', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
-  const saved: string[] = [];
+  const store = memoryStore();
   const [save] = notesCapabilities({
     directory: () => folder,
-    store: { add: note => saved.push(note.path), list: () => [] },
+    store,
   });
   await writeFile(join(folder, 'groceries.md'), 'existing');
   const context = { callId: '00000000-0000-4000-8000-000000000010', runId: run };
@@ -211,7 +249,10 @@ test('notes.save previews the exact path, writes it, and never overwrites', asyn
   assert.equal(await readFile(join(folder, 'groceries-2.md'), 'utf8'), '# Groceries\n\n- milk\n');
   assert.equal(await readFile(join(folder, 'groceries.md'), 'utf8'), 'existing');
   assert.deepEqual(result.output, { path: location });
-  assert.deepEqual(saved, [location]);
+  assert.deepEqual(
+    store.records.map(note => note.path),
+    [location],
+  );
 
   // The name was free at review but taken before execution: refuse, replace nothing.
   const raced = await save.prepare({ title: 'Race', body: 'b' }, context);
@@ -222,4 +263,51 @@ test('notes.save previews the exact path, writes it, and never overwrites', asyn
     (await readdir(folder)).some(name => name.endsWith('.tmp')),
     false,
   );
+});
+
+test('notes.read returns the file; notes.edit replaces it; notes.delete removes it', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
+  const path = join(folder, 'ideas.md');
+  await writeFile(path, '# Ideas\n\nold\n');
+  const store = memoryStore([{ id: noteId, title: 'Ideas', path, createdAt: 1 }]);
+  const [, , read, edit, remove] = notesCapabilities({ directory: () => folder, store });
+  const context = { callId: '00000000-0000-4000-8000-000000000011', runId: run };
+
+  const shown = await read.prepare({ id: noteId }, context);
+  assert.deepEqual(await shown.execute(live()), {
+    summary: 'Read “Ideas”.',
+    output: { id: noteId, title: 'Ideas', path, body: '# Ideas\n\nold\n' },
+  });
+
+  const update = await edit.prepare({ id: noteId, title: 'Plans', body: 'new' }, context);
+  assert.equal(update.preview.fields.find(field => field.label === 'Location')?.value, path);
+  await update.execute(live());
+  assert.equal(await readFile(path, 'utf8'), '# Plans\n\nnew\n');
+  assert.equal(store.records[0]?.title, 'Plans');
+
+  const gone = await remove.prepare({ id: noteId }, context);
+  await gone.execute(live());
+  await assert.rejects(() => readFile(path));
+  assert.deepEqual(store.records, []);
+  assert.equal(
+    (await readdir(folder)).some(name => name.endsWith('.tmp')),
+    false,
+  );
+});
+
+test('notes.edit and notes.delete refuse paths outside the notes folder', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
+  const outside = join(tmpdir(), `edi-notes-outside-${noteId}.md`);
+  await writeFile(outside, 'secret');
+  const store = memoryStore([{ id: noteId, title: 'Secret', path: outside, createdAt: 1 }]);
+  const [, , read, edit, remove] = notesCapabilities({ directory: () => folder, store });
+  const context = { callId: '00000000-0000-4000-8000-000000000012', runId: run };
+
+  assert.throws(() => read.prepare({ id: noteId }, context), /outside the notes folder/);
+  assert.throws(
+    () => edit.prepare({ id: noteId, title: 'X', body: 'y' }, context),
+    /outside the notes folder/,
+  );
+  assert.throws(() => remove.prepare({ id: noteId }, context), /outside the notes folder/);
+  assert.equal(await readFile(outside, 'utf8'), 'secret');
 });

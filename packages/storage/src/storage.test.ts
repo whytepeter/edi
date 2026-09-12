@@ -185,3 +185,29 @@ test('activity reports how many screens were sent', () => {
   repos.runs.start({ ...run(uuid(1)), screens: 2 });
   assert.equal(repos.activity(1)[0].screens, 2);
 });
+
+test('notes can be looked up, updated and removed', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const id = uuid(30);
+  repos.notes.add({
+    id,
+    title: 'Groceries',
+    path: '/tmp/groceries.md',
+    bytes: 12,
+    toolCallId: null,
+    createdAt: 1,
+  });
+  assert.equal(repos.notes.get(id)?.title, 'Groceries');
+  repos.notes.update({ id, title: 'Shopping', bytes: 20 });
+  assert.deepEqual(repos.notes.get(id), {
+    id,
+    title: 'Shopping',
+    path: '/tmp/groceries.md',
+    bytes: 20,
+    createdAt: 1,
+  });
+  repos.notes.remove(id);
+  assert.equal(repos.notes.get(id), undefined);
+  assert.throws(() => repos.notes.update({ id, title: 'Gone', bytes: 1 }));
+  assert.throws(() => repos.notes.remove(id));
+});

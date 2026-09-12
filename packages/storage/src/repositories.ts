@@ -176,6 +176,13 @@ export class NoteRepository {
       .run(note.id, note.title, note.path, note.bytes, note.toolCallId, note.createdAt);
   }
 
+  get(id: string): NoteRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT id, title, path, bytes, created_at AS createdAt FROM notes WHERE id = ?`)
+      .get(id);
+    return row ? noteRow.parse(row) : undefined;
+  }
+
   list(limit: number): NoteRecord[] {
     return this.db
       .prepare(
@@ -184,6 +191,18 @@ export class NoteRepository {
       )
       .all(limit)
       .map(row => noteRow.parse(row));
+  }
+
+  update(note: { id: string; title: string; bytes: number }) {
+    const result = this.db
+      .prepare(`UPDATE notes SET title = ?, bytes = ? WHERE id = ?`)
+      .run(note.title, note.bytes, note.id);
+    if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM notes WHERE id = ?`).run(id);
+    if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
   }
 }
 

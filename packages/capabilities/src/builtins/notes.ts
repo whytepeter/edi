@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { access, link, mkdir, unlink, writeFile } from 'node:fs/promises';
+import { access, link, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { defineCapability, OutcomeUnknownError } from '../types';
+
+export interface ListedNote {
+  id: string;
+  title: string;
+  path: string;
+  createdAt: number;
+}
 
 export interface NoteStore {
   add(note: {
@@ -13,7 +20,10 @@ export interface NoteStore {
     toolCallId: string | null;
     createdAt: number;
   }): void;
-  list(limit: number): { title: string; path: string; createdAt: number }[];
+  get(id: string): ListedNote | undefined;
+  list(limit: number): ListedNote[];
+  update(note: { id: string; title: string; bytes: number }): void;
+  remove(id: string): void;
 }
 
 interface NotesDependencies {
@@ -55,6 +65,23 @@ function formatBytes(bytes: number) {
   return bytes < 1024 ? `${bytes} bytes` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+const noteId = z.string().uuid().describe('Id from notes.list or notes.read');
+
+function locate(store: NoteStore, directory: () => string, id: string) {
+  const note = store.get(id);
+  if (!note) throw new Error('Edi has no saved note with that id. List notes first.');
+  const folder = resolve(directory());
+  const path = resolve(note.path);
+  if (dirname(path) !== folder) {
+    throw new Error('Refusing to touch a file outside the notes folder.');
+  }
+  return { note, folder, path };
+}
+
+function noteContent(title: string, body: string) {
+  return `# ${title}\n\n${body}\n`;
+}
+
 export function notesCapabilities({ directory, store, now = Date.now }: NotesDependencies) {
   const save = defineCapability({
     id: 'notes.save',
@@ -75,7 +102,7 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
       const path = await freePath(folder, slugify(title) || 'note');
       // Defence in depth: the slug cannot escape, but verify the plan anyway.
       if (dirname(path) !== folder) throw new Error('Refusing to write outside the notes folder.');
-      const content = `# ${title}\n\n${body}\n`;
+      const content = noteContent(title, body);
       const bytes = Buffer.byteLength(content);
       return {
         preview: {
@@ -133,7 +160,7 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
     id: 'notes.list',
     title: 'Look through notes',
     description:
-      'List notes Edi has saved for the user, newest first, with their titles and file paths.',
+      'List notes Edi has saved for the user, newest first, with their ids, titles and file paths.',
     effect: 'read',
     timeoutMs: 5_000,
     input: z.object({ limit: z.number().int().min(1).max(50).default(10) }).strict(),
@@ -147,6 +174,7 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
         },
         async execute() {
           const notes = store.list(limit).map(note => ({
+            id: note.id,
             title: note.title,
             path: note.path,
             savedAt: new Date(note.createdAt).toISOString(),
@@ -163,5 +191,136 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
     },
   });
 
-  return [save, list] as const;
+  const read = defineCapability({
+    id: 'notes.read',
+    title: 'Read a note',
+    description:
+      'Read the full Markdown of a note Edi has saved. Pass the id from notes.list. ' +
+      'Use this before editing, or when the user asks what a note says.',
+    effect: 'read',
+    timeoutMs: 5_000,
+    input: z.object({ id: noteId }).strict(),
+    prepare({ id }) {
+      const { note, path } = locate(store, directory, id);
+      return {
+        preview: {
+          title: 'Read a note',
+          action: 'Read Note',
+          summary: `Read “${note.title}”.`,
+          fields: [],
+        },
+        async execute() {
+          let body: string;
+          try {
+            body = await readFile(path, 'utf8');
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+              throw new Error('That note’s file is gone. Nothing was read.', { cause: error });
+            }
+            throw error;
+          }
+          return {
+            summary: `Read “${note.title}”.`,
+            output: { id: note.id, title: note.title, path, body },
+          };
+        },
+      };
+    },
+  });
+
+  const edit = defineCapability({
+    id: 'notes.edit',
+    title: 'Edit a note',
+    description:
+      'Replace the title and body of an existing note. The file path does not change. ' +
+      'The user reviews the new content before anything is written. Pass the id from notes.list.',
+    effect: 'write',
+    timeoutMs: 10_000,
+    input: z
+      .object({
+        id: noteId,
+        title: z.string().trim().min(1).max(120).describe('Short, descriptive title'),
+        body: z.string().trim().min(1).max(20_000).describe('Replacement content in Markdown'),
+      })
+      .strict(),
+    prepare({ id, title, body }) {
+      const { note, folder, path } = locate(store, directory, id);
+      const content = noteContent(title, body);
+      const bytes = Buffer.byteLength(content);
+      return {
+        preview: {
+          title: 'Edit a note',
+          action: 'Update Note',
+          summary: 'Edi wants to replace this note’s content. The file path stays the same.',
+          fields: [
+            { label: 'Title', value: title === note.title ? title : `${note.title} → ${title}` },
+            { label: 'Location', value: path },
+            { label: 'Size', value: formatBytes(bytes) },
+          ],
+          body: content.slice(0, 4000),
+        },
+        async execute() {
+          if (!(await exists(path))) {
+            throw new Error('That note’s file is gone. Nothing was changed.');
+          }
+          const temp = join(folder, `.edi-${randomUUID()}.tmp`);
+          await writeFile(temp, content, { flag: 'wx', mode: 0o644 });
+          try {
+            await rename(temp, path);
+          } catch (error) {
+            await unlink(temp).catch(() => {});
+            throw error;
+          }
+          try {
+            store.update({ id: note.id, title, bytes });
+          } catch {
+            throw new OutcomeUnknownError(
+              `Updated ${path}, but Edi could not record it in its history.`,
+            );
+          }
+          return { summary: `Updated “${title}” at ${path}`, output: { path } };
+        },
+      };
+    },
+  });
+
+  const remove = defineCapability({
+    id: 'notes.delete',
+    title: 'Delete a note',
+    description:
+      'Delete a note Edi saved: the Markdown file and Edi’s record of it. The user reviews ' +
+      'the exact file before anything is removed. Pass the id from notes.list.',
+    effect: 'write',
+    timeoutMs: 10_000,
+    input: z.object({ id: noteId }).strict(),
+    prepare({ id }) {
+      const { note, path } = locate(store, directory, id);
+      return {
+        preview: {
+          title: 'Delete a note',
+          action: 'Delete Note',
+          summary: 'Edi wants to permanently delete this Markdown file.',
+          fields: [
+            { label: 'Title', value: note.title },
+            { label: 'Location', value: path },
+          ],
+        },
+        async execute() {
+          try {
+            await unlink(path);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+          try {
+            store.remove(note.id);
+          } catch {
+            throw new OutcomeUnknownError(`Removed ${path}, but Edi could not update its history.`);
+          }
+          return { summary: `Deleted “${note.title}” at ${path}`, output: { path } };
+        },
+      };
+    },
+  });
+
+  return [save, list, read, edit, remove] as const;
 }
