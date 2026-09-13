@@ -482,3 +482,29 @@
 .character-menu {
   width: 100%;
 }
+
+/* Thinking with words: dots, then a short line that eases in each time it changes. */
+.status-bubble-surface[data-state='thinking'] .ds-bubble {
+  gap: 8px;
+  white-space: nowrap;
+}
+.bubble-progress {
+  overflow: hidden;
+  font: 500 12.5px/1.2 var(--font-text);
+  letter-spacing: -0.005em;
+  color: var(--label);
+  text-overflow: ellipsis;
+  animation: bubble-progress-in 420ms var(--spring) both;
+}
+@keyframes bubble-progress-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+    filter: blur(2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble-progress {
+    animation: none;
+  }
+}

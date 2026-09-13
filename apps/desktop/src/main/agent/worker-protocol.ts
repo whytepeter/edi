@@ -56,6 +56,8 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('done') }).strict(),
+  /** A closed set of progress hints; provider output never becomes free text here. */
+  z.object({ type: z.literal('activity'), activity: z.enum(['searching-web']) }).strict(),
   z
     .object({
       type: z.literal('error'),

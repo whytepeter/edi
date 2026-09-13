@@ -15,6 +15,7 @@ import {
   characterMenuSize,
   floatingMargin,
   statusBubbleSize,
+  thinkingBubbleSize,
   type StatusBubbleOptions,
 } from '../windows/factory';
 
@@ -39,6 +40,10 @@ type MenuAction = 'content' | 'settings' | 'sleep' | 'quit' | 'dismiss';
 /** One entry point for character clicks, menu actions and the global shortcut. */
 export class CharacterActions {
   private bubble?: { window: BrowserWindow; state: StatusBubbleState; side: BubbleSide };
+  /** The thinking bubble's current progress line. */
+  private bubbleText?: string;
+  private ackUntil = 0;
+  private ackTimer?: ReturnType<typeof setTimeout>;
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
   private dismiss?: ReturnType<typeof setTimeout>;
@@ -61,17 +66,57 @@ export class CharacterActions {
     if (!this.options.startVoice(mode)) this.showStatus('unavailable', 5000);
   };
 
-  /** Mirror text work with dots, but keep the conversation itself in the card. */
-  setThinking = (thinking: boolean) => {
-    if (
-      thinking &&
-      this.bubble?.state !== 'thinking' &&
-      this.bubble?.state !== 'approval' &&
-      this.bubble?.state !== 'speaking'
-    )
-      this.showStatus('thinking');
-    else if (!thinking && this.bubble?.state === 'thinking') this.hideBubble();
+  /**
+   * Mirror work with dots, plus a short progress line when the person is not watching the
+   * conversation ("Searching the web"). The line updates in place; the bubble never flickers.
+   */
+  setThinking = (thinking: boolean, text?: string) => {
+    if (!thinking) {
+      clearTimeout(this.ackTimer);
+      this.ackUntil = 0;
+      if (this.bubble?.state === 'thinking') this.hideBubble();
+      return;
+    }
+    const busy = this.bubble?.state;
+    if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
+    // An acknowledgement stays readable for a moment before progress replaces it.
+    const wait = this.ackUntil - Date.now();
+    if (wait > 0) {
+      clearTimeout(this.ackTimer);
+      this.ackTimer = setTimeout(() => this.setThinking(true, text), wait);
+      return;
+    }
+    this.showThinking(text);
   };
+
+  /**
+   * Warm, brief acknowledgement when Edi is asked to do something ("On it"): a small happy nod
+   * and the phrase in the bubble, which then settles into progress or thinking dots.
+   */
+  acknowledge = (phrase: string) => {
+    const busy = this.bubble?.state;
+    if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
+    this.showThinking(phrase);
+    this.ackUntil = Date.now() + 1400;
+    this.setExpression('happy');
+    clearTimeout(this.ackTimer);
+    this.ackTimer = setTimeout(() => {
+      if (this.bubble?.state === 'thinking') this.setExpression('thinking');
+    }, 900);
+  };
+
+  private showThinking(text?: string) {
+    const bubble = this.bubble;
+    if (bubble?.state !== 'thinking' || bubble.window.isDestroyed()) {
+      this.showStatus('thinking', undefined, text);
+      this.bubbleText = text;
+      return;
+    }
+    if (this.bubbleText === text) return;
+    this.bubbleText = text;
+    bubble.window.setBounds(this.bubblePlacement(thinkingBubbleSize(text), bubble.side).bounds);
+    if (this.bubbleReady) bubble.window.webContents.send('edi:bubble-text', text ?? '');
+  }
 
   /** Voice session feedback: live listening, thinking, speaking, a notice, or nothing. */
   showVoiceStatus = (
@@ -135,7 +180,8 @@ export class CharacterActions {
   ) {
     this.hideBubble(false);
     this.setExpression(this.expressionFor(state));
-    const { bounds, side } = this.bubblePlacement(statusBubbleSize[state]);
+    const size = state === 'thinking' ? thinkingBubbleSize(text) : statusBubbleSize[state];
+    const { bounds, side } = this.bubblePlacement(size);
     const window = this.options.createBubble({
       state,
       side,
@@ -193,7 +239,10 @@ export class CharacterActions {
   private followPet = () => {
     const bubble = this.bubble;
     if (!bubble || bubble.window.isDestroyed()) return;
-    const size = statusBubbleSize[bubble.state];
+    const size =
+      bubble.state === 'thinking'
+        ? thinkingBubbleSize(this.bubbleText)
+        : statusBubbleSize[bubble.state];
     bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
   };
 
@@ -222,6 +271,7 @@ export class CharacterActions {
     this.bubbleReady = false;
     this.bubble?.window.destroy();
     this.bubble = undefined;
+    this.bubbleText = undefined;
     if (resetExpression && !this.approval) this.setExpression('idle');
   }
 

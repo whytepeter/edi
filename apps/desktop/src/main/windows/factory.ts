@@ -43,6 +43,12 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
 };
 export const characterMenuSize = { width: 184, height: 134 } as const;
 
+/** The thinking bubble grows to fit a short progress line ("Searching the web"). */
+export function thinkingBubbleSize(text?: string) {
+  if (!text) return statusBubbleSize.thinking;
+  return withTail(Math.round(Math.min(280, Math.max(112, 72 + text.length * 7.6))), 36);
+}
+
 /** Real desktop blur (CSS backdrop-filter cannot see behind a window). */
 const nativeGlass = (material: 'menu' | 'popover'): Partial<BrowserWindowConstructorOptions> => ({
   vibrancy: material,

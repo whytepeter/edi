@@ -279,7 +279,9 @@ export class AgentService {
         this.finish(run, 'error', 'Response reached the display limit. Ask for a shorter answer.');
         return;
       }
-      this.update({ ...this.state, text: this.state.text + message.text });
+      this.update({ ...this.state, text: this.state.text + message.text, activity: null });
+    } else if (message.type === 'activity') {
+      this.update({ ...this.state, activity: message.activity });
     } else if (message.type === 'tool-call') {
       void this.invokeTool(run, message.id, message.name, message.input);
     } else if (message.type === 'done') {

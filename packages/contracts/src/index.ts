@@ -95,6 +95,8 @@ export const agentStateSchema = z.object({
   screenAccess: z.enum(['granted', 'denied', 'not-determined', 'restricted', 'unknown']).nullable(),
   /** The oldest pending approval; further writes wait behind it. */
   approval: approvalRequestSchema.nullable(),
+  /** Work the model is doing outside Edi's own tools, for short progress in the bubble. */
+  activity: z.enum(['searching-web']).nullable().optional(),
 });
 export type AgentState = z.infer<typeof agentStateSchema>;
 

@@ -255,6 +255,8 @@ async function run() {
       },
       // Search results arrive as sources and provider tool results; their links become readable.
       onChunk: ({ chunk }) => {
+        if (chunk.type === 'tool-call' && chunk.toolName === 'web_search')
+          send({ type: 'activity', activity: 'searching-web' });
         if (chunk.type === 'source' && chunk.sourceType === 'url') rememberLinks(chunk.url);
         else if (chunk.type === 'tool-result') rememberLinks(JSON.stringify(chunk.output ?? ''));
       },

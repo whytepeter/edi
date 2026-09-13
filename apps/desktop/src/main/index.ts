@@ -672,11 +672,46 @@ async function start() {
     warmSelected();
   });
   let previousAgentStatus = agent.state.status;
+  const acknowledgements = ['On it', 'Okay, one sec', 'Sure, let me look', 'Got it', 'Okay, on it'];
+  let acknowledged = 0;
+  /** Short, human progress for the bubble, from the running step or the model's own work. */
+  const stepLabels: Record<string, string> = {
+    'workspace.show': 'Putting it together',
+    'workspace.search': 'Looking through your workspace',
+    'workspace.read': 'Reading your workspace',
+    'workspace.update': 'Updating it',
+    'workspace.delete': 'Tidying up',
+    'notes.save': 'Saving your note',
+    'notes.list': 'Checking your notes',
+    'notes.read': 'Reading your note',
+    'notes.edit': 'Editing your note',
+    'notes.delete': 'Removing the note',
+    'notes.show': 'Opening your note',
+    'web.fetch': 'Reading a page',
+    'edi.open_page': 'Opening that',
+    'edi.change_preferences': 'Adjusting myself',
+    'edi.inspect_setup': 'Checking my settings',
+  };
+  const progressLabel = (state: typeof agent.state) => {
+    const step = [...state.steps]
+      .reverse()
+      .find(item => item.status === 'running' || item.status === 'awaiting-approval');
+    if (step) return stepLabels[step.capability] ?? step.title.slice(0, 40);
+    if (state.activity === 'searching-web') return 'Searching the web';
+    if (state.text) return 'Writing';
+    return undefined;
+  };
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     character.showApproval(state.approval);
-    character.setThinking(state.status === 'running' && !state.approval);
+    const running = state.status === 'running' && !state.approval;
+    // A new request gets a warm acknowledgement; progress follows unless the person is
+    // already watching the conversation, where the steps are shown in full.
+    if (state.status === 'running' && previousAgentStatus !== 'running')
+      character.acknowledge(acknowledgements[acknowledged++ % acknowledgements.length]!);
+    const watching = cardOpen() && currentView === 'conversations';
+    character.setThinking(running, running && !watching ? progressLabel(state) : undefined);
     if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();
     previousAgentStatus = state.status;
     // A new review appears beside Edi first. The person can act there or reveal

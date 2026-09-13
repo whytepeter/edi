@@ -34,6 +34,7 @@ interface ApprovalBubbleBridge {
   respond(callId: string, decision: 'approve' | 'deny'): Promise<void>;
   showContent(): Promise<void>;
   openArtifact(callId: string): Promise<void>;
+  subscribeText(callback: (text: string) => void): () => void;
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
@@ -53,6 +54,12 @@ export function StatusBubble({
   artifact: ArtifactSummary | null;
 }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  // Thinking starts with the acknowledgement or progress from the URL; updates arrive in place.
+  const [progress, setProgress] = useState(state === 'thinking' ? notice : '');
+  useEffect(() => {
+    if (state !== 'thinking') return;
+    return approvalBridge()?.subscribeText(setProgress);
+  }, [state]);
   const [armed, setArmed] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -127,6 +134,12 @@ export function StatusBubble({
     >
       <SpeechBubble side={side} className={state === 'approval' ? 'approval-bubble' : ''}>
         {state === 'thinking' && <ThinkingDots />}
+        {state === 'thinking' && progress && (
+          // Keyed so each new line arrives with the same soft motion.
+          <span key={progress} className="bubble-progress" role="status">
+            {progress}
+          </span>
+        )}
         {state === 'listening' && <ListeningBars />}
         {state === 'speaking' && <SpeakingBars />}
         {state === 'approval' ? (
