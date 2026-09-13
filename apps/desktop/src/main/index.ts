@@ -33,6 +33,7 @@ import {
   notesCapabilities,
   readLibraryNote,
   toArtifactContent,
+  webCapabilities,
   workspaceCapabilities,
   type EdiPreferences,
   type EdiSetupSnapshot,
@@ -340,6 +341,17 @@ async function start() {
         shown: artifact => showArtifact(artifact),
       }),
       ...workspaceCapabilities(workspaceDeps),
+      ...webCapabilities({
+        // A link the person typed is read on their behalf; robots.txt applies to the model's picks.
+        suppliedByUser: url => {
+          const target = url.replace(/^http:/, 'https:').replace(/#.*$/, '');
+          return agent.state.messages.some(
+            message =>
+              message.role === 'user' &&
+              message.text.replace(/http:\/\//g, 'https://').includes(target),
+          );
+        },
+      }),
       ...ediSetupCapabilities({
         snapshot: setupSnapshot,
         open: page => openSetup(page),

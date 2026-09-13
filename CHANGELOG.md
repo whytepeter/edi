@@ -7,6 +7,14 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Web fetch (`web.fetch`): Edi can read a public page from a link you gave, search results or a page it
+  already read. Following Anthropic's web fetch tool, Claude Code's WebFetch and the MCP fetch server: the
+  worker only allows URLs already seen (no composed URLs, so pages cannot exfiltrate data), at most 10 reads
+  per answer; http upgrades to https; addresses are checked at connect time for every hop (private, loopback,
+  link-local, metadata and IPv4-in-IPv6 refused); same-site redirects only, other sites are reported; robots.txt
+  respected for model-chosen links; 2 MB / 20 s bounds; HTML to readable text with 40k-character parts and a
+  15-minute cache; page text is marked untrusted.
+
 - Web search: the model can search the public web through OpenRouter's server tool (Codex) and cite sources.
   Source links in replies are clickable and open in the default browser (http/https only, validated in main);
   spoken replies say the link text, never the address. Edi's self-knowledge lists web search and says

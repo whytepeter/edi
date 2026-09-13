@@ -31,6 +31,15 @@ export {
   type WorkspaceDependencies,
 } from './builtins/workspace';
 export {
+  fetchPage,
+  htmlToText,
+  isPublicAddress,
+  robotsAllows,
+  webCapabilities,
+  type WebFetchDependencies,
+  type WebFetchOutput,
+} from './builtins/web';
+export {
   ediPreferencesSchema,
   ediSetupCapabilities,
   type EdiPreferences,
