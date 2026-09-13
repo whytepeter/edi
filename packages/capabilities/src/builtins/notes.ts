@@ -72,7 +72,8 @@ function formatBytes(bytes: number) {
 const noteId = z.string().uuid().describe('Id from notes.list or notes.read');
 const MAX_NOTE_READ_BYTES = 64 * 1024;
 
-function locate(store: NoteStore, directory: () => string, id: string) {
+/** A note record and its file, confined to the notes folder. Shared with workspace tools. */
+export function locate(store: NoteStore, directory: () => string, id: string) {
   const note = store.get(id);
   if (!note) throw new Error('Edi has no saved note with that id. List notes first.');
   const folder = resolve(directory());

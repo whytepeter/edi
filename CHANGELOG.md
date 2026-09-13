@@ -7,6 +7,15 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Edi manages its workspace: `workspace.search` (notes and generated content, by title and text), `workspace.read`,
+  `workspace.update` (replace generated content in place, reviewed first) and `workspace.delete` (move a note or
+  generated item to the Trash, reviewed first). Generated content now has its own `artifacts` record (migration 3
+  copies existing shown content, keeping each call id so conversation cards still open it).
+- Library Delete: a trash button on each row with an inline confirmation; the file goes to the macOS Trash and
+  the item leaves Library, the conversation and any open artifact window.
+- A kind-aware bubble preview beside Edi: kind, title, a glimpse (checklist items, table rows, text, or a
+  "try it" window for interactive pages) and an Open capsule.
+
 - Interactive pages: `workspace.show` accepts `html` for calculators, simulations, interactive charts or UI
   previews that documents, checklists and tables cannot express. Main serves each page from Edi's history over a
   private `edi-artifact://` scheme with a sandboxing CSP: opaque origin, inline scripts and styles only, no
@@ -99,6 +108,10 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- Edi looked like it was speaking before any audio existed. The speaking state now starts with the first
+  synthesized samples. Measured on the M2 Pro: warm Chatterbox Turbo runs 1.3–1.9× slower than real time, with a
+  ~1.5 s fixed cost per clip. The first clip is the fewest sentences that reach four words (or a clause break for a
+  long sentence), and the worker no longer re-splits clips.
 - Chatterbox paused mid-sentence: the speaker queued only 3 s, so the next sentence started generating too late.
   The speech queue is now 30 s, and the first clip ends at a sentence or clause break instead of after three words.
 

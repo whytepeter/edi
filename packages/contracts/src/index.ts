@@ -346,6 +346,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** The card reports where the person is, so Edi can answer "where am I?" truthfully. */
   z.object({ type: z.literal('workspace-view'), view: workspaceViewSchema }).strict(),
   z.object({ type: z.literal('reveal-library-item'), id: z.string().min(1).max(80) }).strict(),
+  /** The person confirmed Delete in Library; main moves the file to the Trash by id. */
+  z.object({ type: z.literal('library-delete'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),
   ...voiceCommandSchemas,
   z

@@ -39,7 +39,7 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
   speaking: withTail(76, 36),
   notice: withTail(232, 52),
   approval: withTail(324, 204),
-  artifact: withTail(300, 120),
+  artifact: withTail(292, 108),
 };
 export const characterMenuSize = { width: 184, height: 134 } as const;
 

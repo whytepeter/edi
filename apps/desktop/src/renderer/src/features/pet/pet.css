@@ -335,12 +335,7 @@
 }
 
 .status-bubble-surface[data-state='artifact'] {
-  padding: 6px 6px 11px;
-}
-.status-bubble-surface[data-state='artifact'] .artifact-card {
-  max-width: none;
-  background: transparent;
-  box-shadow: none;
+  padding: 2px 2px 7px;
 }
 
 .status-bubble-surface[data-state='notice'] .ds-bubble {

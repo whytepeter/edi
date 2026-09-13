@@ -20,9 +20,15 @@ export {
   type NoteStore,
 } from './builtins/notes';
 export {
+  deleteWorkspaceItem,
+  readWorkspaceItem,
+  searchWorkspace,
   toArtifactContent,
   workspaceCapabilities,
   writeWorkspaceArtifact,
+  type ArtifactStore,
+  type WorkspaceArtifact,
+  type WorkspaceDependencies,
 } from './builtins/workspace';
 export {
   ediPreferencesSchema,

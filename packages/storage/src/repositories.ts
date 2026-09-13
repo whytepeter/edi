@@ -36,6 +36,27 @@ const noteRow = z.object({
   createdAt: z.number(),
 });
 export type NoteRecord = z.infer<typeof noteRow>;
+const artifactRow = z.object({
+  id: z.string(),
+  kind: z.enum(['document', 'checklist', 'table', 'html']),
+  title: z.string(),
+  content: z.string(),
+  path: z.string(),
+  bytes: z.number().int().nonnegative(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+});
+/** Generated workspace content. `content` is the structured data; `path` is workspace-relative. */
+export interface ArtifactRecord {
+  id: string;
+  kind: 'document' | 'checklist' | 'table' | 'html';
+  title: string;
+  content: unknown;
+  path: string;
+  bytes: number;
+  createdAt: number;
+  updatedAt: number;
+}
 const exchangeRow = z.object({ prompt: z.string(), reply: z.string() });
 export type Exchange = z.infer<typeof exchangeRow>;
 const threadRow = z.object({
@@ -270,10 +291,81 @@ export class NoteRepository {
   }
 }
 
+export class ArtifactRepository {
+  constructor(private readonly db: Database) {}
+
+  private static parse(row: unknown): ArtifactRecord {
+    const { content, ...rest } = artifactRow.parse(row);
+    return { ...rest, content: JSON.parse(content) as unknown };
+  }
+
+  add(record: ArtifactRecord) {
+    this.db
+      .prepare(
+        `INSERT INTO artifacts (id, kind, title, content_json, path, bytes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.kind,
+        record.title,
+        JSON.stringify(record.content),
+        record.path,
+        record.bytes,
+        record.createdAt,
+        record.updatedAt,
+      );
+  }
+
+  get(id: string): ArtifactRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, kind, title, content_json AS content, path, bytes,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM artifacts WHERE id = ?`,
+      )
+      .get(id);
+    return row ? ArtifactRepository.parse(row) : undefined;
+  }
+
+  /** Most recently changed first. */
+  list(limit: number): ArtifactRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, kind, title, content_json AS content, path, bytes,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM artifacts ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => ArtifactRepository.parse(row));
+  }
+
+  update(record: {
+    id: string;
+    title: string;
+    content: unknown;
+    bytes: number;
+    updatedAt: number;
+  }) {
+    const result = this.db
+      .prepare(
+        `UPDATE artifacts SET title = ?, content_json = ?, bytes = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(record.title, JSON.stringify(record.content), record.bytes, record.updatedAt, record.id);
+    if (result.changes === 0) throw new Error('That item is no longer in Edi’s workspace.');
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM artifacts WHERE id = ?`).run(id);
+    if (result.changes === 0) throw new Error('That item is no longer in Edi’s workspace.');
+  }
+}
+
 export interface Repositories {
   runs: RunRepository;
   toolCalls: ToolCallRepository;
   notes: NoteRepository;
+  artifacts: ArtifactRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -289,6 +381,7 @@ export function createRepositories(db: Database): Repositories {
     runs: new RunRepository(db),
     toolCalls: new ToolCallRepository(db),
     notes: new NoteRepository(db),
+    artifacts: new ArtifactRepository(db),
 
     activity(limit) {
       const runs = db

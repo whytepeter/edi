@@ -277,3 +277,48 @@ test('shown content is found by run or id, and moved notes keep working', () => 
   // A sibling folder that merely shares the prefix is untouched.
   assert.equal(repos.notes.get(uuid(6))?.path, '/Users/x/Documents/Edi Notes Old/b.md');
 });
+
+test('migration 3 records existing shown content as workspace artifacts under the call id', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  repos.runs.start(run(uuid(1), 100));
+  const shown = (id: number, input: unknown, output: unknown, status = 'succeeded' as const) => {
+    repos.toolCalls.create({
+      id: uuid(id),
+      runId: uuid(1),
+      capability: 'workspace.show',
+      title: 'Show content',
+      effect: 'read',
+      input,
+      status: 'running',
+      at: id,
+    });
+    repos.toolCalls.finish(uuid(id), status, 'Showed', output, id + 1);
+  };
+  shown(
+    20,
+    { kind: 'table', title: 'Costs', columns: ['A'], rows: [['1']] },
+    { shown: true, path: 'Artifacts/Tables/costs.csv', bytes: 4 },
+  );
+  shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
+  // Replay the migration on a database that predates it.
+  db.exec('DROP TABLE artifacts; PRAGMA user_version = 2;');
+  migrate(db);
+  assert.deepEqual(repos.artifacts.list(10), [
+    {
+      id: uuid(20),
+      kind: 'table',
+      title: 'Costs',
+      content: { kind: 'table', title: 'Costs', columns: ['A'], rows: [['1']] },
+      path: 'Artifacts/Tables/costs.csv',
+      bytes: 4,
+      createdAt: 20,
+      updatedAt: 21,
+    },
+  ]);
+  repos.artifacts.update({ id: uuid(20), title: 'Costs Q3', content: {}, bytes: 9, updatedAt: 30 });
+  assert.equal(repos.artifacts.get(uuid(20))?.title, 'Costs Q3');
+  repos.artifacts.remove(uuid(20));
+  assert.equal(repos.artifacts.get(uuid(20)), undefined);
+  assert.throws(() => repos.artifacts.remove(uuid(20)), /no longer/);
+});

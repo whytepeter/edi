@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ArtifactRef, LibraryItem } from '@edi/contracts';
-import { EmptyState, GroupedList, GroupedRow } from '../../components/ui';
+import { Button, EmptyState, GroupedList, Icon, IconButton } from '../../components/ui';
+import './library.css';
 
 const icon = {
   note: 'notes',
@@ -35,6 +36,24 @@ export function LibraryView({
   // Outside Electron there is nothing saved to load.
   const [items, setItems] = useState<LibraryItem[] | null>(() => (window.edi ? null : []));
   const [error, setError] = useState('');
+  // Delete asks inline before anything moves; the confirmation is the person's consent.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  async function moveToTrash(item: LibraryItem) {
+    if (!window.edi) return;
+    setDeleting(item.id);
+    setError('');
+    try {
+      await window.edi.command({ type: 'library-delete', id: item.id });
+      setItems(current => current?.filter(entry => entry.id !== item.id) ?? current);
+      setConfirming(null);
+    } catch {
+      setError(`Couldn’t move “${item.title}” to the Trash.`);
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   useEffect(() => {
     if (!window.edi) return;
@@ -71,17 +90,60 @@ export function LibraryView({
             </p>
           </header>
           <GroupedList title="In your Edi folder">
-            {items.map(item => (
-              <GroupedRow
-                key={item.id}
-                icon={icon[item.kind]}
-                title={item.title}
-                detail={`${label[item.kind]} · ${date.format(item.createdAt)} · ${size(item.bytes)}`}
-                onOpen={() =>
-                  onOpen(item.kind === 'note' ? { noteId: item.id } : { callId: item.id })
-                }
-              />
-            ))}
+            {items.map(item =>
+              confirming === item.id ? (
+                <li
+                  key={item.id}
+                  className="library-confirm"
+                  role="group"
+                  aria-label="Confirm delete"
+                >
+                  <span className="library-confirm-text">
+                    Move “{item.title}” to the Trash? You can put it back from the Trash in Finder.
+                  </span>
+                  <span className="library-confirm-actions">
+                    <Button size="small" variant="plain" onClick={() => setConfirming(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="prominent"
+                      disabled={deleting === item.id}
+                      onClick={() => void moveToTrash(item)}
+                    >
+                      Move to Trash
+                    </Button>
+                  </span>
+                </li>
+              ) : (
+                <li key={item.id} className="library-row">
+                  <button
+                    type="button"
+                    className="ds-group-row"
+                    data-link
+                    onClick={() =>
+                      onOpen(item.kind === 'note' ? { noteId: item.id } : { callId: item.id })
+                    }
+                  >
+                    <span className="ds-group-row-icon">
+                      <Icon name={icon[item.kind]} size={16} />
+                    </span>
+                    <span className="ds-group-row-text">
+                      <span className="ds-group-row-title">{item.title}</span>
+                      <span className="ds-group-row-detail">
+                        {label[item.kind]} · {date.format(item.createdAt)} · {size(item.bytes)}
+                      </span>
+                    </span>
+                  </button>
+                  <IconButton
+                    icon="trash"
+                    label={`Delete “${item.title}”`}
+                    className="library-delete"
+                    onClick={() => setConfirming(item.id)}
+                  />
+                </li>
+              ),
+            )}
           </GroupedList>
         </>
       )}

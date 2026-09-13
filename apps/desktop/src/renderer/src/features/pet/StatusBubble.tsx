@@ -6,7 +6,7 @@ import type {
   SkinId,
   StatusBubbleState,
 } from '@edi/contracts';
-import { ArtifactCard } from '../../components/artifacts/Artifact';
+import { ArtifactPreview } from '../../components/artifacts/Artifact';
 import {
   Button,
   ListeningBars,
@@ -105,7 +105,7 @@ export function StatusBubble({
         style={{ '--accent': accentFor(skin) } as CSSProperties}
       >
         {artifact ? (
-          <ArtifactCard
+          <ArtifactPreview
             artifact={artifact}
             onOpen={() =>
               void approvalBridge()

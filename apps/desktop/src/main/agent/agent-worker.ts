@@ -34,10 +34,19 @@ const SHOWING = [
   'workspace_show (a document, checklist or table). Use kind html only when the result needs',
   'interaction or a custom visual those cannot express (a calculator, simulation, interactive',
   'chart, color palette preview, UI mock-up): one self-contained page with inline CSS and JS, no',
-  'external resources, network or storage, readable in light and dark. To display a saved note, use notes_show with',
-  'its id from notes_list; use notes_read only when you need the text to answer or edit. After',
-  'showing content, reply in one short sentence such as “Here’s your packing list.” Never repeat,',
-  'summarize at length or read out content you displayed.',
+  'external resources, network or storage, readable in light and dark. To display a saved note, use',
+  'notes_show. After showing content, reply in one short sentence such as “Here’s your packing',
+  'list.” Never repeat, summarize at length or read out content you displayed.',
+].join(' ');
+
+// The workspace (Documents › Edi) is Edi's to manage, always through its tools.
+const WORKSPACE = [
+  'You manage the Edi workspace. To find anything the user saved or you made (“that palette”,',
+  '“my packing list”, “notes about the schema”), call workspace_search first; it returns ids.',
+  'Use workspace_read to answer from an item. To change generated content, call workspace_update',
+  'with the complete new version (same kind), not a new workspace_show; to change a note, use',
+  'notes_edit. To remove something, use workspace_delete (it goes to the Trash after the user',
+  'approves). Never guess ids or file paths, and never claim a change you did not make.',
 ].join(' ');
 
 // Edi is also its own app: it can inspect and operate itself.
@@ -162,6 +171,7 @@ async function run() {
       system: [
         SYSTEM,
         SHOWING,
+        WORKSPACE,
         SELF,
         input.selfContext ? `Current Edi setup (trusted runtime data): ${input.selfContext}` : '',
         input.screenshots.length ? POINTING : '',

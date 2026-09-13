@@ -28,6 +28,7 @@ function recordMicrophoneStatus(phase: string) {
 }
 recordMicrophoneStatus('boot');
 import {
+  deleteWorkspaceItem,
   ediSetupCapabilities,
   notesCapabilities,
   readLibraryNote,
@@ -35,6 +36,7 @@ import {
   workspaceCapabilities,
   type EdiPreferences,
   type EdiSetupSnapshot,
+  type WorkspaceDependencies,
 } from '@edi/capabilities';
 import {
   artifactExport,
@@ -188,6 +190,15 @@ async function start() {
   // Assigned once below; the setup snapshot closure reads it after construction.
   // eslint-disable-next-line prefer-const
   let agent!: AgentService;
+  /** One set of workspace dependencies for Edi's tools and the Library's own Delete. */
+  const workspaceDeps: WorkspaceDependencies = {
+    directory: () => workspaceFolder,
+    shown: artifact => showArtifact(artifact),
+    artifacts: repositories.artifacts,
+    notes: { store: repositories.notes, directory: notesFolder },
+    // Recoverable: files go to the Trash, never straight to deletion.
+    trash: path => shell.trashItem(path),
+  };
   const libraryItems = (): LibraryItem[] => {
     const notes: LibraryItem[] = repositories.notes
       .list(500)
@@ -198,26 +209,15 @@ async function start() {
         bytes,
         createdAt,
       }));
-    const artifacts = repositories.toolCalls
-      .shown(['workspace.show'], {})
-      .flatMap((call): LibraryItem[] => {
-        try {
-          const content = toArtifactContent(call.input as Parameters<typeof toArtifactContent>[0]);
-          const output = call.output as { path?: unknown; bytes?: unknown } | null;
-          if (typeof output?.path !== 'string' || typeof output.bytes !== 'number') return [];
-          return [
-            {
-              id: call.id,
-              kind: content.kind,
-              title: content.title,
-              bytes: output.bytes,
-              createdAt: call.createdAt,
-            },
-          ];
-        } catch {
-          return [];
-        }
-      });
+    const artifacts: LibraryItem[] = repositories.artifacts
+      .list(500)
+      .map(({ id, kind, title, bytes, updatedAt }) => ({
+        id,
+        kind,
+        title,
+        bytes,
+        createdAt: updatedAt,
+      }));
     return [...notes, ...artifacts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 500);
   };
   const setupSnapshot = (): EdiSetupSnapshot => {
@@ -247,8 +247,9 @@ async function start() {
           name: 'Create documents, checklists, tables and sandboxed interactive pages, save them to the workspace and show them in their own window',
           asksFirst: false,
         },
-        { name: 'List and read saved notes', asksFirst: false },
-        { name: 'Save, edit or delete notes', asksFirst: true },
+        { name: 'Search and read everything in the workspace', asksFirst: false },
+        { name: 'Save or edit notes, and update generated content', asksFirst: true },
+        { name: 'Move workspace items to the Trash', asksFirst: true },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
           name: 'Change its character, size, pin, voice and whether replies are spoken',
@@ -315,10 +316,7 @@ async function start() {
         store: repositories.notes,
         shown: artifact => showArtifact(artifact),
       }),
-      ...workspaceCapabilities({
-        directory: () => workspaceFolder,
-        shown: artifact => showArtifact(artifact),
-      }),
+      ...workspaceCapabilities(workspaceDeps),
       ...ediSetupCapabilities({
         snapshot: setupSnapshot,
         open: page => openSetup(page),
@@ -329,7 +327,27 @@ async function start() {
     threadArtifacts: runIds => {
       const byRun = new Map<string, ArtifactSummary[]>();
       for (const call of repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { runIds })) {
-        const summary = summarizeShown(call);
+        // Deleted content leaves the conversation too; updated content shows its current title.
+        const record =
+          call.capability === 'workspace.show' ? repositories.artifacts.get(call.id) : null;
+        if (call.capability === 'workspace.show' && !record) continue;
+        const summary = record
+          ? (() => {
+              try {
+                const content = toArtifactContent(
+                  record.content as Parameters<typeof toArtifactContent>[0],
+                );
+                return {
+                  id: record.id,
+                  kind: content.kind,
+                  title: content.title,
+                  preview: artifactPreview(content),
+                } satisfies ArtifactSummary;
+              } catch {
+                return null;
+              }
+            })()
+          : summarizeShown(call);
         if (summary) byRun.set(call.runId, [...(byRun.get(call.runId) ?? []), summary].slice(-6));
       }
       return byRun;
@@ -580,10 +598,11 @@ async function start() {
       'noteId' in ref
         ? ref.noteId
         : (() => {
-            const [call] = repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { id: ref.callId });
+            const record = repositories.artifacts.get(ref.callId);
+            if (record)
+              return toArtifactContent(record.content as Parameters<typeof toArtifactContent>[0]);
+            const [call] = repositories.toolCalls.shown(['notes.show'], { id: ref.callId });
             if (!call) throw new Error('That content is no longer available.');
-            if (call.capability === 'workspace.show')
-              return toArtifactContent(call.input as Parameters<typeof toArtifactContent>[0]);
             return String((call.input as { id?: unknown }).id ?? '');
           })();
     if (typeof noteId !== 'string') return noteId;
@@ -597,15 +616,16 @@ async function start() {
       if (!note) throw new Error('That note is no longer in Edi’s history.');
       return note.path;
     }
-    const [call] = repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { id: ref.callId });
-    const output = call?.output as { path?: unknown } | null | undefined;
-    if (call?.capability === 'notes.show') {
-      return artifactPath({ noteId: String((call.input as { id?: unknown }).id ?? '') });
+    const record = repositories.artifacts.get(ref.callId);
+    if (record) {
+      const path = resolve(workspaceFolder, record.path);
+      if (relative(workspaceFolder, path).startsWith('..'))
+        throw new Error('Outside the workspace.');
+      return path;
     }
-    if (typeof output?.path !== 'string') throw new Error('That content has no saved file.');
-    const path = resolve(workspaceFolder, output.path);
-    if (relative(workspaceFolder, path).startsWith('..')) throw new Error('Outside the workspace.');
-    return path;
+    const [call] = repositories.toolCalls.shown(['notes.show'], { id: ref.callId });
+    if (!call) throw new Error('That content is no longer available.');
+    return artifactPath({ noteId: String((call.input as { id?: unknown }).id ?? '') });
   };
 
   // Registered in the same tick as window creation, before any renderer can run.
@@ -631,6 +651,10 @@ async function start() {
       openArtifact,
       artifactAction,
       closeArtifact: () => artifactWindow.close(),
+      deleteLibraryItem: async id => {
+        await deleteWorkspaceItem(workspaceDeps, id);
+        artifactWindow.closeIfShowing(id);
+      },
       reportView: view => {
         currentView = view;
       },

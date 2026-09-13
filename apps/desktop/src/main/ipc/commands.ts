@@ -27,6 +27,8 @@ interface CommandDependencies {
   /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
   artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
   closeArtifact(): void;
+  /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
+  deleteLibraryItem(id: string): Promise<void>;
   reportView(view: WorkspaceView): void;
 }
 
@@ -50,6 +52,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     openArtifact,
     artifactAction,
     closeArtifact,
+    deleteLibraryItem,
     reportView,
   } = deps;
 
@@ -147,6 +150,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
+    'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },
     'workspace-view': { from: fromWorkspace, handle: ({ view }) => reportView(view) },
     'set-voice-model': {
       from: fromWorkspace,
