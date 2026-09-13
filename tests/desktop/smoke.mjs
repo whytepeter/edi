@@ -234,6 +234,12 @@ try {
   // Speech model first (voices are offline in tests, so each shows as not installed).
   for (const model of [/^Kokoro/, /^Pocket/, /^Chatterbox Turbo/])
     await expect(workspace.getByRole('radio', { name: model })).toBeVisible();
+  // A cloud voice opens its key panel in place and closes again on a second tap.
+  const cartesia = workspace.getByRole('radio', { name: /^Cartesia/ });
+  await cartesia.click();
+  await expect(workspace.getByLabel('Cartesia API key')).toHaveAttribute('type', 'password');
+  await cartesia.click();
+  await expect(workspace.getByLabel('Cartesia API key')).toHaveCount(0);
   const speakReplies = workspace.getByRole('switch', { name: 'Speak replies' });
   await expect(speakReplies).toHaveAttribute('aria-checked', 'true');
   await speakReplies.click();

@@ -28,7 +28,7 @@
 }
 .voice-model-option {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
@@ -38,7 +38,7 @@
   color: var(--label);
   text-align: left;
 }
-.voice-model-option + .voice-model-option {
+.voice-model-item + .voice-model-item {
   box-shadow: inset 0 0.5px 0 var(--separator);
 }
 .voice-model-option:hover:not(:disabled) {
@@ -62,6 +62,75 @@
 .voice-model-copy span {
   font: var(--text-footnote);
   color: var(--label-secondary);
+}
+.voice-model-copy span[data-connected] {
+  color: var(--accent-strong);
+  font-weight: 500;
+}
+.voice-model-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent-strong);
+}
+.voice-model-check {
+  display: grid;
+  place-items: center;
+  width: 16px;
+}
+.voice-model-chevron {
+  display: grid;
+  color: var(--label-tertiary);
+  transition: transform 220ms var(--ease-out);
+}
+.voice-model-item[data-open] .voice-model-chevron {
+  transform: rotate(180deg);
+}
+
+/* A cloud provider's key panel, opened in place under its row. */
+.voice-cloud-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4) calc(var(--space-4) + 22px + var(--space-3));
+  background: var(--accent-softer);
+  animation: voice-cloud-open 220ms var(--ease-out);
+}
+.voice-cloud-panel > p {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+@keyframes voice-cloud-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-cloud-panel {
+    animation: none;
+  }
+  .voice-model-chevron {
+    transition: none;
+  }
+}
+.voice-cloud-connected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.voice-cloud-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--text-callout);
+  font-weight: 500;
+  color: var(--label);
+}
+.voice-cloud-status .ds-icon {
+  color: var(--accent-strong);
 }
 
 /* The voice within the chosen model: pick with the row, listen with the play button. */
@@ -191,37 +260,34 @@
 
 .voice-key-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: var(--space-2);
-  justify-items: start;
-  padding: var(--space-3) var(--space-4);
 }
-.voice-key-form .ds-field {
-  width: 100%;
+.voice-key-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.voice-key-hint[role='alert'] {
+  color: var(--label);
+}
+.voice-key-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 500;
+}
+.voice-key-link:hover {
+  text-decoration: underline;
 }
 .voice-filter {
   display: grid;
   gap: var(--space-2);
-}
-
-/* Cloud provider info: what it is, what it sees, and where to get a key. */
-.voice-provider-info {
-  display: grid;
-  gap: var(--space-2);
-  justify-items: start;
-  padding: var(--space-3) var(--space-4);
-  font: var(--text-callout);
-  color: var(--label-secondary);
-}
-.voice-provider-info p {
-  margin: 0;
-  color: var(--label);
-}
-.voice-provider-info ul {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-  padding-left: 18px;
-}
-.voice-provider-info .voice-provider-steps {
-  color: var(--label-secondary);
 }

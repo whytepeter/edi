@@ -30,6 +30,8 @@ interface VoiceSettingsProps {
   onVoice(selection: VoiceSelection): void;
   onPreview(selection: VoiceSelection): Promise<void>;
   onSpeakReplies(enabled: boolean): void;
+  /** A key was saved or removed, so model availability changed. */
+  onKeysChanged(): void;
 }
 
 const modelHelp: Record<VoiceModelId, string> = {
@@ -45,26 +47,19 @@ const providerName: Record<CloudProviderId, string> = {
   elevenlabs: 'ElevenLabs',
 };
 
-/** What each cloud voice is, what it costs and what it sees, with where to get a key. */
-const providerInfo: Record<
-  CloudProviderId,
-  { about: string; model: string; keyUrl: string; steps: string }
-> = {
+/** One line on what the provider is, and where to get a key. */
+const providerInfo: Record<CloudProviderId, { about: string; keyUrl: string }> = {
   cartesia: {
-    about:
-      'Cartesia makes very fast, natural voices, and you can design or clone your own voice there.',
-    model: 'Edi uses Sonic 3.6, streamed as Edi speaks.',
+    about: 'Fast, natural voices, including ones you design or clone in Cartesia.',
     keyUrl: 'https://play.cartesia.ai/keys',
-    steps: 'Sign in to Cartesia, open API Keys, create a key, then paste it here.',
   },
   elevenlabs: {
-    about:
-      'ElevenLabs has a large library of expressive voices, and voices you add to your account appear here too.',
-    model: 'Edi uses Flash v2.5, their lowest-latency model.',
+    about: 'Expressive voices, including ones you add to your ElevenLabs account.',
     keyUrl: 'https://elevenlabs.io/app/settings/api-keys',
-    steps: 'Sign in to ElevenLabs, open Developers → API Keys, create a key, then paste it here.',
   },
 };
+
+const MAX_CLOUD_VOICES = 4;
 
 type VoiceType = 'Female' | 'Male';
 const voiceTypes: readonly VoiceType[] = ['Female', 'Male'];
@@ -90,6 +85,7 @@ export function VoiceSettings({
   onVoice,
   onPreview,
   onSpeakReplies,
+  onKeysChanged,
 }: VoiceSettingsProps) {
   // The model being looked at; a cloud model is only selected once it has a key and a voice.
   const [viewing, setViewing] = useState<VoiceModelId>(voiceModel);
@@ -103,6 +99,9 @@ export function VoiceSettings({
   const [cloudError, setCloudError] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [savingKey, setSavingKey] = useState(false);
+  const [keyError, setKeyError] = useState('');
+  // The cloud row showing its key panel. Opens on tap; a connected provider starts closed.
+  const [expanded, setExpanded] = useState<CloudProviderId | null>(null);
 
   const models = system?.voice.models ?? [];
   const model = models.find(entry => entry.id === viewing);
@@ -144,23 +143,39 @@ export function VoiceSettings({
         detail: voice.accent,
         gender: voice.gender,
       }));
-  const all = provider ? (cloud?.provider === provider ? cloud.voices : []) : local;
+  const chosen = voiceModel === viewing ? voices[viewing] : null;
+  // Cloud accounts can list hundreds of voices; offer four, the person's own first, and keep
+  // the chosen one even when it falls outside them.
+  const cloudVoices = cloud?.provider === provider ? cloud.voices : [];
+  const saved = cloudVoices.slice(MAX_CLOUD_VOICES).find(voice => voice.id === voices[viewing]);
+  const all = provider
+    ? saved
+      ? [...cloudVoices.slice(0, MAX_CLOUD_VOICES - 1), saved]
+      : cloudVoices.slice(0, MAX_CLOUD_VOICES)
+    : local;
   const splitByType =
-    all.some(voice => voice.gender === 'Female') && all.some(voice => voice.gender === 'Male');
+    !provider &&
+    all.some(voice => voice.gender === 'Female') &&
+    all.some(voice => voice.gender === 'Male');
   const shown = all
     .filter(voice => !splitByType || voice.gender === voiceType || voice.gender === null)
     .filter(voice => !query || voice.name.toLowerCase().includes(query.trim().toLowerCase()));
-  const chosen = voiceModel === viewing ? voices[viewing] : null;
   const select = (voice: string) => voiceSelectionSchema.parse({ model: viewing, voice });
 
   function chooseModel(next: VoiceModelId) {
-    setViewing(next);
-    setQuery('');
-    setMessage('');
-    setApiKey('');
+    const cloudModel = isCloudVoiceModel(next);
+    if (next !== viewing) {
+      setViewing(next);
+      setQuery('');
+      setMessage('');
+      setApiKey('');
+      setKeyError('');
+    }
+    // A cloud row toggles its key panel; picking a local model closes any open one.
+    setExpanded(current => (cloudModel && (current !== next || next !== viewing) ? next : null));
     const entry = models.find(item => item.id === next);
     // Local models and cloud models with a saved voice switch right away.
-    if (entry?.available && (!isCloudVoiceModel(next) || voices[next])) onVoiceModel(next);
+    if (entry?.available && (!cloudModel || voices[next])) onVoiceModel(next);
   }
 
   async function preview(voice: string) {
@@ -178,133 +193,150 @@ export function VoiceSettings({
   async function saveKey() {
     if (!provider || !window.edi) return;
     setSavingKey(true);
-    setMessage('');
+    setKeyError('');
     try {
       await window.edi.command({ type: 'set-voice-key', provider, apiKey: apiKey.trim() });
       setApiKey('');
     } catch {
-      setMessage(`${providerName[provider]} didn’t accept that key. Check it and try again.`);
+      setKeyError(`${providerName[provider]} didn’t accept that key. Check it and try again.`);
     } finally {
       setSavingKey(false);
+      onKeysChanged();
     }
   }
+
+  async function removeKey(target: CloudProviderId) {
+    await window.edi?.command({ type: 'forget-voice-key', provider: target }).catch(() => {});
+    setCloud(null);
+    onKeysChanged();
+  }
+
+  const openKeys = (target: CloudProviderId) =>
+    void window.edi?.command({ type: 'open-link', url: providerInfo[target].keyUrl });
 
   return (
     <div className="settings-page">
       <GroupedList
         title="Speech model"
-        footer="Local models run on this Mac. Cloud voices send only the words Edi speaks to that provider, using your account."
+        footer="Local models run on this Mac. Cloud voices use your own account and receive only the words Edi speaks."
       >
         <div className="voice-model-list" role="radiogroup" aria-label="Speech model">
           {models.map(entry => {
-            const cloudModel = isCloudVoiceModel(entry.id);
+            const cloudModel = isCloudVoiceModel(entry.id) ? entry.id : null;
+            const open = cloudModel !== null && expanded === cloudModel;
+            const detail = cloudModel
+              ? entry.available
+                ? 'Connected'
+                : 'Add your API key'
+              : entry.available
+                ? entry.detail
+                : `${entry.detail} Not installed.`;
             return (
-              <button
-                key={entry.id}
-                type="button"
-                className="voice-model-option"
-                role="radio"
-                aria-checked={viewing === entry.id}
-                data-active={voiceModel === entry.id || undefined}
-                disabled={!entry.available && !cloudModel}
-                onClick={() => chooseModel(entry.id)}
-              >
-                <Icon
-                  name={cloudModel ? 'plug' : entry.expressions ? 'sparkles' : 'waveform'}
-                  size={18}
-                />
-                <span className="voice-model-copy">
-                  <strong>{entry.name}</strong>
-                  <span>
-                    {entry.available || cloudModel
-                      ? entry.detail
-                      : `${entry.detail} Not installed.`}
+              <div key={entry.id} className="voice-model-item" data-open={open || undefined}>
+                <button
+                  type="button"
+                  className="voice-model-option"
+                  role="radio"
+                  aria-checked={viewing === entry.id}
+                  data-active={voiceModel === entry.id || undefined}
+                  disabled={!entry.available && !cloudModel}
+                  onClick={() => chooseModel(entry.id)}
+                >
+                  <Icon
+                    name={cloudModel ? 'plug' : entry.expressions ? 'sparkles' : 'waveform'}
+                    size={18}
+                  />
+                  <span className="voice-model-copy">
+                    <strong>{entry.name}</strong>
+                    <span data-connected={(cloudModel && entry.available) || undefined}>
+                      {detail}
+                    </span>
                   </span>
-                </span>
-                {voiceModel === entry.id && <Icon name="check" size={16} />}
-              </button>
+                  <span className="voice-model-trailing" aria-hidden="true">
+                    <span className="voice-model-check">
+                      {voiceModel === entry.id && <Icon name="check" size={16} />}
+                    </span>
+                    {cloudModel && (
+                      <span className="voice-model-chevron">
+                        <Icon name="chevron-down" size={14} />
+                      </span>
+                    )}
+                  </span>
+                </button>
+                {open && cloudModel && (
+                  <div className="voice-cloud-panel">
+                    <p>{providerInfo[cloudModel].about}</p>
+                    {entry.available ? (
+                      <div className="voice-cloud-connected">
+                        <span className="voice-cloud-status">
+                          <Icon name="check" size={14} />
+                          Key saved on this Mac
+                        </span>
+                        <span className="settings-actions">
+                          <Button
+                            size="small"
+                            trailingIcon="arrow-up-right"
+                            onClick={() => openKeys(cloudModel)}
+                          >
+                            Manage keys
+                          </Button>
+                          <Button size="small" onClick={() => void removeKey(cloudModel)}>
+                            Remove
+                          </Button>
+                        </span>
+                      </div>
+                    ) : (
+                      <form
+                        className="voice-key-form"
+                        onSubmit={event => {
+                          event.preventDefault();
+                          if (apiKey.trim().length >= 20 && !savingKey) void saveKey();
+                        }}
+                      >
+                        <TextField
+                          label="API key"
+                          hideLabel
+                          placeholder={`${providerName[cloudModel]} API key`}
+                          aria-label={`${providerName[cloudModel]} API key`}
+                          type="password"
+                          autoComplete="off"
+                          spellCheck={false}
+                          autoFocus
+                          value={apiKey}
+                          maxLength={256}
+                          onChange={event => setApiKey(event.target.value)}
+                        />
+                        <Button
+                          type="submit"
+                          variant="prominent"
+                          size="small"
+                          disabled={apiKey.trim().length < 20 || savingKey}
+                        >
+                          {savingKey ? 'Checking…' : 'Save'}
+                        </Button>
+                        <p className="voice-key-hint" role={keyError ? 'alert' : undefined}>
+                          {keyError || 'Stored encrypted on this Mac. '}
+                          {!keyError && (
+                            <button
+                              type="button"
+                              className="voice-key-link"
+                              onClick={() => openKeys(cloudModel)}
+                            >
+                              Get a key
+                              <Icon name="arrow-up-right" size={12} />
+                            </button>
+                          )}
+                        </p>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
           {system === null && <p className="settings-prose">Checking voices…</p>}
         </div>
       </GroupedList>
-
-      {provider && (
-        <GroupedList title={`About ${providerName[provider]}`}>
-          <div className="voice-provider-info">
-            <p>{providerInfo[provider].about}</p>
-            <ul>
-              <li>{providerInfo[provider].model}</li>
-              <li>
-                Only the words Edi speaks are sent to {providerName[provider]}. Your recordings,
-                screen and conversation stay on this Mac.
-              </li>
-              <li>Speech uses credits on your {providerName[provider]} account.</li>
-            </ul>
-            {!hasKey && <p className="voice-provider-steps">{providerInfo[provider].steps}</p>}
-            <Button
-              size="small"
-              trailingIcon="arrow-up-right"
-              onClick={() =>
-                void window.edi?.command({ type: 'open-link', url: providerInfo[provider].keyUrl })
-              }
-            >
-              {hasKey
-                ? `Manage ${providerName[provider]} keys`
-                : `Get a ${providerName[provider]} API key`}
-            </Button>
-          </div>
-        </GroupedList>
-      )}
-
-      {provider && !hasKey && (
-        <GroupedList
-          title={`${providerName[provider]} key`}
-          footer={
-            message ||
-            `Stored encrypted on this Mac and only sent to ${providerName[provider]}. Speech uses your account’s credits.`
-          }
-        >
-          <div className="settings-form voice-key-form">
-            <TextField
-              label="API key"
-              aria-label={`${providerName[provider]} API key`}
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={apiKey}
-              maxLength={256}
-              onChange={event => setApiKey(event.target.value)}
-            />
-            <Button
-              variant="prominent"
-              size="small"
-              disabled={apiKey.trim().length < 20 || savingKey}
-              onClick={() => void saveKey()}
-            >
-              {savingKey ? 'Checking…' : 'Save key'}
-            </Button>
-          </div>
-        </GroupedList>
-      )}
-
-      {provider && hasKey && (
-        <GroupedList title={`${providerName[provider]} key`}>
-          <GroupedRow
-            icon="shield"
-            title="Key saved"
-            detail="Saved securely on this Mac"
-            control={
-              <Button
-                size="small"
-                onClick={() => void window.edi?.command({ type: 'forget-voice-key', provider })}
-              >
-                Remove
-              </Button>
-            }
-          />
-        </GroupedList>
-      )}
 
       {model && (model.available || provider) && (!provider || hasKey) && (
         <GroupedList

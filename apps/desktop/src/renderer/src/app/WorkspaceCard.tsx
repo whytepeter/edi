@@ -56,7 +56,9 @@ export function WorkspaceCard() {
   const section = sectionOf(view);
   const parent = parentOf(view);
   // Refetched on each visit to Home or Settings: voice and shortcut availability can change.
-  const system = useSystemInfo(section === 'settings' || section === 'home' ? view : null);
+  const [system, refreshSystem] = useSystemInfo(
+    section === 'settings' || section === 'home' ? view : null,
+  );
   const refreshKey = `${agent.runId}:${agent.status}`;
 
   useEffect(() => {
@@ -219,6 +221,7 @@ export function WorkspaceCard() {
                   await window.edi?.command({ type: 'preview-voice', selection });
                 }}
                 onSpeakReplies={enabled => void send({ type: 'set-speak-replies', enabled })}
+                onKeysChanged={refreshSystem}
               />
             )}
             {view === 'settings.keyboard' && <KeyboardSettings system={system} />}
