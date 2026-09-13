@@ -187,6 +187,24 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     commandSchema.safeParse({ type: 'set-pet-scale', scale: 3, commit: true }).success,
     false,
   );
+  // Cloud voices: ids from the account, keys only through their own command.
+  assert.equal(
+    commandSchema.safeParse({
+      type: 'set-voice',
+      selection: { model: 'elevenlabs', voice: '21m00Tcm4TlvDq8ikWAM' },
+    }).success,
+    true,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'set-voice', selection: { model: 'cartesia', voice: '../x' } })
+      .success,
+    false,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'set-voice-key', provider: 'cartesia', apiKey: 'short' })
+      .success,
+    false,
+  );
   // Replies may link sources; only plain web links can be opened.
   for (const url of ['https://example.com/a?b=1', 'http://example.org'])
     assert.equal(commandSchema.safeParse({ type: 'open-link', url }).success, true, url);
@@ -223,7 +241,13 @@ test('stored settings require a supported avatar and boolean pin state', () => {
       pinned: false,
       voices: { kokoro: 'bf_emma', pocket: 'alba' },
     }).voices,
-    { kokoro: 'bf_emma', pocket: 'jane', 'chatterbox-turbo': 'calm' },
+    {
+      kokoro: 'bf_emma',
+      pocket: 'jane',
+      'chatterbox-turbo': 'calm',
+      cartesia: null,
+      elevenlabs: null,
+    },
   );
   assert.equal(
     commandSchema.safeParse({

@@ -120,7 +120,14 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
 
 export const skinSchema = z.enum(['edi', 'mochi']);
 export type SkinId = z.infer<typeof skinSchema>;
-import { voiceChoicesSchema, voiceModelSchema, voiceSelectionSchema } from './voice-catalog';
+import {
+  cloudProviderSchema,
+  voiceChoicesSchema,
+  voiceModelSchema,
+  voiceSelectionSchema,
+  type CloudProviderId,
+  type CloudVoiceOption,
+} from './voice-catalog';
 export * from './voice-catalog';
 
 /**
@@ -198,7 +205,13 @@ export const defaultSettings: Settings = {
   petPosition: null,
   speakReplies: true,
   voiceModel: 'kokoro',
-  voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'calm' },
+  voices: {
+    kokoro: 'af_heart',
+    pocket: 'jane',
+    'chatterbox-turbo': 'calm',
+    cartesia: null,
+    elevenlabs: null,
+  },
   petScale: 1,
 };
 /**
@@ -277,7 +290,7 @@ export const systemInfoSchema = z
               })
               .strict(),
           )
-          .length(3),
+          .length(5),
       })
       .strict(),
     pushToTalk: z
@@ -341,6 +354,15 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
   /** Choose a voice within a model; the voice must belong to that model. */
   z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),
+  /** Save a cloud voice key (checked with the provider first) or forget it. */
+  z
+    .object({
+      type: z.literal('set-voice-key'),
+      provider: cloudProviderSchema,
+      apiKey: z.string().trim().min(20).max(256),
+    })
+    .strict(),
+  z.object({ type: z.literal('forget-voice-key'), provider: cloudProviderSchema }).strict(),
   /** Play a short sample of a voice through Edi's speaker, only while voice is idle. */
   z.object({ type: z.literal('preview-voice'), selection: voiceSelectionSchema }).strict(),
   z
@@ -410,6 +432,8 @@ export interface DesktopBridge {
   system(): Promise<SystemInfo>;
   /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
   models(): Promise<ModelOption[]>;
+  /** Voices on the person's Cartesia or ElevenLabs account; needs that key. */
+  cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   onAgent(callback: (state: AgentState) => void): () => void;
   settings(): Promise<Settings>;
   command(command: Command): Promise<void>;

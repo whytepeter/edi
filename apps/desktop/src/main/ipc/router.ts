@@ -5,6 +5,9 @@ import {
   type Artifact,
   type ArtifactRef,
   artifactRefSchema,
+  cloudProviderSchema,
+  type CloudProviderId,
+  type CloudVoiceOption,
   type AgentState,
   type Command,
   type LibraryItem,
@@ -34,6 +37,7 @@ interface IpcDependencies {
   library(): LibraryItem[];
   system(): SystemInfo;
   models(): Promise<ModelOption[]>;
+  cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
 }
@@ -47,6 +51,7 @@ export function registerIpc({
   library,
   system,
   models,
+  cloudVoices,
   artifact,
   permissions,
 }: IpcDependencies) {
@@ -88,6 +93,10 @@ export function registerIpc({
   ipcMain.handle('edi:models:get', event => {
     authorize(callerOf(event), ['workspace']);
     return models();
+  });
+  ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return cloudVoices(cloudProviderSchema.parse(provider));
   });
   ipcMain.handle('edi:permissions:get', event => {
     authorize(callerOf(event), ['workspace']);

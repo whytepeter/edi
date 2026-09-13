@@ -1,20 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  isCloudVoiceModel,
   voiceCatalog,
   voiceSelectionSchema,
+  type CloudProviderId,
   type SystemInfo,
   type VoiceChoices,
   type VoiceModelId,
-  type VoiceOption,
   type VoiceSelection,
 } from '@edi/contracts';
 import {
+  Button,
   GroupedList,
   GroupedRow,
   Icon,
   IconButton,
   SegmentedControl,
   Switch,
+  TextField,
 } from '../../components/ui';
 import './settings.css';
 
@@ -34,14 +37,49 @@ const modelHelp: Record<VoiceModelId, string> = {
   pocket: 'Pocket offers Jane, a clear American voice.',
   'chatterbox-turbo':
     'Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when Edi means to.',
+  cartesia: 'Voices from your Cartesia account, including ones you created there.',
+  elevenlabs: 'Voices from your ElevenLabs account, including ones you added there.',
+};
+const providerName: Record<CloudProviderId, string> = {
+  cartesia: 'Cartesia',
+  elevenlabs: 'ElevenLabs',
+};
+
+/** What each cloud voice is, what it costs and what it sees, with where to get a key. */
+const providerInfo: Record<
+  CloudProviderId,
+  { about: string; model: string; keyUrl: string; steps: string }
+> = {
+  cartesia: {
+    about:
+      'Cartesia makes very fast, natural voices, and you can design or clone your own voice there.',
+    model: 'Edi uses Sonic 3.6, streamed as Edi speaks.',
+    keyUrl: 'https://play.cartesia.ai/keys',
+    steps: 'Sign in to Cartesia, open API Keys, create a key, then paste it here.',
+  },
+  elevenlabs: {
+    about:
+      'ElevenLabs has a large library of expressive voices, and voices you add to your account appear here too.',
+    model: 'Edi uses Flash v2.5, their lowest-latency model.',
+    keyUrl: 'https://elevenlabs.io/app/settings/api-keys',
+    steps: 'Sign in to ElevenLabs, open Developers → API Keys, create a key, then paste it here.',
+  },
 };
 
 type VoiceType = 'Female' | 'Male';
 const voiceTypes: readonly VoiceType[] = ['Female', 'Male'];
 
+interface ListedVoice {
+  id: string;
+  name: string;
+  detail: string;
+  gender: VoiceType | null;
+}
+
 /**
- * Settings → Voice. First the speech model (the engine), then the voice within it. Each model
- * remembers its own voice. Changing the voice never changes Edi's personality.
+ * Settings → Voice. First the speech model (local engines, or a cloud provider with the
+ * person's own key), then the voice within it. Each model remembers its own voice. Changing
+ * the voice never changes Edi's personality.
  */
 export function VoiceSettings({
   system,
@@ -53,25 +91,101 @@ export function VoiceSettings({
   onPreview,
   onSpeakReplies,
 }: VoiceSettingsProps) {
+  // The model being looked at; a cloud model is only selected once it has a key and a voice.
+  const [viewing, setViewing] = useState<VoiceModelId>(voiceModel);
   const [voiceType, setVoiceType] = useState<VoiceType>('Female');
+  const [query, setQuery] = useState('');
   const [previewing, setPreviewing] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState('');
-  const selectedModel = system?.voice.models.find(model => model.id === voiceModel);
-  const options = voiceCatalog[voiceModel] as readonly VoiceOption[];
-  const splitByType = new Set(options.map(option => option.gender)).size > 1;
-  const shown = splitByType ? options.filter(option => option.gender === voiceType) : options;
-  const chosen = voices[voiceModel];
-  const select = (voice: string) => voiceSelectionSchema.parse({ model: voiceModel, voice });
+  const [message, setMessage] = useState('');
+  const [cloud, setCloud] = useState<{ provider: CloudProviderId; voices: ListedVoice[] } | null>(
+    null,
+  );
+  const [cloudError, setCloudError] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
+
+  const models = system?.voice.models ?? [];
+  const model = models.find(entry => entry.id === viewing);
+  const provider = isCloudVoiceModel(viewing) ? viewing : null;
+  const hasKey = Boolean(provider && model?.available);
+
+  useEffect(() => {
+    if (!provider || !hasKey || !window.edi) return;
+    let alive = true;
+    window.edi
+      .cloudVoices(provider)
+      .then(list => {
+        if (!alive) return;
+        setCloudError('');
+        setCloud({
+          provider,
+          voices: list.map(voice => ({
+            id: voice.id,
+            name: voice.name,
+            detail:
+              [voice.mine ? 'Your voice' : null, voice.accent, voice.description]
+                .filter(Boolean)
+                .join(' · ') || 'Voice',
+            gender: voice.gender,
+          })),
+        });
+      })
+      .catch(() => alive && setCloudError(`Couldn’t load your ${providerName[provider]} voices.`));
+    return () => {
+      alive = false;
+    };
+  }, [provider, hasKey]);
+
+  const local: ListedVoice[] = provider
+    ? []
+    : voiceCatalog[viewing].map(voice => ({
+        id: voice.id,
+        name: voice.name,
+        detail: voice.accent,
+        gender: voice.gender,
+      }));
+  const all = provider ? (cloud?.provider === provider ? cloud.voices : []) : local;
+  const splitByType =
+    all.some(voice => voice.gender === 'Female') && all.some(voice => voice.gender === 'Male');
+  const shown = all
+    .filter(voice => !splitByType || voice.gender === voiceType || voice.gender === null)
+    .filter(voice => !query || voice.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const chosen = voiceModel === viewing ? voices[viewing] : null;
+  const select = (voice: string) => voiceSelectionSchema.parse({ model: viewing, voice });
+
+  function chooseModel(next: VoiceModelId) {
+    setViewing(next);
+    setQuery('');
+    setMessage('');
+    setApiKey('');
+    const entry = models.find(item => item.id === next);
+    // Local models and cloud models with a saved voice switch right away.
+    if (entry?.available && (!isCloudVoiceModel(next) || voices[next])) onVoiceModel(next);
+  }
 
   async function preview(voice: string) {
     setPreviewing(voice);
-    setPreviewError('');
+    setMessage('');
     try {
       await onPreview(select(voice));
     } catch {
-      setPreviewError('Couldn’t play that sample. Try again when Edi isn’t speaking.');
+      setMessage('Couldn’t play that sample. Try again when Edi isn’t speaking.');
     } finally {
       setPreviewing(null);
+    }
+  }
+
+  async function saveKey() {
+    if (!provider || !window.edi) return;
+    setSavingKey(true);
+    setMessage('');
+    try {
+      await window.edi.command({ type: 'set-voice-key', provider, apiKey: apiKey.trim() });
+      setApiKey('');
+    } catch {
+      setMessage(`${providerName[provider]} didn’t accept that key. Check it and try again.`);
+    } finally {
+      setSavingKey(false);
     }
   }
 
@@ -79,47 +193,148 @@ export function VoiceSettings({
     <div className="settings-page">
       <GroupedList
         title="Speech model"
-        footer="Recording, transcription and speech run on this Mac. The recording itself never leaves it."
+        footer="Local models run on this Mac. Cloud voices send only the words Edi speaks to that provider, using your account."
       >
         <div className="voice-model-list" role="radiogroup" aria-label="Speech model">
-          {(system?.voice.models ?? []).map(model => (
-            <button
-              key={model.id}
-              type="button"
-              className="voice-model-option"
-              role="radio"
-              aria-checked={voiceModel === model.id}
-              disabled={!model.available}
-              onClick={() => onVoiceModel(model.id)}
-            >
-              <Icon name={model.expressions ? 'sparkles' : 'waveform'} size={18} />
-              <span className="voice-model-copy">
-                <strong>{model.name}</strong>
-                <span>{model.available ? model.detail : `${model.detail} Not installed.`}</span>
-              </span>
-              {voiceModel === model.id && <Icon name="check" size={16} />}
-            </button>
-          ))}
-          {system === null && <p className="settings-prose">Checking local voices…</p>}
+          {models.map(entry => {
+            const cloudModel = isCloudVoiceModel(entry.id);
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                className="voice-model-option"
+                role="radio"
+                aria-checked={viewing === entry.id}
+                data-active={voiceModel === entry.id || undefined}
+                disabled={!entry.available && !cloudModel}
+                onClick={() => chooseModel(entry.id)}
+              >
+                <Icon
+                  name={cloudModel ? 'plug' : entry.expressions ? 'sparkles' : 'waveform'}
+                  size={18}
+                />
+                <span className="voice-model-copy">
+                  <strong>{entry.name}</strong>
+                  <span>
+                    {entry.available || cloudModel
+                      ? entry.detail
+                      : `${entry.detail} Not installed.`}
+                  </span>
+                </span>
+                {voiceModel === entry.id && <Icon name="check" size={16} />}
+              </button>
+            );
+          })}
+          {system === null && <p className="settings-prose">Checking voices…</p>}
         </div>
       </GroupedList>
 
-      {selectedModel?.available && (
+      {provider && (
+        <GroupedList title={`About ${providerName[provider]}`}>
+          <div className="voice-provider-info">
+            <p>{providerInfo[provider].about}</p>
+            <ul>
+              <li>{providerInfo[provider].model}</li>
+              <li>
+                Only the words Edi speaks are sent to {providerName[provider]}. Your recordings,
+                screen and conversation stay on this Mac.
+              </li>
+              <li>Speech uses credits on your {providerName[provider]} account.</li>
+            </ul>
+            {!hasKey && <p className="voice-provider-steps">{providerInfo[provider].steps}</p>}
+            <Button
+              size="small"
+              trailingIcon="arrow-up-right"
+              onClick={() =>
+                void window.edi?.command({ type: 'open-link', url: providerInfo[provider].keyUrl })
+              }
+            >
+              {hasKey
+                ? `Manage ${providerName[provider]} keys`
+                : `Get a ${providerName[provider]} API key`}
+            </Button>
+          </div>
+        </GroupedList>
+      )}
+
+      {provider && !hasKey && (
         <GroupedList
-          title={`${selectedModel.name} voice`}
-          footer={previewError || modelHelp[voiceModel]}
+          title={`${providerName[provider]} key`}
+          footer={
+            message ||
+            `Stored encrypted on this Mac and only sent to ${providerName[provider]}. Speech uses your account’s credits.`
+          }
         >
-          {splitByType && (
+          <div className="settings-form voice-key-form">
+            <TextField
+              label="API key"
+              aria-label={`${providerName[provider]} API key`}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={apiKey}
+              maxLength={256}
+              onChange={event => setApiKey(event.target.value)}
+            />
+            <Button
+              variant="prominent"
+              size="small"
+              disabled={apiKey.trim().length < 20 || savingKey}
+              onClick={() => void saveKey()}
+            >
+              {savingKey ? 'Checking…' : 'Save key'}
+            </Button>
+          </div>
+        </GroupedList>
+      )}
+
+      {provider && hasKey && (
+        <GroupedList title={`${providerName[provider]} key`}>
+          <GroupedRow
+            icon="shield"
+            title="Key saved"
+            detail="Saved securely on this Mac"
+            control={
+              <Button
+                size="small"
+                onClick={() => void window.edi?.command({ type: 'forget-voice-key', provider })}
+              >
+                Remove
+              </Button>
+            }
+          />
+        </GroupedList>
+      )}
+
+      {model && (model.available || provider) && (!provider || hasKey) && (
+        <GroupedList
+          title={`${model.name} voice`}
+          footer={message || cloudError || modelHelp[viewing]}
+        >
+          {(splitByType || all.length > 12) && (
             <div className="voice-filter">
-              <SegmentedControl<VoiceType>
-                label="Voice type"
-                options={voiceTypes}
-                value={voiceType}
-                onChange={setVoiceType}
-              />
+              {splitByType && (
+                <SegmentedControl<VoiceType>
+                  label="Voice type"
+                  options={voiceTypes}
+                  value={voiceType}
+                  onChange={setVoiceType}
+                />
+              )}
+              {all.length > 12 && (
+                <TextField
+                  label="Search voices"
+                  aria-label="Search voices"
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                />
+              )}
             </div>
           )}
-          <div className="voice-list" role="radiogroup" aria-label={`${selectedModel.name} voice`}>
+          {provider && !cloud && !cloudError && (
+            <p className="settings-prose">Loading your voices…</p>
+          )}
+          <div className="voice-list" role="radiogroup" aria-label={`${model.name} voice`}>
             {shown.map(option => (
               <div
                 key={option.id}
@@ -138,7 +353,7 @@ export function VoiceSettings({
                   </span>
                   <span className="voice-model-copy">
                     <strong>{option.name}</strong>
-                    <span>{option.accent}</span>
+                    <span>{option.detail}</span>
                   </span>
                 </button>
                 <IconButton

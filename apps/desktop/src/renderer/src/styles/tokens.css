@@ -73,6 +73,7 @@
   --glass-thick-fill: rgb(253 253 255 / 0.9);
   /* Over native window glass: enough tint for legible text, light enough to stay glass. */
   --window-tint: rgb(250 251 253 / 0.46);
+  --glass-edge-fill: rgb(248 249 252 / 0.9);
   /* Specular rim: light catches the top-left edge, fades toward the bottom-right. */
   --rim-highlight: rgb(255 255 255 / 0.95);
   --rim-mid: rgb(255 255 255 / 0.18);
@@ -172,6 +173,7 @@
     --glass-inner-shade: rgb(0 0 0 / 0.28);
     --glass-thick-fill: rgb(38 40 49 / 0.92);
     --window-tint: rgb(28 30 37 / 0.42);
+    --glass-edge-fill: rgb(30 32 40 / 0.88);
     --rim-highlight: rgb(255 255 255 / 0.42);
     --rim-mid: rgb(255 255 255 / 0.06);
     --rim-shade: rgb(255 255 255 / 0.16);

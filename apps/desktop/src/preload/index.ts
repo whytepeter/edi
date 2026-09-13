@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   activitySchema,
   artifactRefSchema,
+  cloudProviderSchema,
+  cloudVoiceListSchema,
   artifactSchema,
   agentStateSchema,
   characterExpressionSchema,
@@ -52,6 +54,10 @@ const bridge: DesktopBridge = {
   library: async () => librarySchema.parse(await ipcRenderer.invoke('edi:library:get')),
   system: async () => systemInfoSchema.parse(await ipcRenderer.invoke('edi:system:get')),
   models: async () => modelCatalogSchema.parse(await ipcRenderer.invoke('edi:models:get')),
+  cloudVoices: async provider =>
+    cloudVoiceListSchema.parse(
+      await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),
+    ),
   onAgent: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = agentStateSchema.safeParse(value);

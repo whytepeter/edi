@@ -7,6 +7,14 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Cloud voices: Cartesia (Sonic 3.6) and ElevenLabs (Flash v2.5) with separate keys, checked with the provider
+  before they are saved and encrypted with the keychain. Settings → Voice explains each provider, links to where
+  keys are made, lists the account's voices (your own first) with previews, and a voice named "Edi" becomes
+  Edi's voice when the key is added. Only the words Edi speaks are sent; a failed cloud reply falls back to a
+  local voice.
+- Calm Chatterbox delivery (default), Liquid Glass toolbar and section menu, a warm acknowledgement ("On it")
+  and short progress lines in the bubble when Conversations is not open.
+
 - Web fetch (`web.fetch`): Edi can read a public page from a link you gave, search results or a page it
   already read. Following Anthropic's web fetch tool, Claude Code's WebFetch and the MCP fetch server: the
   worker only allows URLs already seen (no composed URLs, so pages cannot exfiltrate data), at most 10 reads

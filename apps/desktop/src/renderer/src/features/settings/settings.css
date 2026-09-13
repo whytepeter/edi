@@ -188,3 +188,40 @@
   text-transform: uppercase;
   letter-spacing: var(--tracking-eyebrow);
 }
+
+.voice-key-form {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-3) var(--space-4);
+}
+.voice-key-form .ds-field {
+  width: 100%;
+}
+.voice-filter {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* Cloud provider info: what it is, what it sees, and where to get a key. */
+.voice-provider-info {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-3) var(--space-4);
+  font: var(--text-callout);
+  color: var(--label-secondary);
+}
+.voice-provider-info p {
+  margin: 0;
+  color: var(--label);
+}
+.voice-provider-info ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+}
+.voice-provider-info .voice-provider-steps {
+  color: var(--label-secondary);
+}

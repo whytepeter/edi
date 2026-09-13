@@ -94,6 +94,10 @@ export function createWorkspaceWindow() {
     title: 'Edi',
     // Real glass like the artifact window: the window is the card, macOS blurs the desktop.
     ...nativeGlass('popover'),
+    // Drag any edge to resize; the stretchable glass mask keeps its corners.
+    resizable: true,
+    minWidth: cardSize.compact.width,
+    minHeight: 420,
     webPreferences: withBridge,
   });
   win.once('show', () => shapeGlassWindow(win, glassWindowRadius));

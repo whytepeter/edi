@@ -1,5 +1,11 @@
 import type { BrowserWindow } from 'electron';
-import type { ArtifactRef, Settings, VoiceSelection, WorkspaceView } from '@edi/contracts';
+import type {
+  ArtifactRef,
+  CloudProviderId,
+  Settings,
+  VoiceSelection,
+  WorkspaceView,
+} from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
@@ -29,6 +35,8 @@ interface CommandDependencies {
   closeArtifact(): void;
   /** Open a validated http(s) link from a reply in the default browser. */
   openLink(url: string): Promise<void>;
+  /** Save (after checking with the provider) or forget a cloud voice key. */
+  setVoiceKey(provider: CloudProviderId, apiKey: string | null): Promise<void>;
   /** Settings → Voice: play a short sample of a voice. */
   previewVoice(selection: VoiceSelection): Promise<void>;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
@@ -58,6 +66,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     closeArtifact,
     openLink,
     previewVoice,
+    setVoiceKey,
     deleteLibraryItem,
     reportView,
   } = deps;
@@ -172,6 +181,14 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
         }),
     },
     'preview-voice': { from: fromWorkspace, handle: ({ selection }) => previewVoice(selection) },
+    'set-voice-key': {
+      from: fromWorkspace,
+      handle: ({ provider, apiKey }) => setVoiceKey(provider, apiKey),
+    },
+    'forget-voice-key': {
+      from: fromWorkspace,
+      handle: ({ provider }) => setVoiceKey(provider, null),
+    },
     'open-link': { from: fromWorkspace, handle: ({ url }) => openLink(url) },
     'reveal-library-item': { from: fromWorkspace, handle: ({ id }) => revealLibraryItem(id) },
 

@@ -42,6 +42,7 @@ import {
 import {
   artifactExport,
   artifactPreview,
+  isCloudVoiceModel,
   voiceCatalog,
   voiceName,
   voiceSelectionSchema,
@@ -61,6 +62,8 @@ import { shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { PocketVoice } from './voice/pocket-process';
 import { MlxVoice } from './voice/mlx-process';
+import { listCloudVoices, preferredCloudVoice, speakCloud } from './voice/cloud-voice';
+import { VoiceKeys } from './voice/voice-keys';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
 import { speakable, VoiceController } from './voice/voice-controller';
@@ -184,12 +187,40 @@ async function start() {
       expressions: true,
       detail: engineDetail(chatterboxVoice, 'Expressive, with laughs and sighs.'),
     },
+    {
+      id: 'cartesia',
+      name: 'Cartesia',
+      available: voiceKeys.has('cartesia'),
+      expressions: false,
+      detail: voiceKeys.has('cartesia')
+        ? 'Cloud voice (Sonic). Uses your Cartesia account.'
+        : 'Cloud voice. Add your Cartesia key.',
+    },
+    {
+      id: 'elevenlabs',
+      name: 'ElevenLabs',
+      available: voiceKeys.has('elevenlabs'),
+      expressions: false,
+      detail: voiceKeys.has('elevenlabs')
+        ? 'Cloud voice (Flash). Uses your ElevenLabs account.'
+        : 'Cloud voice. Add your ElevenLabs key.',
+    },
   ];
-  const selectedVoice = (): VoiceSelection =>
-    voiceSelectionSchema.parse({
+  const voiceKeys = new VoiceKeys();
+  await voiceKeys.load();
+  /** The chosen model and voice; a cloud model without a key or voice falls back to Kokoro. */
+  const selectedVoice = (): VoiceSelection => {
+    const chosen = voiceSelectionSchema.safeParse({
       model: settings.current.voiceModel,
       voice: settings.current.voices[settings.current.voiceModel],
     });
+    if (
+      chosen.success &&
+      (!isCloudVoiceModel(chosen.data.model) || voiceKeys.has(chosen.data.model))
+    )
+      return chosen.data;
+    return { model: 'kokoro', voice: settings.current.voices.kokoro };
+  };
   let openSetup = (_page: WorkspaceView) => {};
   // Filled in once windows exist; capabilities call these lazily.
   let showArtifact = (_artifact: ArtifactSummary) => {};
@@ -467,6 +498,15 @@ async function start() {
       return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
     if (selection.model === 'pocket' && pocket)
       return pocket.speak(speakable(text, false), signal, consume);
+    if (isCloudVoiceModel(selection.model) && voiceKeys.has(selection.model))
+      return speakCloud(
+        selection.model,
+        voiceKeys.get(selection.model),
+        selection.voice,
+        speakable(text, false),
+        signal,
+        consume,
+      );
     return Promise.reject(new Error('That voice is not installed on this Mac.'));
   };
   const standIn = (): VoiceSelection | null =>
@@ -516,9 +556,10 @@ async function start() {
           return consume(pcm, rate);
         });
       } catch (error) {
-        // A failed engine hands the reply to Jane, but never repeats audio already heard.
-        if (signal.aborted || delivered || chosen.model === 'pocket' || !pocket) throw error;
-        await speakWith({ model: 'pocket', voice: 'jane' }, text, signal, consume);
+        // A failed engine hands the reply to a local voice, but never repeats audio already heard.
+        const backup = standIn();
+        if (signal.aborted || delivered || !backup || backup.model === chosen.model) throw error;
+        await speakWith(backup, text, signal, consume);
       }
     },
     warmSpeech: warmSelected,
@@ -793,6 +834,23 @@ async function start() {
       openArtifact,
       artifactAction,
       previewVoice,
+      setVoiceKey: async (provider, apiKey) => {
+        // A key is saved only after the provider accepts it.
+        const listed = apiKey
+          ? await listCloudVoices(provider, apiKey, AbortSignal.timeout(15_000))
+          : [];
+        await voiceKeys.set(provider, apiKey);
+        // The person's own voice named "Edi" becomes Edi's voice straight away.
+        const preferred = preferredCloudVoice(listed);
+        if (preferred && !settings.current.voices[provider])
+          await settings.update({
+            voices: { ...settings.current.voices, [provider]: preferred.id },
+            ...(/^edi\b/i.test(preferred.name) ? { voiceModel: provider } : {}),
+          });
+        if (!apiKey && settings.current.voiceModel === provider)
+          await settings.update({ voiceModel: 'kokoro' });
+        broadcast([workspace], 'edi:settings', settings.current);
+      },
       // The command schema already allows only http(s) without credentials; parse again here.
       openLink: url => shell.openExternal(new URL(url).toString()),
       closeArtifact: () => artifactWindow.close(),
@@ -829,6 +887,10 @@ async function start() {
       };
     },
     models: () => modelCatalog.list(),
+    cloudVoices: provider => {
+      if (!voiceKeys.has(provider)) return Promise.resolve([]);
+      return listCloudVoices(provider, voiceKeys.get(provider), AbortSignal.timeout(15_000));
+    },
     artifact: resolveArtifact,
     permissions: () => permissions.snapshot(),
   });

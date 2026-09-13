@@ -5,8 +5,34 @@ import { z } from 'zod';
  * Edi sounds like within it. Settings stores one chosen voice per model, so switching models
  * back and forth keeps each choice.
  */
-export const voiceModelSchema = z.enum(['kokoro', 'pocket', 'chatterbox-turbo']);
+export const voiceModelSchema = z.enum([
+  'kokoro',
+  'pocket',
+  'chatterbox-turbo',
+  'cartesia',
+  'elevenlabs',
+]);
 export type VoiceModelId = z.infer<typeof voiceModelSchema>;
+
+/** Cloud speech with the person's own key; their voices come from their account. */
+export const cloudProviderSchema = z.enum(['cartesia', 'elevenlabs']);
+export type CloudProviderId = z.infer<typeof cloudProviderSchema>;
+export const isCloudVoiceModel = (model: VoiceModelId): model is CloudProviderId =>
+  model === 'cartesia' || model === 'elevenlabs';
+export const cloudVoiceIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+export const cloudVoiceOptionSchema = z
+  .object({
+    id: cloudVoiceIdSchema,
+    name: z.string().min(1).max(60),
+    description: z.string().max(200),
+    gender: z.enum(['Female', 'Male']).nullable(),
+    accent: z.string().max(40).nullable(),
+    /** A voice the person created or cloned on their account, listed first. */
+    mine: z.boolean(),
+  })
+  .strict();
+export type CloudVoiceOption = z.infer<typeof cloudVoiceOptionSchema>;
+export const cloudVoiceListSchema = z.array(cloudVoiceOptionSchema).max(200);
 
 export interface VoiceOption {
   id: string;
@@ -56,6 +82,9 @@ export const voiceCatalog = {
     { id: 'calm', name: 'Calm', accent: 'American', gender: 'Female' },
     { id: 'turbo', name: 'Expressive', accent: 'American', gender: 'Female' },
   ],
+  // Cloud voices are listed from the person's account at runtime.
+  cartesia: [],
+  elevenlabs: [],
 } as const satisfies Record<VoiceModelId, readonly VoiceOption[]>;
 
 const ids = <T extends readonly { id: string }[]>(voices: T) =>
@@ -69,6 +98,8 @@ export const defaultVoices = {
   kokoro: 'af_heart',
   pocket: 'jane',
   'chatterbox-turbo': 'calm',
+  cartesia: null,
+  elevenlabs: null,
 } as const;
 
 /** The chosen voice for each model. Unknown or retired voices fall back to the default. */
@@ -79,6 +110,8 @@ export const voiceChoicesSchema = z
     'chatterbox-turbo': chatterboxVoiceSchema
       .catch(defaultVoices['chatterbox-turbo'])
       .default(defaultVoices['chatterbox-turbo']),
+    cartesia: cloudVoiceIdSchema.nullable().catch(null).default(null),
+    elevenlabs: cloudVoiceIdSchema.nullable().catch(null).default(null),
   })
   .default(defaultVoices);
 export type VoiceChoices = z.infer<typeof voiceChoicesSchema>;
@@ -88,10 +121,13 @@ export const voiceSelectionSchema = z.discriminatedUnion('model', [
   z.object({ model: z.literal('kokoro'), voice: kokoroVoiceSchema }).strict(),
   z.object({ model: z.literal('pocket'), voice: pocketVoiceSchema }).strict(),
   z.object({ model: z.literal('chatterbox-turbo'), voice: chatterboxVoiceSchema }).strict(),
+  z.object({ model: z.literal('cartesia'), voice: cloudVoiceIdSchema }).strict(),
+  z.object({ model: z.literal('elevenlabs'), voice: cloudVoiceIdSchema }).strict(),
 ]);
 export type VoiceSelection = z.infer<typeof voiceSelectionSchema>;
 
-export function voiceName(model: VoiceModelId, voice: string) {
+export function voiceName(model: VoiceModelId, voice: string | null) {
+  if (!voice) return 'No voice chosen';
   const option = (voiceCatalog[model] as readonly VoiceOption[]).find(entry => entry.id === voice);
   return option?.name ?? voice;
 }
