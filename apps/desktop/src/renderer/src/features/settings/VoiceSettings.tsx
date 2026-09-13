@@ -33,7 +33,7 @@ const modelHelp: Record<VoiceModelId, string> = {
   kokoro: 'Choose who Edi sounds like. Play a sample before you pick.',
   pocket: 'Pocket offers Jane, a clear American voice.',
   'chatterbox-turbo':
-    'Chatterbox has one built-in voice. It can laugh, sigh and chuckle when Edi means to.',
+    'Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when Edi means to.',
 };
 
 type VoiceType = 'Female' | 'Male';

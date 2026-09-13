@@ -462,7 +462,7 @@ async function start() {
     consume: Consume,
   ) => {
     if (selection.model === 'chatterbox-turbo' && chatterbox)
-      return chatterbox.speak(text, signal, consume);
+      return chatterbox.speak(text, signal, consume, { voice: selection.voice });
     if (selection.model === 'kokoro' && kokoro)
       return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
     if (selection.model === 'pocket' && pocket)

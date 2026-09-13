@@ -78,10 +78,18 @@ def load_chatterbox(model_dir):
 
     model = load_model(Path(model_dir))
 
-    def speak(text, _voice, deliver):
+    # Calm samples conservatively: a steadier, softer, slightly slower read of the same voice.
+    delivery = {
+        "calm": {"temperature": 0.5, "top_p": 0.8, "repetition_penalty": 1.3},
+        "turbo": {},
+    }
+
+    def speak(text, voice, deliver):
+        if voice not in delivery:
+            raise ValueError("Unknown Chatterbox voice")
         # Streaming emits audio every ~25 speech tokens (about one second), so the first sound
         # arrives in about half a second instead of after the whole clip is generated.
-        for result in model.generate(text, stream=True, streaming_interval=1.0):
+        for result in model.generate(text, stream=True, streaming_interval=1.0, **delivery[voice]):
             if not deliver(result.audio):
                 return False
         return True
@@ -103,7 +111,7 @@ def main():
     with contextlib.redirect_stdout(sys.stderr):
         speak = load_kokoro(args.model) if args.engine == "kokoro" else load_chatterbox(args.model)
         # The first generation compiles kernels and fills caches; do it before reporting ready.
-        speak("Ready.", args.voice, lambda _audio: True)
+        speak("Ready.", args.voice if args.engine == "kokoro" else "calm", lambda _audio: True)
         if args.engine == "kokoro":
             # American and British voices use separate pipelines; warm the other one too so a
             # voice change in Settings does not pay ~2.5 s on its first reply.

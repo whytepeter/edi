@@ -50,8 +50,12 @@ export const voiceCatalog = {
   kokoro: kokoroVoices,
   // The owner rejected Pocket's Alba and Fantine; Jane is the only Pocket voice Edi offers.
   pocket: [{ id: 'jane', name: 'Jane', accent: 'American', gender: 'Female' }],
-  // Chatterbox Turbo's built-in voice. Cloning another voice needs consent and comes later.
-  'chatterbox-turbo': [{ id: 'turbo', name: 'Turbo', accent: 'American', gender: 'Female' }],
+  // Chatterbox Turbo's built-in voice, delivered two ways: Calm samples conservatively for a
+  // steadier, softer read; Expressive is the model's default liveliness. Cloning comes later.
+  'chatterbox-turbo': [
+    { id: 'calm', name: 'Calm', accent: 'American', gender: 'Female' },
+    { id: 'turbo', name: 'Expressive', accent: 'American', gender: 'Female' },
+  ],
 } as const satisfies Record<VoiceModelId, readonly VoiceOption[]>;
 
 const ids = <T extends readonly { id: string }[]>(voices: T) =>
@@ -64,7 +68,7 @@ export const chatterboxVoiceSchema = z.enum(ids(voiceCatalog['chatterbox-turbo']
 export const defaultVoices = {
   kokoro: 'af_heart',
   pocket: 'jane',
-  'chatterbox-turbo': 'turbo',
+  'chatterbox-turbo': 'calm',
 } as const;
 
 /** The chosen voice for each model. Unknown or retired voices fall back to the default. */

@@ -196,7 +196,7 @@ export const defaultSettings: Settings = {
   petPosition: null,
   speakReplies: true,
   voiceModel: 'kokoro',
-  voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'turbo' },
+  voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'calm' },
   petScale: 1,
 };
 /**

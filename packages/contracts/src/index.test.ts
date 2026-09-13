@@ -208,7 +208,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
       skin: 'edi',
       pinned: false,
       voiceModel: 'pocket',
-      voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'turbo' },
+      voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'calm' },
     }).voiceModel,
     'pocket',
   );
@@ -223,7 +223,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
       pinned: false,
       voices: { kokoro: 'bf_emma', pocket: 'alba' },
     }).voices,
-    { kokoro: 'bf_emma', pocket: 'jane', 'chatterbox-turbo': 'turbo' },
+    { kokoro: 'bf_emma', pocket: 'jane', 'chatterbox-turbo': 'calm' },
   );
   assert.equal(
     commandSchema.safeParse({

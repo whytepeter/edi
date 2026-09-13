@@ -92,7 +92,7 @@ const SPOKEN = [
 ].join(' ');
 
 const EXPRESSIVE = [
-  'The selected voice can perform expression tags. You may use at most one tag when it naturally',
+  'The selected voice can perform expression tags. Stay calm and warm. You may use at most one tag, and only when it naturally',
   'improves the reply: [clear throat], [sigh], [shush], [cough], [groan], [sniff], [gasp],',
   '[chuckle], or [laugh]. Never describe or explain the tag, and do not force one into every reply.',
 ].join(' ');
