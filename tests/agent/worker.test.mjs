@@ -104,9 +104,18 @@ const text = messages =>
     .join('');
 
 test('real SDK worker streams mocked OpenRouter text', async () => {
-  const { messages } = await collect(launch('success'));
+  const { messages, requests } = await collect(launch('success'));
   assert.equal(text(messages), 'Hello from Edi.');
   assert.equal(messages.at(-1).type, 'done');
+  assert.deepEqual(
+    requests[0].tools.find(tool => tool.type === 'openrouter:web_search'),
+    {
+      type: 'openrouter:web_search',
+      engine: 'auto',
+      max_results: 5,
+    },
+  );
+  assert.match(JSON.stringify(requests[0].messages[0].content), /Use web_search for current/);
 });
 
 test('provider errors do not expose request metadata', async () => {

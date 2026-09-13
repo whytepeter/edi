@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { presentationText, type ArtifactRef } from '@edi/contracts';
+import { ReplyText } from './ReplyText';
 import { Button, EmptyState, Icon, ThinkingDots } from '../../components/ui';
 import type { Command } from '../../lib/bridge';
 import { useAgentState } from '../../hooks/useAgentState';
@@ -136,7 +137,7 @@ export function AgentPanel({
                     <ThinkingDots />
                   ) : (
                     <p className="agent-bubble-text">
-                      {body}
+                      {message.role === 'assistant' ? <ReplyText text={body} /> : body}
                       {pending && body ? <span className="agent-caret" aria-hidden="true" /> : null}
                     </p>
                   )}

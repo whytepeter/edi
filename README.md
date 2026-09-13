@@ -30,6 +30,7 @@ pnpm package
 
 - Independent Electron pet/workspace windows and narrow validated IPC.
 - OpenRouter setup, streamed plain-text responses, cancellation, and request limits in a separate worker thread.
+- Model-controlled public web search through OpenRouter, with source links in grounded replies.
 - Just-in-time microphone and Screen Recording permission cards with explicit macOS Settings recovery.
 - Privacy-first screen context: screenshots are captured only when a prompt refers to visible UI, or as a short follow-up in that visual conversation.
 - Listening, thinking, and speaking bubble states; ordinary replies remain in chat. Pending writes can be approved from a compact action card or opened in the full review.
@@ -50,7 +51,9 @@ Open **Settings → AI** (or choose **Set up AI** on Home), paste your OpenRoute
 
 The key is entered in a password field, cleared after submission, and stored in `openrouter.enc` in the app's user-data directory using Electron safeStorage encryption. It is never returned through the settings bridge. This is Keychain-backed encryption on macOS, not a claim that the key exists only in Keychain. Unsigned development builds may trigger Keychain prompts. Removing the saved key deletes Edi's local encrypted copy; it does not revoke the key at OpenRouter.
 
-Your prompt, recent completed conversation turns, Edi's system instructions, and any screen images required by that prompt go to OpenRouter. Generic questions do not trigger capture and contain no screenshot. Limits: one active request, 8,000 input characters, 2,048 output tokens, and a 120-second timeout. Temporary failures get up to two SDK retries, and OpenRouter may try a compatible backup provider. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
+Your prompt, recent completed conversation turns, Edi's system instructions, and any screen images required by that prompt go to OpenRouter. Generic questions do not trigger capture and contain no screenshot. Limits: one active request, 8,000 input characters, 16,000 output tokens (shown content arrives as tool arguments), and a 120-second timeout. Temporary failures get up to two SDK retries, and OpenRouter may try a compatible backup provider. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
+
+Edi can let the selected model search the public web when a question needs current or niche information. Search runs as an OpenRouter server tool, may add search charges to the same OpenRouter account, and sends the search query to OpenRouter and its selected search provider. It does not give Edi a logged-in browser session, permission to click or type in websites, or access to browser history.
 
 `pnpm test:agent` exercises the real SDK with mocked network responses. The user confirmed a live OpenRouter response on 2026-09-11.
 

@@ -275,6 +275,11 @@ test('transcripts and replies are cleaned for listening', () => {
   const long = `${'Word '.repeat(100)}end. ${'More '.repeat(100)}`;
   assert.ok(speakable(long).length <= 601);
   assert.equal(speakable('That worked. [laugh]'), 'That worked.');
+  // Web sources: link text is spoken, addresses are not.
+  assert.equal(
+    speakable('It rained, says [BBC Weather](https://www.bbc.co.uk/weather). See https://x.io/a.'),
+    'It rained, says BBC Weather. See.',
+  );
   assert.equal(speakable('That worked. [laugh]', true), 'That worked. [laugh]');
   assert.deepEqual(takeSpeech('Hello there. More coming', '', false, false), {
     say: 'Hello there.',
@@ -306,4 +311,36 @@ test('transcripts and replies are cleaned for listening', () => {
     takeSpeech(longFirst, '', false, false).say,
     'I looked through everything in your workspace,',
   );
+});
+
+test('a voice preview plays through the speaker only while idle, and Stop cancels it', async () => {
+  const h = harness();
+  let aborted = false;
+  const playing = h.voice.preview(async (signal, consume) => {
+    signal.addEventListener('abort', () => (aborted = true));
+    await consume(new Float32Array(4).fill(0.1), 24000);
+  });
+  await tick();
+  assert.deepEqual(h.types().slice(0, 2), ['stop-audio', 'pcm']);
+  h.voice.played(0);
+  assert.equal(await playing, true);
+
+  const long = h.voice.preview(
+    (signal, consume) =>
+      new Promise((_, reject) => {
+        void consume(new Float32Array(4), 24000).catch(() => {});
+        signal.addEventListener('abort', () => reject(new Error('stopped')));
+      }),
+  );
+  await tick();
+  // A second preview while one plays is refused; Stop ends the first.
+  assert.equal(await h.voice.preview(async () => {}), false);
+  h.voice.stop();
+  await assert.rejects(long);
+  assert.equal(h.voice.phase, 'idle');
+  assert.equal(aborted, false);
+
+  // During a voice turn, no preview starts.
+  h.voice.start('push-to-talk');
+  assert.equal(await h.voice.preview(async () => {}), false);
 });

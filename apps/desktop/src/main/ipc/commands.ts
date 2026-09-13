@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron';
-import type { ArtifactRef, Settings, WorkspaceView } from '@edi/contracts';
+import type { ArtifactRef, Settings, VoiceSelection, WorkspaceView } from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
@@ -27,6 +27,10 @@ interface CommandDependencies {
   /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
   artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
   closeArtifact(): void;
+  /** Open a validated http(s) link from a reply in the default browser. */
+  openLink(url: string): Promise<void>;
+  /** Settings → Voice: play a short sample of a voice. */
+  previewVoice(selection: VoiceSelection): Promise<void>;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
   reportView(view: WorkspaceView): void;
@@ -52,6 +56,8 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     openArtifact,
     artifactAction,
     closeArtifact,
+    openLink,
+    previewVoice,
     deleteLibraryItem,
     reportView,
   } = deps;
@@ -156,6 +162,17 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ model }) => settings.update({ voiceModel: model }),
     },
+    // Choosing a voice also selects its model; each model remembers its own voice.
+    'set-voice': {
+      from: fromWorkspace,
+      handle: ({ selection }) =>
+        settings.update({
+          voiceModel: selection.model,
+          voices: { ...settings.current.voices, [selection.model]: selection.voice },
+        }),
+    },
+    'preview-voice': { from: fromWorkspace, handle: ({ selection }) => previewVoice(selection) },
+    'open-link': { from: fromWorkspace, handle: ({ url }) => openLink(url) },
     'reveal-library-item': { from: fromWorkspace, handle: ({ id }) => revealLibraryItem(id) },
 
     'configure-agent': {

@@ -41,6 +41,10 @@ import {
 import {
   artifactExport,
   artifactPreview,
+  voiceCatalog,
+  voiceName,
+  voiceSelectionSchema,
+  type VoiceSelection,
   skins,
   type Artifact,
   type ArtifactRef,
@@ -55,7 +59,7 @@ import { captureScreensForPrompt } from './capture/screens';
 import { shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { PocketVoice } from './voice/pocket-process';
-import { ChatterboxVoice } from './voice/chatterbox-process';
+import { MlxVoice } from './voice/mlx-process';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
 import { speakable, VoiceController } from './voice/voice-controller';
@@ -147,35 +151,44 @@ async function start() {
   // reports the same availability used by the voice controller.
   const voiceRuntime =
     process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  // The MLX engines are created after the settings snapshot helpers; read them lazily.
+  let kokoroVoice: MlxVoice | null = null;
+  let chatterboxVoice: MlxVoice | null = null;
+  const engineDetail = (engine: MlxVoice | null, base: string) => {
+    if (engine?.status === 'loading') return `${base} Warming up on this Mac.`;
+    const first = engine?.lastFirstAudioMs ?? null;
+    if (engine?.status === 'ready' && first !== null)
+      return `${base} Last reply started in ${(first / 1000).toFixed(1)}s.`;
+    return base;
+  };
   const voiceModels = (): SystemInfo['voice']['models'] => [
     {
+      id: 'kokoro',
+      name: 'Kokoro',
+      available: Boolean(voiceRuntime?.mlx?.kokoro),
+      expressions: false,
+      detail: engineDetail(kokoroVoice, 'Natural, fast voices. The default.'),
+    },
+    {
       id: 'pocket',
-      name: 'Jane · Pocket',
+      name: 'Pocket',
       available: Boolean(voiceRuntime),
       expressions: false,
-      detail: 'Fast local voice',
+      detail: 'Kyutai’s streaming voice.',
     },
     {
       id: 'chatterbox-turbo',
       name: 'Chatterbox Turbo',
-      available: Boolean(voiceRuntime?.chatterbox),
+      available: Boolean(voiceRuntime?.mlx?.chatterbox),
       expressions: true,
-      detail: chatterboxDetail(),
+      detail: engineDetail(chatterboxVoice, 'Expressive, with laughs and sighs.'),
     },
   ];
-  // Chatterbox is created after the settings snapshot helpers; read it lazily.
-  let chatterboxVoice: ChatterboxVoice | null = null;
-  const chatterboxDetail = () => {
-    const base = 'Expressive local voice with laughs, sighs and more.';
-    if (!chatterboxVoice) return base;
-    if (chatterboxVoice.status === 'loading')
-      return 'Warming up on this Mac. Jane answers until Chatterbox is ready.';
-    const rtf = chatterboxVoice.lastRealTimeFactor;
-    const first = chatterboxVoice.lastFirstAudioMs;
-    if (rtf !== null && first !== null)
-      return `${base} Last reply started in ${(first / 1000).toFixed(1)}s at ${rtf.toFixed(1)}× real time.`;
-    return chatterboxVoice.status === 'ready' ? `${base} Ready.` : base;
-  };
+  const selectedVoice = (): VoiceSelection =>
+    voiceSelectionSchema.parse({
+      model: settings.current.voiceModel,
+      voice: settings.current.voices[settings.current.voiceModel],
+    });
   let openSetup = (_page: WorkspaceView) => {};
   // Filled in once windows exist; capabilities call these lazily.
   let showArtifact = (_artifact: ArtifactSummary) => {};
@@ -222,8 +235,9 @@ async function start() {
   };
   const setupSnapshot = (): EdiSetupSnapshot => {
     const character = skins.find(item => item.id === settings.current.skin) ?? skins[0];
-    const selectedVoice =
+    const selectedModel =
       voiceModels().find(item => item.id === settings.current.voiceModel) ?? voiceModels()[0]!;
+    const speaking = selectedVoice();
     const items = libraryItems();
     const notes = items.filter(item => item.kind === 'note');
     return {
@@ -244,6 +258,10 @@ async function start() {
       abilities: [
         { name: 'Answer questions, including about what is on screen', asksFirst: false },
         {
+          name: 'Search the public web for current information and link the sources it used',
+          asksFirst: false,
+        },
+        {
           name: 'Create documents, checklists, tables and sandboxed interactive pages, save them to the workspace and show them in their own window',
           asksFirst: false,
         },
@@ -263,23 +281,27 @@ async function start() {
         'Connecting apps or MCP servers',
         'Background tasks, reminders and watches',
         'Clicking or typing in other apps',
+        'Opening, reading or using logged-in websites in a browser',
         'Changing the keyboard shortcut',
       ],
       current: {
         size: settings.current.petScale,
         character: { id: character.id, name: character.name },
         voice: {
-          id: selectedVoice.id,
-          name: selectedVoice.name,
-          available: selectedVoice.available,
-          expressions: selectedVoice.expressions,
-          detail: selectedVoice.detail,
+          id: selectedModel.id,
+          name: selectedModel.name,
+          speakingVoice: { id: speaking.voice, name: voiceName(speaking.model, speaking.voice) },
+          available: selectedModel.available,
+          expressions: selectedModel.expressions,
+          detail: selectedModel.detail,
           status:
-            selectedVoice.id === 'chatterbox-turbo'
+            selectedModel.id === 'chatterbox-turbo'
               ? (chatterboxVoice?.status ?? 'off')
-              : selectedVoice.available
-                ? 'ready'
-                : 'unavailable',
+              : selectedModel.id === 'kokoro'
+                ? (kokoroVoice?.status ?? 'off')
+                : selectedModel.available
+                  ? 'ready'
+                  : 'unavailable',
         },
         speakReplies: settings.current.speakReplies,
         ai: { connected: agent?.state.configured ?? false, model: agent?.state.model || null },
@@ -299,6 +321,7 @@ async function start() {
         available,
         expressions,
         detail,
+        voices: voiceCatalog[id].map(voice => ({ ...voice })),
       })),
     };
   };
@@ -399,11 +422,55 @@ async function start() {
     petPosition => settings.update({ petPosition }),
   );
   const pocket = voiceRuntime ? new PocketVoice(voiceRuntime.pocket) : null;
-  const chatterbox = voiceRuntime?.chatterbox
-    ? new ChatterboxVoice(voiceRuntime.chatterbox, { idleMs: 60 * 60_000 })
+  const mlx = voiceRuntime?.mlx ?? null;
+  // Warm engines stay loaded for an hour while selected; Kokoro is small and also stands in
+  // while Chatterbox loads.
+  const kokoro = mlx?.kokoro
+    ? new MlxVoice(
+        mlx,
+        { id: 'kokoro', model: mlx.kokoro, label: 'Kokoro', voice: settings.current.voices.kokoro },
+        { idleMs: 60 * 60_000 },
+      )
     : null;
+  const chatterbox = mlx?.chatterbox
+    ? new MlxVoice(
+        mlx,
+        { id: 'chatterbox-turbo', model: mlx.chatterbox, label: 'Chatterbox Turbo' },
+        { idleMs: 60 * 60_000 },
+      )
+    : null;
+  kokoroVoice = kokoro;
   chatterboxVoice = chatterbox;
-  // Chatterbox speaks only once loaded; until then Jane answers so a reply is never minutes late.
+  type Consume = (pcm: Float32Array, rate: number) => Promise<void>;
+  /** Speak with one exact model and voice. Only Chatterbox understands [laugh]-style tags. */
+  const speakWith = (
+    selection: VoiceSelection,
+    text: string,
+    signal: AbortSignal,
+    consume: Consume,
+  ) => {
+    if (selection.model === 'chatterbox-turbo' && chatterbox)
+      return chatterbox.speak(text, signal, consume);
+    if (selection.model === 'kokoro' && kokoro)
+      return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
+    if (selection.model === 'pocket' && pocket)
+      return pocket.speak(speakable(text, false), signal, consume);
+    return Promise.reject(new Error('That voice is not installed on this Mac.'));
+  };
+  const standIn = (): VoiceSelection | null =>
+    kokoro
+      ? { model: 'kokoro', voice: settings.current.voices.kokoro }
+      : pocket
+        ? { model: 'pocket', voice: 'jane' }
+        : null;
+  const warmSelected = () => {
+    const model = settings.current.voiceModel;
+    if (model === 'chatterbox-turbo') {
+      chatterbox?.warm();
+      kokoro?.warm();
+    } else if (model === 'kokoro') kokoro?.warm();
+    else pocket?.warm();
+  };
   const expressiveReady = () =>
     settings.current.voiceModel === 'chatterbox-turbo' && chatterbox?.status === 'ready';
   const voice = new VoiceController({
@@ -422,30 +489,43 @@ async function start() {
     stopAgent: () => agent.stop(),
     transcribe: transcribePcm,
     speak: async (text, signal, consume) => {
-      if (settings.current.voiceModel === 'chatterbox-turbo') chatterbox?.warm();
-      if (expressiveReady() && chatterbox) {
-        try {
-          await chatterbox.speak(text, signal, consume);
-          return;
-        } catch (error) {
-          if (signal.aborted || !pocket) throw error;
-          // If the expressive engine fails, preserve the talking turn with Jane.
-          await pocket.speak(speakable(text, false), signal, consume);
-          return;
-        }
+      warmSelected();
+      const selected = selectedVoice();
+      // Chatterbox answers once loaded; until then Kokoro (or Jane) keeps the reply prompt.
+      const chosen =
+        selected.model === 'chatterbox-turbo' && chatterbox?.status !== 'ready'
+          ? standIn()
+          : selected;
+      if (!chosen) throw new Error('No voice');
+      let delivered = false;
+      try {
+        await speakWith(chosen, text, signal, (pcm, rate) => {
+          delivered = true;
+          return consume(pcm, rate);
+        });
+      } catch (error) {
+        // A failed engine hands the reply to Jane, but never repeats audio already heard.
+        if (signal.aborted || delivered || chosen.model === 'pocket' || !pocket) throw error;
+        await speakWith({ model: 'pocket', voice: 'jane' }, text, signal, consume);
       }
-      if (!pocket) throw new Error('No voice');
-      await pocket.speak(speakable(text, false), signal, consume);
     },
-    warmSpeech: () => {
-      if (settings.current.voiceModel === 'chatterbox-turbo' && chatterbox) chatterbox.warm();
-      else pocket?.warm();
-    },
+    warmSpeech: warmSelected,
     speakReplies: () => settings.current.speakReplies,
     expressiveVoice: expressiveReady,
   });
-  // Chatterbox takes tens of seconds to load. Start now, not after the reply is on screen.
-  if (settings.current.voiceModel === 'chatterbox-turbo') chatterbox?.warm();
+  // Engines take seconds to load. Start now, not after the reply is on screen.
+  warmSelected();
+  const previewVoice = async (selection: VoiceSelection) => {
+    const name = voiceName(selection.model, selection.voice);
+    const sample =
+      selection.model === 'chatterbox-turbo'
+        ? `Hi, I'm Edi. [chuckle] This is how I sound with ${name}.`
+        : `Hi, I'm Edi. This is how I sound as ${name}.`;
+    const played = await voice.preview((signal, consume) =>
+      speakWith(selection, sample, signal, consume),
+    );
+    if (!played) throw new Error('Edi is using its voice right now.');
+  };
 
   const mediaPermissions = createMacMediaPermissions({
     workspace,
@@ -538,8 +618,14 @@ async function start() {
     else openArtifact({ callId: artifact.id });
   };
   applyPreferences = async patch => {
-    if (patch.voice === 'chatterbox-turbo' && !voiceRuntime?.chatterbox)
-      throw new Error('Chatterbox Turbo is not installed on this Mac.');
+    if (patch.voice && !voiceModels().find(model => model.id === patch.voice)?.available)
+      throw new Error('That voice model is not installed on this Mac.');
+    const model = patch.voice ?? settings.current.voiceModel;
+    const speakingVoice = patch.speakingVoice
+      ? voiceSelectionSchema.safeParse({ model, voice: patch.speakingVoice })
+      : null;
+    if (speakingVoice && !speakingVoice.success)
+      throw new Error(`That voice is not one of ${model}'s voices. Check availableVoices.`);
     if (patch.size !== undefined) {
       const skin = patch.character ?? settings.current.skin;
       const bounds = resizePetWindow(pet, patch.size, skin);
@@ -550,6 +636,14 @@ async function start() {
       ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
       ...(patch.speakReplies !== undefined ? { speakReplies: patch.speakReplies } : {}),
       ...(patch.voice ? { voiceModel: patch.voice } : {}),
+      ...(speakingVoice?.success
+        ? {
+            voices: {
+              ...settings.current.voices,
+              [speakingVoice.data.model]: speakingVoice.data.voice,
+            },
+          }
+        : {}),
     });
     placement.place();
   };
@@ -561,8 +655,9 @@ async function start() {
   settings.onChange(value => {
     const shown = artifactWindow.window;
     broadcast(shown ? [workspace, pet, shown] : [workspace, pet], 'edi:settings', value);
-    if (value.voiceModel === 'chatterbox-turbo') chatterbox?.warm();
-    else chatterbox?.dispose();
+    // Chatterbox is large; unload it when another model is chosen. Kokoro stays small and warm.
+    if (value.voiceModel !== 'chatterbox-turbo') chatterbox?.dispose();
+    warmSelected();
   });
   let previousAgentStatus = agent.state.status;
   agent.onChange(state => {
@@ -650,6 +745,9 @@ async function start() {
       permissions,
       openArtifact,
       artifactAction,
+      previewVoice,
+      // The command schema already allows only http(s) without credentials; parse again here.
+      openLink: url => shell.openExternal(new URL(url).toString()),
       closeArtifact: () => artifactWindow.close(),
       deleteLibraryItem: async id => {
         await deleteWorkspaceItem(workspaceDeps, id);
@@ -671,9 +769,14 @@ async function start() {
     system: () => {
       const selected =
         voiceModels().find(item => item.id === settings.current.voiceModel) ?? voiceModels()[0]!;
+      const speaking = selectedVoice();
       return {
         version: app.getVersion(),
-        voice: { available: selected.available, name: selected.name, models: voiceModels() },
+        voice: {
+          available: selected.available,
+          name: `${voiceName(speaking.model, speaking.voice)} · ${selected.name}`,
+          models: voiceModels(),
+        },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },
         notesFolder: notesFolder(),
       };
@@ -708,6 +811,7 @@ async function start() {
   app.on('will-quit', () => {
     pocket?.dispose();
     chatterbox?.dispose();
+    kokoro?.dispose();
     database.close();
   });
 }

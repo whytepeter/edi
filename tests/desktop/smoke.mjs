@@ -231,8 +231,9 @@ try {
   await workspace.getByRole('button', { name: /choose a section/ }).click();
   await workspace.getByRole('menuitem', { name: /Settings/ }).click();
   await workspace.getByRole('button', { name: /^Voice/ }).click();
-  await expect(workspace.getByRole('radio', { name: /Jane · Pocket/ })).toBeVisible();
-  await expect(workspace.getByRole('radio', { name: /Chatterbox Turbo/ })).toBeVisible();
+  // Speech model first (voices are offline in tests, so each shows as not installed).
+  for (const model of [/^Kokoro/, /^Pocket/, /^Chatterbox Turbo/])
+    await expect(workspace.getByRole('radio', { name: model })).toBeVisible();
   const speakReplies = workspace.getByRole('switch', { name: 'Speak replies' });
   await expect(speakReplies).toHaveAttribute('aria-checked', 'true');
   await speakReplies.click();

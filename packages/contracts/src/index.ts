@@ -118,8 +118,8 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
 
 export const skinSchema = z.enum(['edi', 'mochi']);
 export type SkinId = z.infer<typeof skinSchema>;
-export const voiceModelSchema = z.enum(['pocket', 'chatterbox-turbo']);
-export type VoiceModelId = z.infer<typeof voiceModelSchema>;
+import { voiceChoicesSchema, voiceModelSchema, voiceSelectionSchema } from './voice-catalog';
+export * from './voice-catalog';
 
 /**
  * Semantic character states, independent of artwork and voice provider. A skin
@@ -169,6 +169,11 @@ export const settingsSchema = z.preprocess(
     if (saved.petScale === undefined && typeof saved.petSize === 'string')
       saved.petScale = legacyScale[saved.petSize];
     delete saved.petSize;
+    // Kokoro became the default speech model when voices became selectable. Preferences saved
+    // before that still hold the old default (Pocket) and move once; an explicit Chatterbox
+    // choice is kept.
+    if (saved.voices === undefined && (saved.voiceModel ?? 'pocket') === 'pocket')
+      saved.voiceModel = 'kokoro';
     return saved;
   },
   z.object({
@@ -178,7 +183,9 @@ export const settingsSchema = z.preprocess(
     /** When false, a spoken question is answered in the conversation without speech. */
     speakReplies: z.boolean().default(true),
     /** Speech engine used for spoken replies. */
-    voiceModel: voiceModelSchema.default('pocket'),
+    voiceModel: voiceModelSchema.default('kokoro'),
+    /** The chosen voice within each speech model. */
+    voices: voiceChoicesSchema,
     petScale: petScaleSchema.default(1),
   }),
 );
@@ -188,7 +195,8 @@ export const defaultSettings: Settings = {
   pinned: false,
   petPosition: null,
   speakReplies: true,
-  voiceModel: 'pocket',
+  voiceModel: 'kokoro',
+  voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'turbo' },
   petScale: 1,
 };
 /**
@@ -267,7 +275,7 @@ export const systemInfoSchema = z
               })
               .strict(),
           )
-          .length(2),
+          .length(3),
       })
       .strict(),
     pushToTalk: z
@@ -329,6 +337,10 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
   z.object({ type: z.literal('set-speak-replies'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
+  /** Choose a voice within a model; the voice must belong to that model. */
+  z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),
+  /** Play a short sample of a voice through Edi's speaker, only while voice is idle. */
+  z.object({ type: z.literal('preview-voice'), selection: voiceSelectionSchema }).strict(),
   z
     .object({
       type: z.literal('set-pet-scale'),
@@ -346,6 +358,27 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** The card reports where the person is, so Edi can answer "where am I?" truthfully. */
   z.object({ type: z.literal('workspace-view'), view: workspaceViewSchema }).strict(),
   z.object({ type: z.literal('reveal-library-item'), id: z.string().min(1).max(80) }).strict(),
+  /** A source link the person clicked in a reply; main opens it in their default browser. */
+  z
+    .object({
+      type: z.literal('open-link'),
+      url: z
+        .string()
+        .max(2048)
+        .refine(value => {
+          try {
+            const url = new URL(value);
+            return (
+              (url.protocol === 'https:' || url.protocol === 'http:') &&
+              !url.username &&
+              !url.password
+            );
+          } catch {
+            return false;
+          }
+        }, 'Only web links can be opened'),
+    })
+    .strict(),
   /** The person confirmed Delete in Library; main moves the file to the Trash by id. */
   z.object({ type: z.literal('library-delete'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),

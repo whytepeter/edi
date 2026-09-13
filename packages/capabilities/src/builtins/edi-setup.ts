@@ -12,6 +12,8 @@ export interface EdiSetupSnapshot {
     voice: {
       id: string;
       name: string;
+      /** The voice within the model, e.g. Heart for Kokoro. */
+      speakingVoice: { id: string; name: string };
       available: boolean;
       expressions: boolean;
       status: string;
@@ -42,6 +44,7 @@ export interface EdiSetupSnapshot {
     available: boolean;
     expressions: boolean;
     detail: string;
+    voices: { id: string; name: string; accent: string; gender: string }[];
   }[];
   /** Things Edi can do right now, and whether each asks the person first. */
   abilities: { name: string; asksFirst: boolean }[];
@@ -58,7 +61,12 @@ export const ediPreferencesSchema = z
       .describe('Desktop size: 0.6 (small) to 1.6 (large); 1 is default'),
     pinned: z.boolean().optional().describe('Keep the card open when another app is focused'),
     speakReplies: z.boolean().optional().describe('Read spoken answers aloud'),
-    voice: voiceModelSchema.optional().describe('Voice id from availableVoices'),
+    voice: voiceModelSchema.optional().describe('Speech model id from availableVoices'),
+    speakingVoice: z
+      .string()
+      .max(40)
+      .optional()
+      .describe('Voice id within that model, from availableVoices[].voices'),
   })
   .strict()
   .refine(patch => Object.keys(patch).length > 0, 'Change at least one preference.');

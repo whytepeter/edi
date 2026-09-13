@@ -25,6 +25,9 @@ const SYSTEM = [
   'to the user for approval first.',
   'If a tool result says the user declined or that it was stopped, accept it, do not retry,',
   'and say so plainly. Never claim an action happened unless its result status is "succeeded".',
+  'Use web_search for current, changing, niche or explicitly requested online information.',
+  'When an answer relies on web search, cite the supporting pages with descriptive Markdown links.',
+  'Never invent a source, URL, quote or fact that was not present in the search results.',
 ].join(' ');
 
 // Content goes in the card, not in the reply, and never gets read aloud.
@@ -81,6 +84,7 @@ const SPOKEN = [
   'This question was spoken aloud and your reply will be read aloud.',
   'Answer in one to three short sentences of plain words: no lists, headings, code or Markdown.',
   'Anything longer or structured belongs in workspace_show; then say only one short sentence.',
+  'Never say a URL; name a source briefly instead (“according to the BBC”).',
 ].join(' ');
 
 const EXPRESSIVE = [
@@ -135,7 +139,7 @@ function callHost(name: string, args: unknown, signal?: AbortSignal): Promise<To
   });
 }
 
-const tools: ToolSet = Object.fromEntries(
+const hostTools: ToolSet = Object.fromEntries(
   input.tools.map(entry => [
     entry.name,
     tool({
@@ -166,6 +170,12 @@ async function run() {
   try {
     let failure: FailureKind | undefined;
     const provider = createOpenRouter({ apiKey: input.apiKey });
+    const tools: ToolSet = {
+      ...hostTools,
+      // Read-only and executed by OpenRouter. Edi's existing key pays for search, while every
+      // local or mutating action continues to go through the capability broker above.
+      web_search: provider.tools.webSearch({ engine: 'auto', maxResults: 5 }),
+    };
     const result = streamText({
       model: provider(input.model),
       system: [

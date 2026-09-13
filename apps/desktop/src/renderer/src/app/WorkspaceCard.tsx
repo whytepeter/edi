@@ -81,6 +81,12 @@ export function WorkspaceCard() {
         setSettings(s => ({ ...s, speakReplies: command.enabled }));
       else if (command.type === 'set-voice-model')
         setSettings(s => ({ ...s, voiceModel: command.model }));
+      else if (command.type === 'set-voice')
+        setSettings(s => ({
+          ...s,
+          voiceModel: command.selection.model,
+          voices: { ...s.voices, [command.selection.model]: command.selection.voice },
+        }));
       return true;
     } catch {
       setError('Couldn’t make that change. Try again.');
@@ -205,8 +211,13 @@ export function WorkspaceCard() {
               <VoiceSettings
                 system={system}
                 voiceModel={settings.voiceModel}
+                voices={settings.voices}
                 speakReplies={settings.speakReplies}
                 onVoiceModel={model => void send({ type: 'set-voice-model', model })}
+                onVoice={selection => void send({ type: 'set-voice', selection })}
+                onPreview={async selection => {
+                  await window.edi?.command({ type: 'preview-voice', selection });
+                }}
                 onSpeakReplies={enabled => void send({ type: 'set-speak-replies', enabled })}
               />
             )}

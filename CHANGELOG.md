@@ -7,6 +7,16 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Web search: the model can search the public web through OpenRouter's server tool (Codex) and cite sources.
+  Source links in replies are clickable and open in the default browser (http/https only, validated in main);
+  spoken replies say the link text, never the address. Edi's self-knowledge lists web search and says
+  logged-in browsing is not available.
+- Kokoro 82M (MLX) is the default speech model, and Chatterbox Turbo now runs on MLX (4-bit). Measured on the M2
+  Pro: Kokoro starts in ~0.15–0.3 s at ~10× real time; Chatterbox streams first audio in ~0.5 s at ~3× real
+  time (PyTorch was 1.3–1.9× slower than real time). Pocket stays available.
+- Settings → Voice: choose the speech model, then its voice (27 Kokoro voices, female/male), with a Preview
+  button that plays a sample through Edi's speaker. Each model remembers its voice; Edi can change both.
+
 - Edi manages its workspace: `workspace.search` (notes and generated content, by title and text), `workspace.read`,
   `workspace.update` (replace generated content in place, reviewed first) and `workspace.delete` (move a note or
   generated item to the Trash, reviewed first). Generated content now has its own `artifacts` record (migration 3

@@ -1,13 +1,14 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { PocketRuntime } from './pocket-process';
-import type { ChatterboxRuntime } from './chatterbox-process';
+import type { MlxRuntime } from './mlx-process';
 import type { TranscriptionRuntime } from './transcription-process';
 
 export interface VoiceRuntime {
   transcription: TranscriptionRuntime;
   pocket: PocketRuntime;
-  chatterbox: ChatterboxRuntime | null;
+  /** MLX engines; each model folder is null until provisioned. */
+  mlx: (MlxRuntime & { kokoro: string | null; chatterbox: string | null }) | null;
 }
 
 /**
@@ -36,15 +37,23 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
       worker: join(appPath, 'voice/pocket_worker.py'),
       cache: join(voice, 'cache/huggingface'),
     },
-    chatterbox: null,
+    mlx: null,
   };
-  const chatterbox: ChatterboxRuntime = {
-    python: join(voice, 'chatterbox-venv/bin/python'),
-    worker: join(appPath, 'voice/chatterbox_worker.py'),
-    cache: join(voice, 'cache/chatterbox'),
-    model: join(voice, 'cache/chatterbox/model'),
+  // Provisioned by benchmarks/voice/provision_mlx.py. A model counts only if its weights exist.
+  const mlx = {
+    python: join(voice, 'mlx-venv/bin/python'),
+    worker: join(appPath, 'voice/mlx_worker.py'),
+    cache: join(voice, 'cache/mlx'),
   };
-  if (Object.values(chatterbox).every(existsSync)) runtime.chatterbox = chatterbox;
+  const model = (folder: string, weights: string) =>
+    existsSync(join(voice, 'cache/mlx', folder, weights)) ? join(voice, 'cache/mlx', folder) : null;
+  if (Object.values(mlx).every(existsSync)) {
+    runtime.mlx = {
+      ...mlx,
+      kokoro: model('kokoro', 'kokoro-v1_0.safetensors'),
+      chatterbox: model('chatterbox-turbo-4bit', 'model.safetensors'),
+    };
+  }
   const paths = [...Object.values(runtime.transcription), ...Object.values(runtime.pocket)];
   return paths.every(path => existsSync(path)) ? runtime : null;
 }

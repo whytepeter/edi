@@ -6,14 +6,15 @@ import {
   PocketVoice,
   speakPocket,
 } from '../../apps/desktop/src/main/voice/pocket-process';
-import { ChatterboxVoice } from '../../apps/desktop/src/main/voice/chatterbox-process';
+import { MlxVoice } from '../../apps/desktop/src/main/voice/mlx-process';
 
 const runtime = {
   python: '/usr/bin/python3',
   worker: resolve('tests/audio/worker-fixture.py'),
   cache: '/private/tmp/edi-unused-cache',
 };
-const chatterboxRuntime = { ...runtime, model: 'fixture' };
+const chatterbox = { id: 'chatterbox-turbo', model: 'fixture', label: 'Chatterbox Turbo' } as const;
+const kokoro = { id: 'kokoro', model: 'fixture', label: 'Kokoro', voice: 'af_heart' } as const;
 const live = () => new AbortController().signal;
 /** The fixture encodes which utterance a process is serving in its samples. */
 const collect = (values: number[]) => async (pcm: Float32Array) => {
@@ -113,7 +114,7 @@ test('a crashed worker is replaced on the next reply', async () => {
 });
 
 test('Stopping Chatterbox Turbo mid-reply keeps the loaded model for the next reply', async () => {
-  const voice = new ChatterboxVoice(chatterboxRuntime);
+  const voice = new MlxVoice(runtime, chatterbox);
   const values: number[] = [];
   try {
     const stop = new AbortController();
@@ -133,12 +134,42 @@ test('Stopping Chatterbox Turbo mid-reply keeps the loaded model for the next re
 });
 
 test('Chatterbox Turbo keeps a warm worker and accepts expression tags', async () => {
-  const voice = new ChatterboxVoice(chatterboxRuntime);
+  const voice = new MlxVoice(runtime, chatterbox);
   const values: number[] = [];
   try {
     await voice.speak('That is funny. [laugh]', live(), collect(values));
     await voice.speak('Again.', live(), collect(values));
     assert.deepEqual(values, [0.25, 0.25, 0.5, 0.5]);
+  } finally {
+    voice.dispose();
+  }
+});
+
+test('Kokoro names the chosen voice per reply and reuses one warm worker', async () => {
+  const voice = new MlxVoice(runtime, kokoro);
+  const values: number[] = [];
+  try {
+    await voice.speak('Hello.', live(), collect(values), { voice: 'bf_emma' });
+    await voice.speak('Again.', live(), collect(values), { voice: 'af_heart' });
+    assert.deepEqual(values, [0.25, 0.25, 0.5, 0.5]);
+    assert.equal(voice.status, 'ready');
+    // A worker that dies on a request is replaced for the next reply.
+    await assert.rejects(voice.speak('Broken.', live(), async () => {}, { voice: 'bad-voice' }));
+    await voice.speak('Fresh.', live(), collect(values));
+    assert.deepEqual(values.slice(-2), [0.25, 0.25]);
+  } finally {
+    voice.dispose();
+  }
+});
+
+test('an MLX worker reporting a different engine is refused', async () => {
+  const voice = new MlxVoice(runtime, { ...kokoro, model: 'wrong-engine' });
+  try {
+    await assert.rejects(
+      voice.speak('Hi.', live(), async () => {}),
+      /Invalid Kokoro frame/,
+    );
+    assert.equal(voice.status, 'off');
   } finally {
     voice.dispose();
   }

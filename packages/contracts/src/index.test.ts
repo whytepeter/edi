@@ -187,7 +187,58 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     commandSchema.safeParse({ type: 'set-pet-scale', scale: 3, commit: true }).success,
     false,
   );
-  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).voiceModel, 'pocket');
+  // Replies may link sources; only plain web links can be opened.
+  for (const url of ['https://example.com/a?b=1', 'http://example.org'])
+    assert.equal(commandSchema.safeParse({ type: 'open-link', url }).success, true, url);
+  for (const url of [
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'https://user:pw@example.com',
+    'x',
+  ])
+    assert.equal(commandSchema.safeParse({ type: 'open-link', url }).success, false, url);
+  // Kokoro is the default; the old Pocket default moves once, an explicit Chatterbox choice stays.
+  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).voiceModel, 'kokoro');
+  assert.equal(
+    settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'pocket' }).voiceModel,
+    'kokoro',
+  );
+  assert.equal(
+    settingsSchema.parse({
+      skin: 'edi',
+      pinned: false,
+      voiceModel: 'pocket',
+      voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'turbo' },
+    }).voiceModel,
+    'pocket',
+  );
+  assert.equal(
+    settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'chatterbox-turbo' }).voiceModel,
+    'chatterbox-turbo',
+  );
+  // Each model keeps its own voice; a retired voice falls back to that model's default.
+  assert.deepEqual(
+    settingsSchema.parse({
+      skin: 'edi',
+      pinned: false,
+      voices: { kokoro: 'bf_emma', pocket: 'alba' },
+    }).voices,
+    { kokoro: 'bf_emma', pocket: 'jane', 'chatterbox-turbo': 'turbo' },
+  );
+  assert.equal(
+    commandSchema.safeParse({
+      type: 'set-voice',
+      selection: { model: 'pocket', voice: 'af_heart' },
+    }).success,
+    false,
+  );
+  assert.equal(
+    commandSchema.safeParse({
+      type: 'preview-voice',
+      selection: { model: 'kokoro', voice: 'bm_george' },
+    }).success,
+    true,
+  );
   assert.equal(
     settingsSchema.safeParse({ skin: 'cloud', pinned: false, voiceModel: 'chatterbox-turbo' })
       .success,

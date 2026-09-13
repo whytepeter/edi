@@ -62,6 +62,10 @@ export function cleanTranscript(text: string) {
 /** Plain words for speech: no Markdown, no pointing tags, a sentence boundary under the cap. */
 export function speakable(text: string, expressions = false) {
   let plain = text
+    // Source links are read as their words; addresses themselves are never spoken.
+    .replace(/\[([^\]]+)\]\((?:https?:\/\/|www\.)[^)\s]*\)/gi, '$1')
+    .replace(/\b(?:https?:\/\/|www\.)[^\s)]*[^\s).,;:!?]/gi, ' ')
+    .replace(/\s+([.,;:!?])/g, '$1')
     .replace(/\[(?:POINT|DRAW):[^\]]*\]/gi, ' ')
     .replace(/[*_`#>|~]/g, '')
     .replace(/\s+/g, ' ')
@@ -172,6 +176,32 @@ export class VoiceController<Screens> {
       this.notice = 'I couldn’t use the microphone.';
     }
     this.dispatch({ type: event, generation });
+  }
+
+  /**
+   * Play a short voice sample (Settings → Voice) through the same speaker path as replies. Only
+   * while voice is idle; Stop or a new hold cancels it like any reply.
+   */
+  async preview(
+    speak: (
+      signal: AbortSignal,
+      consume: (pcm: Float32Array, sampleRate: number) => Promise<void>,
+    ) => Promise<void>,
+  ) {
+    if (!this.available || this.session.phase !== 'idle' || this.turn) return false;
+    const turn = new AbortController();
+    this.turn = turn;
+    const generation = this.session.generation;
+    // A fresh playback token, so the sample never queues behind the end of an older reply.
+    this.deps.send({ type: 'stop-audio' });
+    try {
+      await speak(turn.signal, (samples, rate) =>
+        this.play(generation, samples, rate, turn.signal),
+      );
+      return true;
+    } finally {
+      if (this.turn === turn) this.turn = undefined;
+    }
   }
 
   played(generation: number) {
