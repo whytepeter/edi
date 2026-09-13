@@ -11,9 +11,14 @@ import sys
 import time
 
 parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument("--voice", required=True)
+parser.add_argument("--voice")
+parser.add_argument("--model")
 args = parser.parse_args()
-print(json.dumps({"type": "ready", "rate": 24000, "voice": args.voice}), flush=True)
+if not args.voice and not args.model:
+    parser.error("--voice or --model is required")
+ready = {"type": "ready", "rate": 24000}
+ready["voice" if args.voice else "model"] = args.voice or "turbo"
+print(json.dumps(ready), flush=True)
 served = 0
 while True:
     line = sys.stdin.readline()

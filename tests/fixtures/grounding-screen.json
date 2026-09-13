@@ -1,0 +1,92 @@
+{
+  "page": {
+    "width": 1800,
+    "height": 1100
+  },
+  "targets": {
+    "finder": {
+      "text": "Finder",
+      "x": 20,
+      "y": 5,
+      "width": 37.6,
+      "height": 15
+    },
+    "file": {
+      "text": "File",
+      "x": 77.6,
+      "y": 5,
+      "width": 20.2,
+      "height": 15
+    },
+    "edit": {
+      "text": "Edit",
+      "x": 117.8,
+      "y": 5,
+      "width": 21.7,
+      "height": 15
+    },
+    "view": {
+      "text": "View",
+      "x": 159.5,
+      "y": 5,
+      "width": 27.4,
+      "height": 15
+    },
+    "wifi": {
+      "text": "Wi-Fi",
+      "x": 1739.5,
+      "y": 5,
+      "width": 30.5,
+      "height": 15
+    },
+    "format": {
+      "text": "Format:",
+      "x": 580,
+      "y": 430,
+      "width": 41.2,
+      "height": 15
+    },
+    "pdf": {
+      "text": "PDF",
+      "x": 624.4,
+      "y": 430,
+      "width": 23.9,
+      "height": 15
+    },
+    "cancel": {
+      "text": "Cancel",
+      "x": 978.6,
+      "y": 560,
+      "width": 36.1,
+      "height": 15
+    },
+    "save": {
+      "text": "Save",
+      "x": 1058.7,
+      "y": 560,
+      "width": 25.3,
+      "height": 15
+    },
+    "general": {
+      "text": "General",
+      "x": 60,
+      "y": 127,
+      "width": 41.1,
+      "height": 15
+    },
+    "appearance": {
+      "text": "Appearance",
+      "x": 60,
+      "y": 157,
+      "width": 62.1,
+      "height": 15
+    },
+    "privacy": {
+      "text": "Privacy & Security",
+      "x": 60,
+      "y": 187,
+      "width": 99.7,
+      "height": 15
+    }
+  }
+}

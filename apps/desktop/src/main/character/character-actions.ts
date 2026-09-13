@@ -5,7 +5,9 @@ import {
   placeSpeechBubble,
   skinGeometry,
   type ApprovalRequest,
+  type ArtifactSummary,
   type BubbleSide,
+  type CharacterExpression,
   type SkinId,
   type StatusBubbleState,
 } from '@edi/contracts';
@@ -23,13 +25,16 @@ interface CharacterActionsOptions {
   /** Start real capture; false means the local voice runtime is unavailable. */
   startVoice: (mode: 'conversation' | 'push-to-talk') => boolean;
   showContent: () => void;
+  openSettings: () => void;
   stopWork: () => void;
   createBubble: (options: StatusBubbleOptions) => BrowserWindow;
   createMenu: () => BrowserWindow;
+  /** Narrow main-to-renderer state channel; artwork remains renderer-owned. */
+  showExpression: (expression: CharacterExpression) => void;
   quit: () => void;
 }
 
-type MenuAction = 'conversation' | 'content' | 'stop' | 'sleep' | 'quit' | 'dismiss';
+type MenuAction = 'content' | 'settings' | 'sleep' | 'quit' | 'dismiss';
 
 /** One entry point for character clicks, menu actions and the global shortcut. */
 export class CharacterActions {
@@ -39,6 +44,10 @@ export class CharacterActions {
   private dismiss?: ReturnType<typeof setTimeout>;
   private bubbleReady = false;
   private approval?: ApprovalRequest;
+  /** Content shown during a voice turn, waiting for its compact bubble. */
+  private artifact?: ArtifactSummary;
+  private expression: CharacterExpression = 'idle';
+  private expressionTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly options: CharacterActionsOptions) {
     options.pet.on('move', this.followPet);
@@ -54,17 +63,27 @@ export class CharacterActions {
 
   /** Mirror text work with dots, but keep the conversation itself in the card. */
   setThinking = (thinking: boolean) => {
-    if (thinking && this.bubble?.state !== 'thinking' && this.bubble?.state !== 'approval')
+    if (
+      thinking &&
+      this.bubble?.state !== 'thinking' &&
+      this.bubble?.state !== 'approval' &&
+      this.bubble?.state !== 'speaking'
+    )
       this.showStatus('thinking');
     else if (!thinking && this.bubble?.state === 'thinking') this.hideBubble();
   };
 
   /** Voice session feedback: live listening, thinking, speaking, a notice, or nothing. */
   showVoiceStatus = (
-    status: 'listening' | 'thinking' | 'speaking' | 'hidden' | { notice: string },
+    status: 'opening' | 'listening' | 'thinking' | 'speaking' | 'hidden' | { notice: string },
   ) => {
-    if (status === 'hidden') {
-      if (this.bubble?.state !== 'approval') this.hideBubble();
+    if (status === 'opening') {
+      this.hideBubble(false);
+      this.setExpression('attention');
+    } else if (status === 'hidden') {
+      if (this.artifact) this.presentArtifact();
+      else if (this.bubble?.state !== 'approval' && this.bubble?.state !== 'artifact')
+        this.hideBubble();
     } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
     else if (this.bubble?.state !== status) this.showStatus(status);
   };
@@ -82,13 +101,51 @@ export class CharacterActions {
     this.showStatus('approval');
   };
 
-  private showStatus(state: StatusBubbleState, dismissAfterMs?: number, text?: string) {
-    this.hideBubble();
+  /**
+   * Content shown during a voice turn appears as a compact bubble with Open, instead of taking
+   * over the screen. Live voice states take precedence; the preview follows when they end.
+   */
+  showArtifact = (artifact: ArtifactSummary) => {
+    this.artifact = artifact;
+    const busy = this.bubble?.state;
+    if (busy === 'listening' || busy === 'speaking' || busy === 'approval') return;
+    this.presentArtifact();
+  };
+
+  /** The person opened or dismissed the preview. */
+  clearArtifact = () => {
+    this.artifact = undefined;
+    if (this.bubble?.state === 'artifact') this.hideBubble();
+  };
+
+  private presentArtifact() {
+    const artifact = this.artifact;
+    if (!artifact) return;
+    this.showStatus('artifact', 20_000, undefined, artifact);
+  }
+
+  /** A completed turn gets one restrained acknowledgement, then returns to idle. */
+  showHappy = () => this.setExpression('happy', 1500);
+
+  private showStatus(
+    state: StatusBubbleState,
+    dismissAfterMs?: number,
+    text?: string,
+    artifact?: ArtifactSummary,
+  ) {
+    this.hideBubble(false);
+    this.setExpression(this.expressionFor(state));
     const { bounds, side } = this.bubblePlacement(statusBubbleSize[state]);
-    const window = this.options.createBubble({ state, side, text, skin: this.options.skin() });
+    const window = this.options.createBubble({
+      state,
+      side,
+      text,
+      artifact,
+      skin: this.options.skin(),
+    });
     this.bubble = { window, state, side };
     this.bubbleReady = false;
-    window.setIgnoreMouseEvents(state !== 'approval');
+    window.setIgnoreMouseEvents(state !== 'approval' && state !== 'artifact');
     window.setBounds(bounds);
     let shown = false;
     const show = () => {
@@ -97,7 +154,11 @@ export class CharacterActions {
       this.bubbleReady = true;
       window.showInactive();
       this.pushApproval();
-      if (dismissAfterMs) this.dismiss = setTimeout(() => this.hideBubble(), dismissAfterMs);
+      if (dismissAfterMs)
+        this.dismiss = setTimeout(() => {
+          if (state === 'artifact') this.artifact = undefined;
+          this.hideBubble();
+        }, dismissAfterMs);
     };
     // Approval data may arrive while the window loads. Flush after the renderer
     // subscribes. ready-to-show covers a load that finished before we listened.
@@ -136,11 +197,32 @@ export class CharacterActions {
     bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
   };
 
-  private hideBubble() {
+  private expressionFor(state: StatusBubbleState): CharacterExpression {
+    if (state === 'listening') return 'listening';
+    if (state === 'thinking') return 'thinking';
+    if (state === 'speaking') return 'speaking';
+    return 'attention';
+  }
+
+  private setExpression(expression: CharacterExpression, returnToIdleAfterMs?: number) {
+    clearTimeout(this.expressionTimer);
+    this.expressionTimer = undefined;
+    if (this.expression !== expression) {
+      this.expression = expression;
+      this.options.showExpression(expression);
+    }
+    if (returnToIdleAfterMs)
+      this.expressionTimer = setTimeout(() => {
+        if (this.expression === expression) this.setExpression('idle');
+      }, returnToIdleAfterMs);
+  }
+
+  private hideBubble(resetExpression = true) {
     clearTimeout(this.dismiss);
     this.bubbleReady = false;
     this.bubble?.window.destroy();
     this.bubble = undefined;
+    if (resetExpression && !this.approval) this.setExpression('idle');
   }
 
   stop = () => {
@@ -172,7 +254,8 @@ export class CharacterActions {
   menuItems(): MenuItemConstructorOptions[] {
     return [
       { label: 'Listen', click: () => this.requestListening() },
-      { label: 'Show content', click: () => this.showContent() },
+      { label: 'Open Edi', click: () => this.showContent() },
+      { label: 'Settings…', accelerator: 'CommandOrControl+,', click: this.options.openSettings },
       { label: 'Stop', click: this.stop },
       { type: 'separator' },
       { label: 'Sleep Edi', click: this.sleep },
@@ -201,9 +284,8 @@ export class CharacterActions {
 
   action(action: MenuAction) {
     this.hideMenu();
-    if (action === 'conversation') this.requestListening();
     if (action === 'content') this.showContent();
-    if (action === 'stop') this.stop();
+    if (action === 'settings') this.options.openSettings();
     if (action === 'sleep') this.sleep();
     if (action === 'quit') this.options.quit();
   }
@@ -239,6 +321,7 @@ export class CharacterActions {
   };
 
   dispose() {
+    clearTimeout(this.expressionTimer);
     this.hideMenu();
     this.hideBubble();
     this.options.pet.removeListener('move', this.followPet);

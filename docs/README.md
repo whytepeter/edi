@@ -1,12 +1,12 @@
 # Product documents
 
-The product direction is maintained in the parent workspace:
+The product plan lives in the parent workspace; architecture and roadmap live here:
 
 - [Product plan](../../EDI-PRODUCT-PLAN.md)
-- [Architecture](../../docs/edi/ARCHITECTURE.md)
-- [Roadmap](../../docs/edi/ROADMAP.md)
+- [Architecture](ARCHITECTURE.md)
+- [Roadmap](ROADMAP.md)
 
-Current milestone: **0 — desktop and audio foundations**. The shell, bundled avatars, OpenRouter text, local hold-to-talk pipeline, SQLite history, reviewed note writes, screen context, and presentation overlay are implemented at foundation level. Cloud voice, hands-free conversation, full rich content, and external installations remain upcoming work. “Talk to Edi” is a temporary integration interface, not the final product flow.
+Current milestone: **0 — desktop and audio foundations**. The shell, bundled avatars, OpenRouter text, local hold-to-talk pipeline, SQLite history, reviewed note writes, screen context, and presentation overlay are implemented at foundation level. Cloud voice, hands-free conversation, full rich content, and external installations remain upcoming work.
 
 See [foundation validation](FOUNDATION-VALIDATION.md) for evidence and the remaining milestone-0 checks.
 

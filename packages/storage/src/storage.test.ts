@@ -215,3 +215,65 @@ test('notes can be looked up, updated and removed', () => {
   assert.throws(() => repos.notes.update({ id, title: 'Gone', bytes: 1 }));
   assert.throws(() => repos.notes.remove(id));
 });
+
+test('shown content is found by run or id, and moved notes keep working', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.runs.start(run(uuid(1)));
+  const shown = { runId: uuid(1), title: 'Show', effect: 'read' as const, at: 1 };
+  repos.toolCalls.create({
+    ...shown,
+    id: uuid(2),
+    capability: 'workspace.show',
+    input: { kind: 'document' },
+    status: 'running',
+  });
+  repos.toolCalls.finish(uuid(2), 'succeeded', 'Shown', { shown: true }, 2);
+  repos.toolCalls.create({
+    ...shown,
+    id: uuid(3),
+    capability: 'workspace.show',
+    input: {},
+    status: 'running',
+  });
+  repos.toolCalls.finish(uuid(3), 'failed', 'Nope', undefined, 2);
+  repos.toolCalls.create({
+    ...shown,
+    id: uuid(4),
+    capability: 'notes.list',
+    input: {},
+    status: 'running',
+  });
+  repos.toolCalls.finish(uuid(4), 'succeeded', 'Listed', {}, 2);
+
+  const byRun = repos.toolCalls.shown(['workspace.show', 'notes.show'], { runIds: [uuid(1)] });
+  assert.deepEqual(
+    byRun.map(call => [call.id, call.input, call.output]),
+    [[uuid(2), { kind: 'document' }, { shown: true }]],
+  );
+  assert.equal(byRun[0]?.createdAt, 1);
+  assert.equal(repos.toolCalls.shown(['workspace.show'], { id: uuid(3) }).length, 0);
+
+  repos.notes.add({
+    id: uuid(5),
+    title: 'A',
+    path: '/Users/x/Documents/Edi Notes/a.md',
+    bytes: 1,
+    toolCallId: null,
+    createdAt: 1,
+  });
+  repos.notes.add({
+    id: uuid(6),
+    title: 'B',
+    path: '/Users/x/Documents/Edi Notes Old/b.md',
+    bytes: 1,
+    toolCallId: null,
+    createdAt: 2,
+  });
+  assert.equal(
+    repos.notes.relocate('/Users/x/Documents/Edi Notes', '/Users/x/Documents/Edi/Notes'),
+    1,
+  );
+  assert.equal(repos.notes.get(uuid(5))?.path, '/Users/x/Documents/Edi/Notes/a.md');
+  // A sibling folder that merely shares the prefix is untouched.
+  assert.equal(repos.notes.get(uuid(6))?.path, '/Users/x/Documents/Edi Notes Old/b.md');
+});

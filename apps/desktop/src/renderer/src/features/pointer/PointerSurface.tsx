@@ -43,6 +43,56 @@ function arc(from: Point, to: Point): Keyframe[] {
   });
 }
 
+/** Where the hand goes before tracing: the first point of the shape's path. */
+function startOf(action: PresentationAction): Point {
+  switch (action.type) {
+    case 'point':
+    case 'box':
+      return { x: action.x, y: action.y };
+    case 'circle':
+      return { x: action.x, y: action.y - action.r };
+    case 'ellipse':
+      return { x: action.x, y: action.y - action.ry };
+    default:
+      return { x: action.x1, y: action.y1 };
+  }
+}
+
+/** How far below (or above) a pointed target the fingertip rests, so the target stays readable. */
+const REST_GAP = 8;
+
+/**
+ * The hand's rest pose at a pointed target: just under it, pointing up, so the hand sits
+ * below the line of text instead of across it. Near the bottom edge it points down from above.
+ */
+function restingPose(at: Point) {
+  const below = at.y < window.innerHeight - 70;
+  const direction = ((below ? -100 : 100) * Math.PI) / 180;
+  return {
+    x: at.x,
+    y: at.y + (below ? REST_GAP : -REST_GAP),
+    angle: ((direction - Math.atan2(handTip.y, handTip.x)) * 180) / Math.PI,
+  };
+}
+
+/** Where a label hangs: under the target, not at a corner of its shape. */
+function focusOf(action: PresentationAction): Point {
+  switch (action.type) {
+    case 'point':
+      return { x: action.x, y: action.y };
+    case 'circle':
+      return { x: action.x, y: action.y + action.r };
+    case 'ellipse':
+      return { x: action.x, y: action.y + action.ry };
+    case 'box':
+      return { x: action.x + action.w / 2, y: action.y + action.h };
+    case 'arrow':
+      return { x: action.x2, y: action.y2 };
+    case 'underline':
+      return { x: (action.x1 + action.x2) / 2, y: action.y1 };
+  }
+}
+
 export function PointerSurface({
   from,
   actions,
@@ -55,23 +105,14 @@ export function PointerSurface({
   const pointer = useRef<HTMLDivElement>(null);
   const ink = useRef<SVGSVGElement>(null);
   const position = useRef(from);
-  const [arrived, setArrived] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const action = actions[current];
-  const to = action
-    ? 'x' in action
-      ? { x: action.x, y: action.y }
-      : { x: action.x1, y: action.y1 }
-    : from;
-  const label = action?.label ?? '';
+  // How many actions have finished; each keeps its label once it is done.
+  const [completed, setCompleted] = useState(0);
+  const current = Math.min(completed, actions.length - 1);
 
   useEffect(() => {
     const action = actions[current];
-    const to = action
-      ? 'x' in action
-        ? { x: action.x, y: action.y - (action.type === 'circle' ? action.r : 0) }
-        : { x: action.x1, y: action.y1 }
-      : from;
+    if (!action || completed >= actions.length) return;
+    const to = startOf(action);
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const still = `translate(${to.x}px, ${to.y}px) rotate(-45deg)`;
     let frame = 0;
@@ -86,14 +127,24 @@ export function PointerSurface({
       { duration: reduce ? 150 : 650, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'forwards' },
     );
     animation.onfinish = () => {
+      // Keep the arrival pose once the animation is cleaned up, or the hand jumps back.
+      animation.commitStyles();
       position.current = to;
       const path = ink.current?.querySelectorAll('path')[current];
-      const finish = () => {
-        if (current + 1 < actions.length) setCurrent(current + 1);
-        else setArrived(true);
-      };
-      if (!path || action?.type === 'point') {
-        finish();
+      const finish = () => setCompleted(current + 1);
+      if (!path || action.type === 'point') {
+        // Settle so the hand points up at the target from below instead of covering it.
+        const rest = restingPose(to);
+        const settle = pointer.current!.animate(
+          [{ transform: `translate(${rest.x}px, ${rest.y}px) rotate(${rest.angle}deg)` }],
+          { duration: reduce ? 0 : 220, easing: 'ease-out', fill: 'forwards' },
+        );
+        settle.onfinish = () => {
+          if (cancelled) return;
+          settle.commitStyles();
+          settle.cancel();
+          finish();
+        };
         return;
       }
       const length = path.getTotalLength();
@@ -120,10 +171,8 @@ export function PointerSurface({
       animation.cancel();
       cancelAnimationFrame(frame);
     };
-  }, [from, actions, current]);
+  }, [actions, current, completed]);
 
-  // Keep the label on screen: flip it left of the point near the right edge.
-  const flip = to.x > window.innerWidth - 220;
   return (
     <div
       className="pointer-surface"
@@ -146,51 +195,77 @@ export function PointerSurface({
           />
         ))}
       </svg>
+      {actions.slice(0, completed).map((item, index) => {
+        const focus = focusOf(item);
+        // Keep labels on screen: flip left near the right edge, above near the bottom.
+        const flipX = focus.x > window.innerWidth - 240;
+        const flipY = focus.y > window.innerHeight - 70;
+        const gap = item.type === 'point' ? 18 : 10;
+        return (
+          <span key={index}>
+            {item.type === 'point' && (
+              <span
+                className="pointer-ping"
+                style={{ left: focus.x, top: focus.y }}
+                aria-hidden="true"
+              />
+            )}
+            {item.label && (
+              <span
+                className="pointer-label ds-bubble ds-glass-thick"
+                data-side={flipX ? 'left' : 'right'}
+                data-above={flipY || undefined}
+                style={{
+                  left: flipX ? undefined : focus.x + (item.type === 'point' ? gap : -12),
+                  right: flipX
+                    ? window.innerWidth - focus.x + (item.type === 'point' ? gap : -12)
+                    : undefined,
+                  top: flipY ? undefined : focus.y + gap,
+                  bottom: flipY ? window.innerHeight - focus.y + gap : undefined,
+                }}
+                role="status"
+              >
+                {item.label}
+              </span>
+            )}
+          </span>
+        );
+      })}
       <div ref={pointer} className="pointer" aria-hidden="true">
         <svg width="32" height="32" viewBox="-4 -10 32 32" style={{ left: -14, top: -27 }}>
           <path d={handPaths.right} />
         </svg>
       </div>
-      {arrived && (
-        <>
-          <span className="pointer-ping" style={{ left: to.x, top: to.y }} aria-hidden="true" />
-          {label && (
-            <span
-              className="pointer-label ds-bubble ds-glass-thick"
-              data-side={flip ? 'left' : 'right'}
-              style={{
-                left: flip ? undefined : to.x + 18,
-                right: flip ? window.innerWidth - to.x + 18 : undefined,
-                top: to.y + 12,
-              }}
-              role="status"
-            >
-              {label}
-            </span>
-          )}
-        </>
-      )}
     </div>
   );
 }
 
 /** Only fixed shape commands become SVG, never model-provided markup. */
 function drawingPath(action: PresentationAction): string {
-  if (action.type === 'point') return `M${action.x} ${action.y}`;
-  if (action.type === 'circle') {
-    const { x, y, r } = action;
-    return `M${x} ${y - r}a${r} ${r} 0 1 1 0 ${2 * r}a${r} ${r} 0 1 1 0 ${-2 * r}`;
+  switch (action.type) {
+    case 'point':
+      return `M${action.x} ${action.y}`;
+    case 'circle': {
+      const { x, y, r } = action;
+      return `M${x} ${y - r}a${r} ${r} 0 1 1 0 ${2 * r}a${r} ${r} 0 1 1 0 ${-2 * r}`;
+    }
+    case 'ellipse': {
+      const { x, y, rx, ry } = action;
+      return `M${x} ${y - ry}a${rx} ${ry} 0 1 1 0 ${2 * ry}a${rx} ${ry} 0 1 1 0 ${-2 * ry}`;
+    }
+    case 'box': {
+      const { x, y, w, h } = action;
+      return `M${x} ${y}h${w}v${h}h${-w}Z`;
+    }
+    default: {
+      const { x1, y1, x2, y2 } = action;
+      let path = `M${x1} ${y1}L${x2} ${y2}`;
+      if (action.type === 'arrow') {
+        const a = Math.atan2(y2 - y1, x2 - x1);
+        const size = Math.min(18, Math.hypot(x2 - x1, y2 - y1) / 3);
+        path += `L${x2 - size * Math.cos(a - 0.5)} ${y2 - size * Math.sin(a - 0.5)}L${x2} ${y2}L${x2 - size * Math.cos(a + 0.5)} ${y2 - size * Math.sin(a + 0.5)}`;
+      }
+      return path;
+    }
   }
-  if (action.type === 'box') {
-    const { x, y, w, h } = action;
-    return `M${x} ${y}h${w}v${h}h${-w}Z`;
-  }
-  const { x1, y1, x2, y2 } = action;
-  let path = `M${x1} ${y1}L${x2} ${y2}`;
-  if (action.type === 'arrow') {
-    const a = Math.atan2(y2 - y1, x2 - x1);
-    const size = Math.min(18, Math.hypot(x2 - x1, y2 - y1) / 3);
-    path += `L${x2 - size * Math.cos(a - 0.5)} ${y2 - size * Math.sin(a - 0.5)}L${x2} ${y2}L${x2 - size * Math.cos(a + 0.5)} ${y2 - size * Math.sin(a + 0.5)}`;
-  }
-  return path;
 }

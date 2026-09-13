@@ -7,6 +7,50 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Interactive pages: `workspace.show` accepts `html` for calculators, simulations, interactive charts or UI
+  previews that documents, checklists and tables cannot express. Main serves each page from Edi's history over a
+  private `edi-artifact://` scheme with a sandboxing CSP: opaque origin, inline scripts and styles only, no
+  network, storage, pop-ups, forms or downloads. The frame is `sandbox="allow-scripts"`, and the artifact window
+  runs in its own in-memory session that refuses every other request and permission. Pages are saved to
+  Documents › Edi › Artifacts › Interactive and download as `.html`.
+- The artifact window: shown content opens in its own native-glass window beside the card, away from Edi, with
+  Copy, Download, Show in Finder and Close (or Escape). It follows the card until you move or resize it.
+
+- Shown content (artifacts): Edi can display documents, checklists, tables and saved notes instead of reading
+  them out. They appear as inline cards in Conversations and open in the artifact window; a
+  voice turn with the card closed gets a compact preview beside Edi with Open. Generated content is written to
+  Documents › Edi › Artifacts automatically, with Markdown for text and CSV for tables.
+- Edi's workspace folder, Documents › Edi, with notes in Edi › Notes (the old “Edi Notes” folder moves once). The
+  Library lists and opens everything in it.
+- Edi can open any page including Settings, change its own character, size, pin, voice and spoken replies, and
+  close or sleep itself. Its self-knowledge now includes where you are, card state, voice loading, Library notes,
+  what it can do (and what asks first) and what is not available yet.
+- Mochi, a cream dumpling character from the owner's reference. Characters react happily on hover in Appearance.
+- Recommended models in Settings → AI (fast, balanced, most capable); the full catalog opens only on request.
+- A speech-bubble tail on the native glass bubbles beside Edi.
+- Edi, the new default character drawn from the owner's reference: warm brown skin, winged eyes, full lips, gold
+  hoops behind the jaw, and small hands that appear only to wave or celebrate. Saved Mira choices move to Edi.
+- Settings → Appearance → Size: Small, Medium, or Large. Edi resizes in place, keeping its feet where they were.
+- Native macOS glass (vibrancy) for the right-click menu and the bubbles beside Edi, with system rounded corners
+  and shadow.
+- Pointer and drawing alignment: Apple Vision recognizes on-screen text locally on the full-resolution capture,
+  and each `POINT`/`DRAW` tag snaps to the matching text near where the model aimed. Shapes fit the target, with
+  ellipses around wide labels. Measured on a Retina fixture: mean miss 25.3 → 1.4 image pixels.
+- Home, the section the card opens on: greeting, ask box, the last conversation, recently saved notes, and any
+  missing setup.
+- A searchable model picker in Settings → AI listing OpenRouter models that accept images and support tools, with
+  price tier and context size, and a typed-ID fallback when the catalog can't load.
+- Card sections: Conversations, Library, Skills, Connectors, Appearance, and Settings. The compact card switches
+  sections from its title menu; the expanded card shows a sidebar. Destinations are a closed contract list that
+  main and future self-navigation can target, including nested Settings pages.
+- Settings → AI, Voice, Keyboard, Privacy & Permissions, and About. Voice adds a persisted **Speak replies** switch;
+  Privacy lists OS permission status, states what leaves the Mac, and holds the Activity log.
+- Library lists saved notes and reveals a note in Finder by ID.
+- **Settings** in the character menu and the app menu (⌘,).
+- Mira, a simple monochrome avatar with geometric glasses and restrained feminine styling.
+- A provider-independent character expression contract for idle, listening, thinking, speaking, happy, and
+  attention states, with native Electron coverage for every bundled skin.
+- Character motion and skin architecture documentation.
 - A compact, request-bound approval bubble with Approve, Deny, and View details actions.
 - Just-in-time microphone and Screen Recording permission cards backed by one typed permission registry.
 - Local screen-intent policy so ordinary questions do not attach screenshots.
@@ -17,7 +61,34 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Changed
 
-- A short click starts hands-free conversation; holding Edi or pressing ⌥ Space starts push-to-talk.
+- The Edi card is native glass too: the window is the card (no transparent margin or stray outline), with
+  desktop blur, a light tint, a specular rim and 22 px corners shared with the artifact window (`.glass-window`).
+  Menu and bubble windows alone clear their own material, so the card's section menu stays legible.
+- Skills lists only add-on skills and is empty for now. Built-in abilities (showing content, notes, Edi's
+  self-knowledge) work under the hood, the way Claude doesn't list its own tools.
+- Dark mode lifts dark skin accents to a readable lightness (`--accent-fill`, minimum-lightness `--accent-strong`),
+  so selected items, your messages and buttons stay legible with Edi's brown.
+- Documents render `---` rules and a proper heading scale, without paragraph gaps.
+- The speech-bubble tail is a short rounded nub.
+- Agent replies may use up to 16,000 output tokens so reports and interactive pages fit in one tool call.
+
+- Size in Appearance is a slider. The card stays still while dragging and re-attaches once on release.
+- Chatterbox Turbo keeps its loaded model when a reply is stopped, gets up to 10 minutes to load, and Jane answers
+  until it is ready. Its first Metal pass now runs during background warm-up, and speech begins from the first
+  three streamed words. Settings → Voice shows loading state and real-time speed.
+- Edi's mouth follows the loudness of its own speech while talking; hands and body stay still. Listening and
+  thinking only change the eyes, since the bubble already shows those states.
+- The card stays beside Edi whenever Edi moves, pinned or not. Pinning only keeps it open when another app takes
+  focus.
+- OpenRouter setup moved from the conversation view to Settings → AI. Conversations is the card's home.
+- The character and app menus say **Open Edi** instead of **Show content**.
+- A plain click on Edi no longer starts listening; hold Edi or ⌥ Space to talk. Keyboard activation opens the menu.
+- The right-click menu is now Open Edi, Settings, Sleep Edi, and Quit Edi.
+- Clicking Edi's Dock icon or opening Edi again shows Edi and its card; hands-free listening starts only from
+  **Edi → Listen** in the menu bar.
+- Settings → AI shows that a key is saved instead of an empty key field, and changing the model keeps the key.
+- Listening, agent work, speech playback, completion, notices, permissions, and approvals now drive the active
+  avatar's expression through a validated main-to-pet event.
 - The character bubble now shows listening, thinking, speaking, notices, and approvals instead of chat text.
 - Pocket TTS now selects Jane as Edi's default local voice. The host passes the voice explicitly and verifies
   the worker loaded the requested voice before accepting audio.
@@ -28,6 +99,17 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- Chatterbox paused mid-sentence: the speaker queued only 3 s, so the next sentence started generating too late.
+  The speech queue is now 30 s, and the first clip ends at a sentence or clause break instead of after three words.
+
+- The pointer hand no longer jumps back to an earlier drawing after its last action, and a pointing hand rests
+  below its target instead of covering it.
+- Drawing labels now sit under the target they describe instead of at a shape's corner, and every finished
+  shape keeps its label.
+- A pinned card no longer ends up away from Edi, whether reopened or while Edi is dragged.
+- Connected previously static character artwork to the live voice and agent lifecycle so documented avatar
+  animations actually run.
+- Made reduced-motion override every expression-specific keyframe while preserving the semantic face.
 - Prevented the last assistant reply from replaying whenever the content card opens.
 - Prevented generic and pasted-content requests from capturing the screen.
 - Prevented note reads from following replacement symlinks or loading files larger than 64 KiB.
@@ -35,8 +117,14 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Removed
 
+- The Cloud and Sprout characters (saved choices move to Edi).
+- The Mira character.
+- Thought dots and listening rings on the character, and hand flapping and body bobbing while speaking.
 - Ordinary assistant-response streaming in the side-of-head character bubble.
 - The obsolete renderer text-reveal helper and its tests.
+- The temporary ⌘⇧E listening shortcut, and Conversation and Stop from the character menu.
+- The More menu, the placeholder intro view, the "Here when you need me ⌘⇧E" footer, and the Extensions preview
+  catalog with its non-working entries.
 
 ### Security
 

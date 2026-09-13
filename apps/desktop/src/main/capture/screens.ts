@@ -7,9 +7,10 @@ import {
   screenshotJpegQuality,
   screenshotMaxEdge,
   type AgentState,
+  type ScreenText,
 } from '@edi/contracts';
 
-import { captureDisplayJpeg, macScreenCaptureGranted } from '../permissions';
+import { captureDisplayJpeg, macScreenCaptureGranted, recognizedDisplayText } from '../permissions';
 
 export type ScreenAccess = NonNullable<AgentState['screenAccess']>;
 
@@ -30,6 +31,12 @@ export interface Screenshot {
     width: number;
     height: number;
   };
+
+  /**
+   * Text recognized locally on the full-resolution capture, for aligning the pointer.
+   * Stays in main; never sent to a provider or stored.
+   */
+  text?: Promise<ScreenText | undefined>;
 }
 
 export type ScreenContext = {
@@ -136,6 +143,8 @@ export async function captureScreens(): Promise<{
         id: row.display.id,
         ...row.display.bounds,
       },
+
+      text: 'text' in row ? row.text : undefined,
     }));
 
     return {
@@ -165,6 +174,7 @@ async function captureDisplaysNative(displays: Electron.Display[]) {
     width: number;
     height: number;
     display: Electron.Display;
+    text?: Promise<ScreenText | undefined>;
   }[] = [];
 
   for (const display of displays) {
@@ -174,6 +184,8 @@ async function captureDisplaysNative(displays: Electron.Display[]) {
       rows.push({
         ...shot,
         display,
+        // Recognition continues in the background while the question is answered.
+        text: recognizedDisplayText(display.id),
       });
     }
   }

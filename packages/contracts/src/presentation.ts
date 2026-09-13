@@ -10,6 +10,8 @@ import { z } from 'zod';
  *   [DRAW:arrow:x1,y1,x2,y2:label]    draw an arrow to it
  *   [DRAW:underline:x1,y1,x2,y2:label]
  *
+ * Ellipses are not a tag: grounding turns a circle into one when it fits a wide target.
+ *
  * Any tag may end with `:screenN` (1-based; screen 1 has the cursor). One display
  * per reply: actions for other screens than the first action's are dropped.
  */
@@ -25,6 +27,16 @@ export const presentationActionSchema = z.discriminatedUnion('type', [
       x: coordinate,
       y: coordinate,
       r: z.number().positive().max(4000),
+      label,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('ellipse'),
+      x: coordinate,
+      y: coordinate,
+      rx: z.number().positive().max(10_000),
+      ry: z.number().positive().max(10_000),
       label,
     })
     .strict(),
@@ -176,6 +188,19 @@ export function resolvePresentation(
         y: Y(action.y),
         r: Math.round((action.r * (sx + sy)) / 2),
       });
+    } else if (action.type === 'ellipse') {
+      if (
+        !inImage(action.x - action.rx, action.y - action.ry) ||
+        !inImage(action.x + action.rx, action.y + action.ry)
+      )
+        return null;
+      actions.push({
+        ...action,
+        x: X(action.x),
+        y: Y(action.y),
+        rx: Math.round(action.rx * sx),
+        ry: Math.round(action.ry * sy),
+      });
     } else if (action.type === 'box') {
       if (!inImage(action.x, action.y) || !inImage(action.x + action.w, action.y + action.h))
         return null;
@@ -211,7 +236,7 @@ export function presentationText(reply: string): string {
 /** Shift actions into a window whose top-left is `origin` (overlay-local pixels). */
 export function localizeActions(actions: PresentationAction[], origin: { x: number; y: number }) {
   return actions.map((action): PresentationAction => {
-    if (action.type === 'point' || action.type === 'circle' || action.type === 'box') {
+    if ('x' in action) {
       return { ...action, x: action.x - origin.x, y: action.y - origin.y };
     }
     return {

@@ -51,9 +51,9 @@ Expected:
 
 Steps:
 
-1. Right-click Edi and choose **Show content**. The card opens.
+1. Right-click Edi and choose **Open Edi**. The card opens.
 2. Click on another app's window.
-3. Open the card again with **Show content**. Click the card's pin button (**Pin card**).
+3. Open the card again with **Open Edi**. Click the card's pin button (**Pin card**).
 4. Click on another app's window again.
 5. Click the card, click **Unpin card**, then press Escape.
 
@@ -71,7 +71,7 @@ Expected:
 Steps:
 
 1. With the card closed, press on Edi's body and drag it about a third of the way across the screen. Release.
-2. Open the card with **Show content** and leave it unpinned. Drag Edi again.
+2. Open the card with **Open Edi** and leave it unpinned. Drag Edi again.
 3. Pin the card. Drag Edi again.
 4. Start another drag, and press Escape before releasing.
 5. Click Edi without moving the mouse.
@@ -81,7 +81,7 @@ Expected:
 
 - Step 1: Edi follows the pointer smoothly, keeps the same grab point, and stays where it is dropped. The card does not open.
 - Step 2: the unpinned card moves with Edi and stays beside it.
-- Step 3: the pinned card stays where it is while Edi moves.
+- Step 3: the pinned card also moves with Edi and stays beside it.
 - Step 4: Edi jumps back to where the drag started.
 - Step 5: a click is treated as a click (status bubble), not as a drag.
 - Step 6: Edi reopens at the last position it was dropped at.
@@ -150,7 +150,7 @@ Steps:
 
 1. Arrange the displays side by side in System Settings → Displays.
 2. Drag Edi slowly across the boundary between the displays, and back.
-3. On each display, open the card with **Show content**.
+3. On each display, open the card with **Open Edi**.
 4. Repeat check 1 (click-through) on the non-Retina display.
 
 Expected:
@@ -162,42 +162,59 @@ Expected:
 
 **Result:** Pass / Fail: \_\_\_\_\_\_ Notes: \_\_\_\_\_\_
 
-## 8. Right-click menu: Listen, Stop, Sleep
+## 8. Right-click menu and Sleep
 
-Edi's own right-click menu calls the listen action **Conversation**. The Edi menu in the macOS menu bar calls the same action **Listen**.
+Edi's right-click menu has **Open Edi**, **Settings**, **Sleep Edi** and **Quit Edi**. Listening and Stop are not in it; the macOS menu bar's **Edi** menu still has **Listen** and **Stop**.
 
 Steps:
 
 1. Right-click Edi. Use the arrow keys to move through the menu, then press Escape.
-2. Right-click Edi and choose **Conversation**.
-3. Right-click Edi and choose **Stop**.
-4. Open the card, then right-click Edi and choose **Sleep Edi**. Wait ten seconds.
+2. Click Edi once without moving the pointer.
+3. Right-click Edi and choose **Settings**.
+4. With the card open, right-click Edi and choose **Sleep Edi**. Wait ten seconds.
 5. From the menu bar, choose **Edi → Listen**.
 
 Expected:
 
 - Step 1: the menu opens under the pointer, fully on screen. Arrow keys move the highlight. Escape closes it.
-- Step 2: the status bubble says voice is not available yet. The card does not open.
-- Step 3: the bubble goes away.
+- Step 2: nothing happens. No bubble, no listening, and the card stays closed.
+- Step 3: the card opens next to Edi on Settings.
 - Step 4: Edi and the card both disappear and stay hidden.
 - Step 5: Edi comes back with the status bubble. The card stays closed.
 - No microphone permission prompt appears at any point, and the orange microphone indicator in the menu bar never lights up.
 
 **Result:** Pass / Fail: \_\_\_\_\_\_ Notes: \_\_\_\_\_\_
 
-## 9. Command–Shift–E
+## 9. ⌥ Space from another app
 
 Steps:
 
 1. Click into another app (for example, start typing in Notes).
-2. Press Command–Shift–E.
-3. Put Edi to sleep (right-click, **Sleep Edi**), click into another app, and press Command–Shift–E again.
+2. Hold ⌥ Space for a moment, then let go.
+3. Put Edi to sleep (right-click, **Sleep Edi**), click into another app, and hold ⌥ Space again.
 
 Expected:
 
-- Step 2: Edi shows the status bubble. The card does not open.
+- Step 2: Edi shows the status bubble. The card does not open. ⌥ Space doesn't type into Notes.
 - Step 3: Edi wakes, reappears in the same place, and shows the status bubble.
-- Record whether the other app kept keyboard focus, and whether it also reacted to the shortcut.
+- Command–Shift–E does nothing in Edi.
+
+**Result:** Pass / Fail: \_\_\_\_\_\_ Notes: \_\_\_\_\_\_
+
+## 10a. Pointer and drawing accuracy
+
+Needs Screen Recording and a model that accepts images. Sends a few short requests.
+
+Steps:
+
+1. Open a window with clear buttons, for example a Save dialog or System Settings.
+2. Ask: `Point at the Cancel button.` Then: `Circle the Save button and underline the window title.`
+3. Ask about something without text, for example an icon in the menu bar.
+
+Expected:
+
+- Step 2: the fingertip rests just under the named button's text; the ellipse hugs the button label; the underline sits under the title. Labels sit under their targets and stay on screen.
+- Step 3: the pointer lands near the icon (model estimate, no text to align with) and does not snap to unrelated text.
 
 **Result:** Pass / Fail: \_\_\_\_\_\_ Notes: \_\_\_\_\_\_
 
@@ -209,16 +226,16 @@ This sends one short request to OpenRouter with your own key and model, which ma
 
 Steps:
 
-1. Right-click Edi, choose **Show content**, then **Talk to Edi**. If OpenRouter isn't connected, enter your key and model and choose **Save connection**.
+1. Right-click Edi and choose **Open Edi**. The card opens on **Conversations**. If OpenRouter isn't connected, choose **Set up AI**, enter your key and model, choose **Save connection**, then go back to Conversations from the title menu.
 2. Send: `Save a note titled Manual check that says: written from the manual checklist.`
 3. When the review sheet appears, read the title, the file path and the content preview. Wait for **Save Note** to become clickable, then click it.
-4. In Finder, open `~/Documents/Edi Notes`.
-5. Back in the card, open **More options → Activity**.
+4. In Finder, open `~/Documents/Edi/Notes`.
+5. Back in the card, open the title menu → **Settings → Privacy & Permissions → Activity**. Then open **Library** and confirm the note is listed.
 
 Expected:
 
 - No microphone or Screen Recording prompt appears for this request.
-- Step 3: nothing is written before you click **Save Note**. The path is inside `~/Documents/Edi Notes`.
+- Step 3: nothing is written before you click **Save Note**. The path is inside `~/Documents/Edi/Notes`.
 - Step 4: a new file `manual-check.md` (or `manual-check-2.md` if one already existed) containing `# Manual check` and the text. No existing file was replaced.
 - Step 5: the run appears at the top of the list, with its note-saving step marked **Done** and zero screens sent.
 

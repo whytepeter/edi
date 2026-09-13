@@ -36,8 +36,13 @@ try {
       if (!item) throw new Error(`Missing action: ${label}`);
       item.click();
     }, label);
-  await expect(pet.getByRole('button', { name: 'Ask Edi to listen' })).toBeAttached();
-  await pet.evaluate(() => document.querySelector('.desktop-pet').click());
+  await expect(pet.getByRole('button', { name: 'Edi', exact: true })).toBeAttached();
+  // A plain click on the character no longer starts listening.
+  const petBody = await pet.locator('[data-part="body"]').boundingBox();
+  await pet.mouse.click(petBody.x + petBody.width / 2, petBody.y + petBody.height / 2);
+  await pet.waitForTimeout(600);
+  expect(app.windows().some(page => page.url().includes('surface=voice-status'))).toBe(false);
+  await action('Listen');
   await expect
     .poll(() => app.windows().some(page => page.url().includes('surface=voice-status')))
     .toBe(true);
@@ -46,16 +51,17 @@ try {
   await expect(bubble.locator('.listening-bars')).toHaveCount(0);
   expect(await visible('workspace')).toBe(false);
   await bubble.screenshot({ path: join(profile, 'voice-unavailable.png') });
-  await action('Show content');
+  await action('Open Edi');
   await expect.poll(() => visible('workspace')).toBe(true);
   await action('Sleep Edi');
   expect(await visible('pet')).toBe(false);
   expect(await visible('workspace')).toBe(false);
+  // The temporary ⌘⇧E shortcut is gone; ⌥ Space is the only global shortcut.
   expect(
     await app.evaluate(({ globalShortcut }) =>
       globalShortcut.isRegistered('CommandOrControl+Shift+E'),
     ),
-  ).toBe(true);
+  ).toBe(false);
   await action('Listen');
   await expect.poll(() => visible('pet')).toBe(true);
   expect(await visible('workspace')).toBe(false);
@@ -77,13 +83,14 @@ try {
     .poll(() => app.windows().some(page => page.url().includes('surface=character-menu')))
     .toBe(true);
   const menu = app.windows().find(page => page.url().includes('surface=character-menu'));
-  await expect(menu.getByRole('menuitem', { name: 'Conversation', exact: true })).toBeFocused();
+  await expect(menu.getByRole('menuitem', { name: 'Open Edi' })).toBeFocused();
   await menu.keyboard.press('ArrowDown');
-  await expect(menu.getByRole('menuitem', { name: 'Show content' })).toBeFocused();
+  await expect(menu.getByRole('menuitem', { name: 'Settings' })).toBeFocused();
+  // Listening and Stop are not character-menu actions.
+  await expect(menu.getByRole('menuitem', { name: /Conversation|Stop/ })).toHaveCount(0);
   expect(
     await menu.evaluate(
-      () =>
-        document.querySelector('.character-menu').getBoundingClientRect().bottom <= innerHeight - 8,
+      () => document.querySelector('.character-menu').getBoundingClientRect().bottom <= innerHeight,
     ),
   ).toBe(true);
   await menu.screenshot({ path: join(profile, 'character-menu.png') });

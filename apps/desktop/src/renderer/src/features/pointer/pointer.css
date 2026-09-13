@@ -90,3 +90,13 @@
   border-top-right-radius: 5px;
   transform-origin: top right;
 }
+
+/* Near the bottom edge the label sits above its target, corner facing down. */
+.pointer-label.ds-bubble[data-above][data-side='right'] {
+  border-top-left-radius: 18px;
+  border-bottom-left-radius: 5px;
+}
+.pointer-label.ds-bubble[data-above][data-side='left'] {
+  border-top-right-radius: 18px;
+  border-bottom-right-radius: 5px;
+}

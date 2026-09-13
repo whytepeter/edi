@@ -12,9 +12,9 @@ pnpm setup:electron
 pnpm dev
 ```
 
-Only the transparent pet window appears at launch. Click Edi to request conversation mode or hold Edi / **⌥ Space** for push-to-talk; neither opens the content card. Right-click Edi → **Show content** opens the card. The card dismisses on focus loss unless pinned. Right-click → **Sleep Edi** hides the character and card; a listening shortcut wakes it. **Quit Edi** exits fully. This is a macOS app, not an iOS app or a notch integration.
+Only the transparent pet window appears at launch. Hold Edi or **⌥ Space** for push-to-talk; a plain click does nothing, so Edi can't start listening by accident. Right-click Edi for **Open Edi**, **Settings**, **Sleep Edi** and **Quit Edi**. The card opens next to Edi on Home and dismisses on focus loss unless pinned. **Sleep Edi** hides the character and card while Edi keeps running, and ⌥ Space wakes it. **Quit Edi** exits fully. This is a macOS app, not an iOS app or a notch integration.
 
-Character gestures distinguish a short click (conversation request), a stationary 350 ms hold (push-to-talk), and moving before the hold threshold (drag). Releasing a hold never starts conversation. The custom right-click menu supports arrow keys, Home/End and Escape. Hands-free follow-ups and shortcut rebinding are still pending.
+Character gestures distinguish a stationary 350 ms hold (push-to-talk) from moving before the hold threshold (drag). Keyboard activation of the character opens its menu. The custom right-click menu supports arrow keys, Home/End and Escape. Hands-free follow-ups and shortcut rebinding are still pending.
 
 ```sh
 pnpm typecheck
@@ -33,24 +33,26 @@ pnpm package
 - Just-in-time microphone and Screen Recording permission cards with explicit macOS Settings recovery.
 - Privacy-first screen context: screenshots are captured only when a prompt refers to visible UI, or as a short follow-up in that visual conversation.
 - Listening, thinking, and speaking bubble states; ordinary replies remain in chat. Pending writes can be approved from a compact action card or opened in the full review.
-- Compact content card with Appearance, Extensions, and Activity under More.
-- Cloud and Sprout avatars, synchronized across windows and persisted locally.
+- Content card with Home, Conversations, Library, Skills, Connectors, Appearance, and Settings: a title menu when compact, a sidebar when expanded.
+- Settings for AI (OpenRouter), Voice (speak replies on/off), Keyboard, Privacy & Permissions (with Activity), and About.
+- Edi (default) and Mochi characters with a continuous size setting, synchronized across windows and persisted locally.
+- Right-click menu and bubbles use native macOS glass (vibrancy).
 - Expand/collapse, pin/hide controls, character context menu, Sleep, and global wake/listen shortcut.
-- Drag Edi to reposition it; Escape cancels a drag. Position persists across restarts. Unpinned cards follow; pinned cards stay in place.
-- Search/filter of the clearly labeled extension catalog preview.
-- Validated text, step-diagram, and local-video renderer foundations. Example selectors are no longer exposed in the main UI; inline agent-generated rich content is still pending. Remote media remains blocked.
+- Drag Edi to reposition it; Escape cancels a drag. Position persists across restarts. The card follows Edi whether or not it is pinned; pinning only keeps it open when another app takes focus.
+- Library lists notes Edi saved and reveals them in Finder. Skills and Connectors say plainly that installs aren't available yet.
+- Structured documents, checklists, tables, and saved notes render inline without allowing generated HTML or scripts into Edi’s trusted UI.
 
 Preferences use an atomic JSON file in Electron's user-data directory. Conversation, tool, and activity history use local SQLite. Previews need no key. OS permissions are requested only when a feature needs them and only after the person clicks the permission card's action.
 
 ## Connect OpenRouter
 
-Open **Talk to Edi**, enter your OpenRouter API key and an exact model ID from your OpenRouter account, then choose **Save connection**. Do not paste the key into chat or commit it to this project. Saving is local only; the first message tests the connection and may incur provider charges.
+Open **Settings → AI** (or choose **Set up AI** on Home), paste your OpenRouter API key, pick a model from the list, then choose **Save connection**. The list comes from OpenRouter's public catalog, needs no key, and shows only models that accept images and support tools; if it can't load, type a model ID instead. After saving, the page shows **Key saved** rather than the key, and changing the model keeps the saved key. Do not paste the key into chat or commit it to this project. Saving is local only; the first message tests the connection and may incur provider charges.
 
 The key is entered in a password field, cleared after submission, and stored in `openrouter.enc` in the app's user-data directory using Electron safeStorage encryption. It is never returned through the settings bridge. This is Keychain-backed encryption on macOS, not a claim that the key exists only in Keychain. Unsigned development builds may trigger Keychain prompts. Removing the saved key deletes Edi's local encrypted copy; it does not revoke the key at OpenRouter.
 
-Your prompt, recent completed conversation turns, Edi's system instructions, and any screen images required by that prompt go to OpenRouter. Generic questions do not trigger capture and contain no screenshot. Limits: one active request, 8,000 input characters, 2,048 output tokens, a 120-second timeout, and no automatic retries. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
+Your prompt, recent completed conversation turns, Edi's system instructions, and any screen images required by that prompt go to OpenRouter. Generic questions do not trigger capture and contain no screenshot. Limits: one active request, 8,000 input characters, 2,048 output tokens, and a 120-second timeout. Temporary failures get up to two SDK retries, and OpenRouter may try a compatible backup provider. Stop discards further output and terminates the worker; provider usage already processed may still be charged. No shared key or default paid model is bundled.
 
-`pnpm test:agent` exercises the real SDK with mocked network responses. The user confirmed a live OpenRouter response on 2026-09-11. “Talk to Edi” remains a temporary integration interface, not the final product entry point.
+`pnpm test:agent` exercises the real SDK with mocked network responses. The user confirmed a live OpenRouter response on 2026-09-11.
 
 Implementation references: [OpenRouter AI SDK adapter](https://github.com/OpenRouterTeam/ai-sdk-provider), [Electron credential encryption](https://www.electronjs.org/docs/latest/api/safe-storage).
 
@@ -69,9 +71,9 @@ Hold **⌥ Space** anywhere, or hold Edi itself, and talk; let go when you're do
 
 - Development builds use the pinned voice runtimes provisioned under `benchmarks/voice` (see its README). Packaged builds don't bundle them yet, so there the character says voice is unavailable.
 - Edi asks for the microphone when voice is first used, and Screen Recording only when a screen-dependent question is asked. Denied access is recovered through the matching macOS Settings page.
-- A single click starts hands-free conversation with voice-activity detection and follow-ups; Stop, Sleep, or a new session dismisses it.
-- Pocket uses Jane as Edi’s local female default. The host passes the voice ID explicitly and rejects a worker that
-  loads a different voice. Chatterbox Turbo, ElevenLabs, and Cartesia remain future selectable providers.
+- Hands-free conversation (voice-activity detection and follow-ups) is reachable only from the menu bar's **Edi → Listen** while it is still being finished.
+- Pocket uses Jane as Edi’s fast local default. Chatterbox Turbo is the second local option and supports expressive
+  tags such as laughs and sighs. Edi warms Chatterbox in the background and uses Jane until it is ready.
 - ⌥ Space comes from a tiny native helper (`native/hotkey`, built by `pnpm build:native` and by `pnpm package`). It registers only that chord through Carbon, so it needs no Input Monitoring or Accessibility permission, never sees other keystrokes, and stops ⌥ Space from typing into the focused app. It runs only while voice is available and exits with Edi. macOS doesn't report when another app has also claimed ⌥ Space, so a conflict shows up as the key not reaching Edi. Rebinding under Settings → Keyboard Shortcut is still to come.
 - `EDI_VOICE=off pnpm dev` turns local voice off. The desktop tests set it so they never open a real microphone.
 
@@ -83,7 +85,10 @@ See [permission architecture](docs/PERMISSIONS.md) for the permission states, le
 
 ### Tools and approvals
 
-Edi can list its notes and save a new note to `~/Documents/Edi Notes`. Saving always shows the exact file path and content first; nothing is written until you choose **Save Note**, and existing files are never replaced. Stopping a response cancels any pending review. Every request and action appears in **Activity**.
+Edi can list its notes and save a new note to `~/Documents/Edi/Notes`. Saving always shows the exact file path and content first; nothing is written until you choose **Save Note**, and existing files are never replaced. Stopping a response cancels any pending review. Every request and action appears in **Activity**.
+
+Large generated results open as structured content and are placed in `~/Documents/Edi/Artifacts` automatically.
+Reports and checklists use Markdown; tables use CSV. They do not show a separate Copy or Save to Library footer.
 
 ## Next
 

@@ -7,8 +7,11 @@ import { z } from 'zod';
 import {
   CapabilityBroker,
   defineCapability,
+  ediSetupCapabilities,
   notesCapabilities,
   slugify,
+  workspaceCapabilities,
+  writeWorkspaceArtifact,
   type ApprovalGate,
   type Capability,
   type ListedNote,
@@ -221,7 +224,7 @@ test('manifest exposes model-safe names and JSON schemas', () => {
   const manifest = broker.manifest();
   assert.deepEqual(
     manifest.map(entry => entry.name),
-    ['notes_save', 'notes_list', 'notes_read', 'notes_edit', 'notes_delete'],
+    ['notes_save', 'notes_list', 'notes_read', 'notes_edit', 'notes_delete', 'notes_show'],
   );
   assert.ok(manifest[0]);
   assert.equal((manifest[0].inputSchema as { type: string }).type, 'object');
@@ -331,4 +334,100 @@ test('notes.read refuses replacement links and oversized files', async () => {
   const [, , largeRead] = notesCapabilities({ directory: () => folder, store: largeStore });
   const largeAction = await largeRead.prepare({ id: noteId }, context);
   await assert.rejects(() => largeAction.execute(live()), /too large/);
+});
+
+test('notes.show displays a note without returning its text to the model', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
+  const path = join(folder, 'groceries.md');
+  await writeFile(path, '# Groceries\n\n- milk\n- eggs\n');
+  const store = memoryStore([{ id: noteId, title: 'Groceries', path, createdAt: 1 }]);
+  const shown: unknown[] = [];
+  const show = notesCapabilities({ directory: () => folder, store, shown: a => shown.push(a) })[5];
+  const callId = '00000000-0000-4000-8000-000000000020';
+  const result = await (await show.prepare({ id: noteId }, { callId, runId: run })).execute(live());
+  assert.deepEqual(result.output, { shown: true, title: 'Groceries' });
+  assert.deepEqual(shown, [
+    { id: callId, kind: 'note', title: 'Groceries', preview: 'Groceries\n• milk\n• eggs', noteId },
+  ]);
+});
+
+test('workspace.show validates content by kind and is exposed as a plain object schema', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-workspace-'));
+  const shown: { kind: string; title: string }[] = [];
+  const [show] = workspaceCapabilities({
+    directory: () => folder,
+    shown: artifact => {
+      shown.push(artifact);
+    },
+  });
+  const context = { callId: '00000000-0000-4000-8000-000000000021', runId: run };
+  const list = await show.prepare(
+    { kind: 'checklist', title: 'Packing', items: [{ text: 'Passport', done: false }] },
+    context,
+  );
+  const result = await list.execute(live());
+  assert.deepEqual(result.output, {
+    shown: true,
+    kind: 'checklist',
+    title: 'Packing',
+    path: join('Artifacts', 'Checklists', 'packing.md'),
+    bytes: Buffer.byteLength('# Packing\n\n- [ ] Passport\n'),
+  });
+  assert.equal(
+    await readFile(join(folder, 'Artifacts', 'Checklists', 'packing.md'), 'utf8'),
+    '# Packing\n\n- [ ] Passport\n',
+  );
+  assert.deepEqual(
+    shown.map(({ kind, title }) => ({ kind, title })),
+    [{ kind: 'checklist', title: 'Packing' }],
+  );
+  assert.throws(() => show.prepare({ kind: 'table', title: 'Empty' }, context), /needs columns/);
+  const broker = new CapabilityBroker([show], {
+    approvals: gate('never'),
+    recorder: recorder().sink,
+  });
+  assert.equal((broker.manifest()[0]!.inputSchema as { type: string }).type, 'object');
+});
+
+test('workspace artifacts use semantic file formats and never overwrite a generated file', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-artifacts-'));
+  const content = {
+    kind: 'table' as const,
+    title: 'Costs / Q3',
+    columns: ['Item', 'Amount'],
+    rows: [
+      ['Hosting', '1,200'],
+      ['Support', '"quoted"'],
+    ],
+  };
+  const first = await writeWorkspaceArtifact(() => folder, content);
+  const second = await writeWorkspaceArtifact(() => folder, content);
+  assert.equal(first.relativePath, join('Artifacts', 'Tables', 'costs-q3.csv'));
+  assert.equal(second.relativePath, join('Artifacts', 'Tables', 'costs-q3-2.csv'));
+  assert.equal(
+    await readFile(first.path, 'utf8'),
+    'Item,Amount\nHosting,"1,200"\nSupport,"""quoted"""\n',
+  );
+});
+
+test('Edi can open every page, including Settings itself, and change only its own preferences', async () => {
+  const opened: string[] = [];
+  const changes: unknown[] = [];
+  const [, open, change] = ediSetupCapabilities({
+    snapshot: () => ({}) as never,
+    open: page => opened.push(page),
+    change: patch => void changes.push(patch),
+    window: () => {},
+  });
+  const context = { callId: '00000000-0000-4000-8000-000000000022', runId: run };
+  for (const page of ['settings', 'home', 'library', 'settings.about'])
+    await (await open.prepare({ page } as never, context)).execute(live());
+  assert.deepEqual(opened, ['settings', 'home', 'library', 'settings.about']);
+  assert.equal(open.input.safeParse({ page: '/settings' }).success, false);
+
+  await (await change.prepare({ character: 'mochi', size: 1.2 }, context)).execute(live());
+  assert.deepEqual(changes, [{ character: 'mochi', size: 1.2 }]);
+  assert.equal(change.input.safeParse({}).success, false);
+  assert.equal(change.input.safeParse({ apiKey: 'x' }).success, false);
+  assert.equal(change.input.safeParse({ size: 3 }).success, false);
 });
