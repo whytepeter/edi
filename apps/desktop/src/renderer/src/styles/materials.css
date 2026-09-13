@@ -10,13 +10,20 @@
     inset 0 0 0 0.5px var(--hairline);
 }
 
-/* Glass: floats over content inside a window and blurs what scrolls beneath it. */
+/*
+ * Glass: floats over content inside a window and blurs what scrolls beneath it. Liquid Glass
+ * reads as a lens, not a frosted panel: translucent fill, strong blur with extra saturation,
+ * a sheen and inner highlight along the top edge, a faint shade inside the bottom edge, and the
+ * specular rim below.
+ */
 .ds-glass {
   position: relative;
-  background: var(--glass-fill);
+  background: var(--glass-sheen), var(--glass-fill);
   backdrop-filter: var(--glass-blur);
   box-shadow:
     var(--shadow-control),
+    inset 0 1px 0 var(--glass-inner-highlight),
+    inset 0 -1px 1px var(--glass-inner-shade),
     inset 0 0 0 0.5px var(--hairline);
 }
 
