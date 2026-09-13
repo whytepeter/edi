@@ -46,6 +46,31 @@ const threadRow = z.object({
   error: z.string(),
 });
 export type ThreadTurn = z.infer<typeof threadRow>;
+const shownRow = z.object({
+  id: z.string(),
+  runId: z.string(),
+  capability: z.string(),
+  input: z.string(),
+  output: z.string().nullable(),
+  createdAt: z.number().int().nonnegative(),
+});
+/** A successful display tool call: the host rebuilds the artifact from its reviewed input. */
+export interface ShownCall {
+  id: string;
+  runId: string;
+  capability: string;
+  input: unknown;
+  output: unknown;
+  createdAt: number;
+}
+const parseJson = (text: string | null): unknown => {
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
 
 export class RunRepository {
   constructor(private readonly db: Database) {}
@@ -116,6 +141,34 @@ export class RunRepository {
 
 export class ToolCallRepository {
   constructor(private readonly db: Database) {}
+
+  /** Successful calls of the given display capabilities, oldest first. */
+  shown(capabilities: readonly string[], filter: { runIds?: string[]; id?: string }): ShownCall[] {
+    if (!capabilities.length) return [];
+    const where = [
+      `status = 'succeeded'`,
+      `capability IN (${capabilities.map(() => '?').join(', ')})`,
+    ];
+    const values: string[] = [...capabilities];
+    if (filter.id) {
+      where.push('id = ?');
+      values.push(filter.id);
+    }
+    if (filter.runIds) {
+      if (!filter.runIds.length) return [];
+      where.push(`run_id IN (${filter.runIds.map(() => '?').join(', ')})`);
+      values.push(...filter.runIds);
+    }
+    return this.db
+      .prepare(
+        `SELECT id, run_id AS runId, capability, input_json AS input, output_json AS output,
+                created_at AS createdAt
+         FROM tool_calls WHERE ${where.join(' AND ')} ORDER BY created_at`,
+      )
+      .all(...values)
+      .map(row => shownRow.parse(row))
+      .map(row => ({ ...row, input: parseJson(row.input), output: parseJson(row.output) }));
+  }
 
   create(call: {
     id: string;
@@ -198,6 +251,17 @@ export class NoteRepository {
       .prepare(`UPDATE notes SET title = ?, bytes = ? WHERE id = ?`)
       .run(note.title, note.bytes, note.id);
     if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
+  }
+
+  /** After the notes folder moves, point every record inside it at the new folder. */
+  relocate(from: string, to: string) {
+    const prefix = from.endsWith('/') ? from : `${from}/`;
+    const target = to.endsWith('/') ? to : `${to}/`;
+    return Number(
+      this.db
+        .prepare(`UPDATE notes SET path = ? || substr(path, ?) WHERE substr(path, 1, ?) = ?`)
+        .run(target, prefix.length + 1, prefix.length, prefix).changes,
+    );
   }
 
   remove(id: string) {

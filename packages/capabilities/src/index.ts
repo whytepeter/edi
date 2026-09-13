@@ -11,4 +11,22 @@ export {
   type ToolManifestEntry,
   type ToolOutcome,
 } from './types';
-export { notesCapabilities, slugify, type ListedNote, type NoteStore } from './builtins/notes';
+export {
+  notesCapabilities,
+  readLibraryNote,
+  slugify,
+  writeNewNote,
+  type ListedNote,
+  type NoteStore,
+} from './builtins/notes';
+export {
+  toArtifactContent,
+  workspaceCapabilities,
+  writeWorkspaceArtifact,
+} from './builtins/workspace';
+export {
+  ediPreferencesSchema,
+  ediSetupCapabilities,
+  type EdiPreferences,
+  type EdiSetupSnapshot,
+} from './builtins/edi-setup';

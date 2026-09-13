@@ -13,7 +13,7 @@ renderer.search = new URLSearchParams({
   surface: 'voice-status',
   state: 'approval',
   side: 'right',
-  skin: 'sprout',
+  skin: 'mochi',
 }).toString();
 
 let app;
@@ -51,7 +51,7 @@ try {
         summary: 'Edi wants to save this note for later.',
         fields: [
           { label: 'Title', value: 'Project direction' },
-          { label: 'Location', value: '/Users/example/Documents/Edi Notes/project-direction.md' },
+          { label: 'Location', value: '/Users/example/Documents/Edi/Notes/project-direction.md' },
         ],
         body: '# Project direction\n\nFull content remains in the card.',
       },

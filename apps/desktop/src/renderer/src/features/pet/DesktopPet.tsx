@@ -1,5 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState, type PointerEvent } from 'react';
-import { petDragThreshold, type Command, type SkinId } from '@edi/contracts';
+import {
+  petDragThreshold,
+  type CharacterExpression,
+  type Command,
+  type SkinId,
+} from '@edi/contracts';
 import { Pet } from '../../components/Pet';
 
 interface Gesture {
@@ -11,10 +16,17 @@ interface Gesture {
 }
 
 /** Pointer capture keeps the grab stable when Edi's native window moves beneath it. */
-export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
+export function DesktopPet({
+  skin,
+  color,
+  expression,
+}: {
+  skin: SkinId;
+  color: string;
+  expression: CharacterExpression;
+}) {
   const gesture = useRef<Gesture | null>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const suppressClick = useRef(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interactive = useRef(false);
   const [dragging, setDragging] = useState(false);
@@ -43,7 +55,6 @@ export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
         Math.hypot(event.screenX - current.x, event.screenY - current.y) >= petDragThreshold;
     gesture.current = null;
     interactive.current = false;
-    suppressClick.current = current.moved || current.holding || cancel;
     if (current.holding) void send({ type: 'release-listening', cancelled: cancel });
     setDragging(false);
     if (!current.holding)
@@ -80,10 +91,9 @@ export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
     <button
       ref={button}
       className={`desktop-pet${dragging ? ' is-dragging' : ''}`}
-      aria-label="Ask Edi to listen"
-      title={
-        error || 'Click for conversation. Hold to talk. Drag to move. Right-click for options.'
-      }
+      aria-label="Edi"
+      aria-haspopup="menu"
+      title={error || 'Hold to talk. Drag to move. Right-click for options.'}
       onContextMenu={event => {
         event.preventDefault();
         finish(true);
@@ -93,7 +103,6 @@ export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
       onPointerDown={event => {
         if (event.button !== 0 || gesture.current) return;
         setError('');
-        suppressClick.current = false;
         gesture.current = {
           pointerId: event.pointerId,
           x: event.screenX,
@@ -144,11 +153,11 @@ export function DesktopPet({ skin, color }: { skin: SkinId; color: string }) {
       onMouseMove={() => hover(true)}
       onMouseLeave={() => hover(false)}
       onClick={event => {
-        if (!suppressClick.current || event.detail === 0)
-          void send({ type: 'request-listening', mode: 'conversation' });
+        // A mouse click does nothing; keyboard activation opens the options menu.
+        if (event.detail === 0) void send({ type: 'character-menu' });
       }}
     >
-      <Pet skin={skin} />
+      <Pet skin={skin} expression={expression} />
     </button>
   );
 }

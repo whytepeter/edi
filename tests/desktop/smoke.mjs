@@ -37,14 +37,16 @@ async function checkGeometry(pet, skin) {
   expect(result.left).toBe('translate(30 99)');
   expect(result.right).toBe('translate(132 112)');
   expect(result.box.x - 2).toBeGreaterThanOrEqual(8);
-  expect(result.box.y - 2).toBeGreaterThanOrEqual(skin === 'sprout' ? 10 : 38);
+  const expectedTop = { mochi: 17, edi: 22 }[skin];
+  expect(result.box.y - 2).toBeGreaterThanOrEqual(expectedTop);
   expect(result.box.right + 2).toBeLessThanOrEqual(154);
-  expect(result.box.bottom + 2).toBeLessThanOrEqual(146);
+  const expectedBottom = { mochi: 148, edi: 149 }[skin];
+  expect(result.box.bottom + 2).toBeLessThanOrEqual(expectedBottom);
 }
 async function launch() {
   instance = await electron.launch({
     // Desktop tests must never open a real microphone.
-    env: { ...process.env, EDI_VOICE: 'off' },
+    env: { ...process.env, EDI_VOICE: 'off', EDI_MODEL_CATALOG: 'off' },
     executablePath,
     args,
   });
@@ -68,7 +70,9 @@ async function launch() {
   // Permissions are requested by the feature that needs them, never at launch.
   await expect.poll(cardVisible).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
-  await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
+  // Home is where the card opens; without an AI connection it offers setup, not a composer.
+  await expect(workspace.getByRole('heading', { name: /^(Good|Still up)/ })).toBeVisible();
+  await expect(workspace.getByRole('textbox', { name: 'Ask Edi' })).toHaveCount(0);
   await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   return { workspace, pet };
 }
@@ -91,10 +95,14 @@ try {
   expect(Math.abs(placement.card.y + placement.card.height - anchorY)).toBeLessThanOrEqual(1);
   expect(placement.card.x).toBeGreaterThanOrEqual(placement.area.x);
   expect(placement.card.y).toBeGreaterThanOrEqual(placement.area.y);
-  await checkGeometry(pet, 'cloud');
-  await workspace.getByRole('button', { name: /Talk to Edi/ }).click();
+  // Edi is the default character.
+  await expect(pet.getByRole('img', { name: /^Edi avatar/ })).toBeVisible();
+  await checkGeometry(pet, 'edi');
+  await workspace.getByRole('button', { name: /^Set up AI/ }).click();
   await expect(workspace.getByLabel('OpenRouter API key')).toHaveAttribute('type', 'password');
+  // Without the online catalog the picker falls back to typing a model ID.
   await expect(workspace.getByLabel('OpenRouter model ID')).toBeVisible();
+  await expect(workspace.getByRole('button', { name: 'Save connection' })).toBeDisabled();
   const noCredentials = await workspace.evaluate(async () => {
     const state = await window.edi.agent();
     try {
@@ -105,40 +113,161 @@ try {
     }
   });
   expect(noCredentials).toBe(true);
-  await workspace.getByRole('button', { name: 'Back to content' }).click();
+  await workspace.getByRole('button', { name: 'Back to Settings' }).click();
+  await expect(workspace.getByRole('button', { name: /^AI/ })).toContainText('Not connected');
   const petCannotChangeSettings = await pet.evaluate(async () => {
     try {
-      await window.edi.command({ type: 'apply-skin', skin: 'sprout' });
+      await window.edi.command({ type: 'apply-skin', skin: 'mochi' });
       return false;
     } catch {
       return true;
     }
   });
   expect(petCannotChangeSettings).toBe(true);
-  await workspace.getByRole('button', { name: 'More options' }).click();
+  await workspace.getByRole('button', { name: /choose a section/ }).click();
   await workspace.getByRole('menuitem', { name: /Appearance/ }).click();
-  await workspace.getByRole('button', { name: 'Sprout avatar option' }).click();
-  await workspace.getByRole('button', { name: 'Use Sprout' }).click();
-  await expect(pet.getByRole('img', { name: 'Sprout avatar' })).toBeVisible();
-  await checkGeometry(pet, 'sprout');
+  // Only Edi and Mochi are offered; retired characters are gone.
+  await expect(workspace.getByRole('button', { name: /avatar option/ })).toHaveCount(2);
+  await workspace.getByRole('button', { name: 'Mochi avatar option' }).click();
+  await workspace.getByRole('button', { name: 'Use Mochi' }).click();
+  await expect(pet.getByRole('img', { name: /^Mochi avatar/ })).toBeVisible();
+  await checkGeometry(pet, 'mochi');
+  // Size follows a slider. The card (and the slider in it) stays still while dragging, even when
+  // a display edge pushes Edi; the value is saved and the card re-attaches once, on release.
+  const windowBounds = () =>
+    instance.evaluate(({ BrowserWindow }) => {
+      const all = BrowserWindow.getAllWindows();
+      return {
+        pet: all.find(w => w.webContents.getURL().includes('surface=pet')).getBounds(),
+        card: all.find(w => w.webContents.getURL().includes('surface=workspace')).getBounds(),
+      };
+    });
+  const before = await windowBounds();
+  const slider = workspace.getByLabel('Size on your desktop');
+  await slider.fill('1.35');
+  await expect.poll(async () => (await windowBounds()).pet.width).toBe(151);
+  const grown = await windowBounds();
+  expect(grown.pet.height).toBe(162);
+  expect(grown.card).toEqual(before.card);
+  await slider.dispatchEvent('pointerup');
+  await expect
+    .poll(async () => (await workspace.evaluate(() => window.edi.settings())).petScale)
+    .toBe(1.35);
+  await slider.fill('1');
+  await slider.dispatchEvent('pointerup');
+  await expect.poll(async () => (await windowBounds()).pet.width).toBe(112);
   await workspace.getByRole('button', { name: 'Pin card', exact: true }).click();
   await expect(workspace.getByRole('button', { name: 'Unpin card' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  await workspace.getByRole('button', { name: 'More options' }).click();
-  await workspace.getByRole('menuitem', { name: /Extensions/ }).click();
-  await workspace.getByRole('searchbox', { name: 'Search extensions' }).fill('calendar');
-  await expect(workspace.getByRole('heading', { name: 'Your calendar' })).toBeVisible();
-  await expect(workspace.getByRole('heading', { name: 'Meeting notes' })).toHaveCount(0);
-  await workspace.getByRole('button', { name: 'Back to content' }).click();
-  await expect(workspace.getByRole('button', { name: /Preview a response/ })).toHaveCount(0);
-  await expect(workspace.getByRole('button', { name: 'Illustration', exact: true })).toHaveCount(0);
+  await workspace.getByRole('button', { name: /choose a section/ }).click();
+  await workspace.getByRole('menuitem', { name: /Library/ }).click();
+  await expect(workspace.getByRole('heading', { name: 'Nothing saved yet.' })).toBeVisible();
+  // Generated content opens in its own glass window beside the card, like an artifact panel:
+  // title, Copy, Download, Show in Finder and Close, no Back and no Save to Library footer.
+  // The artifact IPC is replaced only inside this isolated test process.
+  const artifactId = '00000000-0000-4000-8000-000000000099';
+  await instance.evaluate(
+    ({ ipcMain }, fixture) => {
+      ipcMain.removeHandler('edi:artifact:get');
+      ipcMain.handle('edi:artifact:get', () => fixture.artifact);
+    },
+    {
+      artifact: {
+        kind: 'document',
+        title: 'Generated report',
+        markdown: '## Result\n\nLarge information lives here.\n\n---\n\nMore below.',
+      },
+    },
+  );
+  const libraryPage = await workspace.evaluate(
+    () => document.querySelector('.workspace-card')?.dataset.view,
+  );
+  await workspace.evaluate(ref => window.edi.command({ type: 'open-artifact', ref }), {
+    callId: artifactId,
+  });
+  await expect
+    .poll(() => instance.windows().some(page => page.url().includes('surface=artifact')))
+    .toBe(true);
+  const artifactPage = instance.windows().find(page => page.url().includes('surface=artifact'));
+  await expect(artifactPage.getByRole('heading', { name: 'Generated report' })).toBeVisible();
+  await expect(artifactPage.getByText('Large information lives here.')).toBeVisible();
+  await expect(artifactPage.locator('hr')).toHaveCount(1);
+  await expect(artifactPage.getByRole('button', { name: 'Copy' })).toBeVisible();
+  await expect(artifactPage.getByRole('button', { name: 'Download' })).toBeVisible();
+  await expect(artifactPage.getByRole('button', { name: 'Close' })).toBeVisible();
+  await expect(artifactPage.getByRole('button', { name: /Back/ })).toHaveCount(0);
+  await expect(artifactPage.getByRole('button', { name: /Save to Library/ })).toHaveCount(0);
+  // Copy uses the real system clipboard; put the person's clipboard back afterwards.
+  const savedClipboard = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  await artifactPage.getByRole('button', { name: 'Copy' }).click();
+  await expect(artifactPage.getByRole('button', { name: 'Copied' })).toBeVisible();
+  expect(await instance.evaluate(({ clipboard }) => clipboard.readText())).toContain(
+    'Large information lives here.',
+  );
+  await instance.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard);
+  // The page underneath stays where it was; the artifact does not replace it.
+  expect(
+    await workspace.evaluate(() => document.querySelector('.workspace-card')?.dataset.view),
+  ).toBe(libraryPage);
+  // Beside the card, not on top of it.
+  const [cardBox, artifactBox] = await instance.evaluate(({ BrowserWindow }) =>
+    ['surface=workspace', 'surface=artifact'].map(surface =>
+      BrowserWindow.getAllWindows()
+        .find(win => win.webContents.getURL().includes(surface))
+        .getBounds(),
+    ),
+  );
+  expect(
+    artifactBox.x >= cardBox.x + cardBox.width || artifactBox.x + artifactBox.width <= cardBox.x,
+  ).toBe(true);
+  await artifactPage.getByRole('button', { name: 'Close' }).click();
+  await expect
+    .poll(() => instance.windows().some(page => page.url().includes('surface=artifact')))
+    .toBe(false);
+  // Retired preview catalog entries must not come back as fake capabilities.
+  await expect(workspace.getByText('Your calendar')).toHaveCount(0);
+  await workspace.getByRole('button', { name: /choose a section/ }).click();
+  await workspace.getByRole('menuitem', { name: /Settings/ }).click();
+  await workspace.getByRole('button', { name: /^Voice/ }).click();
+  await expect(workspace.getByRole('radio', { name: /Jane · Pocket/ })).toBeVisible();
+  await expect(workspace.getByRole('radio', { name: /Chatterbox Turbo/ })).toBeVisible();
+  const speakReplies = workspace.getByRole('switch', { name: 'Speak replies' });
+  await expect(speakReplies).toHaveAttribute('aria-checked', 'true');
+  await speakReplies.click();
+  await expect(speakReplies).toHaveAttribute('aria-checked', 'false');
+  expect((await workspace.evaluate(() => window.edi.settings())).speakReplies).toBe(false);
+  await workspace.getByRole('button', { name: 'Back to Settings' }).click();
+  await workspace.getByRole('button', { name: /^Privacy/ }).click();
+  await workspace.getByRole('button', { name: /^Activity/ }).click();
+  await expect(workspace.getByRole('heading', { name: 'A quiet beginning.' })).toBeVisible();
+  await workspace.getByRole('button', { name: 'Back to Privacy & Permissions' }).click();
+  // Edi's own navigation reaches nested pages through the closed destination list.
+  await workspace.evaluate(() =>
+    window.edi.command({ type: 'show-workspace', view: 'settings.keyboard' }),
+  );
+  await expect(workspace.getByText('Hold to talk')).toBeVisible();
   await workspace.getByRole('button', { name: 'Expand card' }).click();
   await expect(workspace.getByRole('button', { name: 'Collapse card' })).toHaveAttribute(
     'aria-expanded',
     'true',
   );
+  const sidebar = workspace.getByRole('navigation', { name: 'Edi sections' });
+  await expect(sidebar.getByRole('button', { name: 'Settings' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await sidebar.getByRole('button', { name: 'Skills' }).click();
+  // Built-in abilities work under the hood; Skills lists only add-ons, and there are none yet.
+  await expect(workspace.getByRole('heading', { name: 'No skills yet.' })).toBeVisible();
+  await expect(workspace.getByText('Edi setup guide')).toHaveCount(0);
+  await workspace.screenshot({ path: 'tests/desktop/workspace-expanded.png' });
+  await sidebar.getByRole('button', { name: 'Conversations' }).click();
+  await expect(
+    workspace.getByRole('heading', { name: 'Connect an AI model first.' }),
+  ).toBeVisible();
+  await sidebar.getByRole('button', { name: 'Home' }).click();
   await workspace.getByRole('button', { name: 'Collapse card' }).click();
   await expect
     .poll(() => workspace.evaluate(() => document.documentElement.scrollHeight <= innerHeight))
@@ -175,6 +304,18 @@ try {
   ).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
   const beforeDrag = await bounds();
+  // Pinned or not, a hidden card reopens beside Edi's new position.
+  const petScale = Math.min(beforeDrag.pet.width / 160, beforeDrag.pet.height / 170);
+  const cardAnchor = {
+    x: beforeDrag.pet.x + (beforeDrag.pet.width - 160 * petScale) / 2 + 31 * petScale,
+    y: beforeDrag.pet.y + (beforeDrag.pet.height - 170 * petScale) / 2 + 40 * petScale,
+  };
+  expect(
+    Math.abs(beforeDrag.card.x + beforeDrag.card.width + 12 - cardAnchor.x),
+  ).toBeLessThanOrEqual(1);
+  expect(Math.abs(beforeDrag.card.y + beforeDrag.card.height - cardAnchor.y)).toBeLessThanOrEqual(
+    1,
+  );
   const origin = { x: beforeDrag.pet.x + 56, y: beforeDrag.pet.y + 65 };
   await drag('start', origin);
   await drag('move', { x: origin.x - 2, y: origin.y - 2 });
@@ -184,7 +325,9 @@ try {
   const target = { x: origin.x - 80, y: origin.y - 40 };
   await drag('move', target);
   expect((await bounds()).pet.x).toBe(beforeDrag.pet.x - 80);
-  expect((await bounds()).card).toEqual(beforeDrag.card);
+  // A pinned card still travels with Edi; pinning only stops it closing on focus loss.
+  expect((await bounds()).card.x).toBe(beforeDrag.card.x - 80);
+  expect((await bounds()).card.y).toBe(beforeDrag.card.y - 40);
   await drag('cancel', target);
   expect((await bounds()).pet).toEqual(beforeDrag.pet);
   await workspace.getByRole('button', { name: 'Unpin card' }).click();
@@ -214,14 +357,15 @@ try {
   await instance.close();
   ({ workspace, pet } = await launch());
   expect((await bounds()).pet).toEqual(afterDrag.pet);
-  await expect(pet.getByRole('img', { name: 'Sprout avatar' })).toBeVisible();
+  await expect(pet.getByRole('img', { name: /^Mochi avatar/ })).toBeVisible();
   await expect(workspace.getByRole('button', { name: 'Unpin card' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
+  expect((await workspace.evaluate(() => window.edi.settings())).speakReplies).toBe(false);
   expect(errors).toEqual([]);
   console.log(
-    'PASS: hidden card at launch, two windows, avatar sync/persistence, pin persistence, extension search, expand/collapse, no renderer errors.',
+    'PASS: hidden card at launch, two windows, avatar sync/persistence, pin and speech-setting persistence, section menu, settings pages, sidebar, expand/collapse, no renderer errors.',
   );
 } finally {
   await instance?.close();

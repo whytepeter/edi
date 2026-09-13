@@ -1,9 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
   activitySchema,
+  artifactRefSchema,
+  artifactSchema,
   agentStateSchema,
+  characterExpressionSchema,
   commandSchema,
+  librarySchema,
+  modelCatalogSchema,
   settingsSchema,
+  systemInfoSchema,
   permissionSnapshotSchema,
   workspaceViewSchema,
   voiceHostEventSchema,
@@ -19,6 +25,18 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('edi:navigate', listener);
     return () => ipcRenderer.removeListener('edi:navigate', listener);
   },
+  onOpenArtifact: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = artifactRefSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:open-artifact', listener);
+    return () => ipcRenderer.removeListener('edi:open-artifact', listener);
+  },
+  artifact: async ref =>
+    artifactSchema.parse(
+      await ipcRenderer.invoke('edi:artifact:get', artifactRefSchema.parse(ref)),
+    ),
   permissions: async () =>
     permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
   onPermissions: callback => {
@@ -31,6 +49,9 @@ const bridge: DesktopBridge = {
   },
   agent: async () => agentStateSchema.parse(await ipcRenderer.invoke('edi:agent:get')),
   activity: async () => activitySchema.parse(await ipcRenderer.invoke('edi:activity:get')),
+  library: async () => librarySchema.parse(await ipcRenderer.invoke('edi:library:get')),
+  system: async () => systemInfoSchema.parse(await ipcRenderer.invoke('edi:system:get')),
+  models: async () => modelCatalogSchema.parse(await ipcRenderer.invoke('edi:models:get')),
   onAgent: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = agentStateSchema.safeParse(value);
@@ -58,6 +79,14 @@ const bridge: DesktopBridge = {
     };
     ipcRenderer.on('edi:voice', listener);
     return () => ipcRenderer.removeListener('edi:voice', listener);
+  },
+  onCharacterExpression: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = characterExpressionSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:character-expression', listener);
+    return () => ipcRenderer.removeListener('edi:character-expression', listener);
   },
 };
 contextBridge.exposeInMainWorld('edi', bridge);

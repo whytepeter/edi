@@ -1,8 +1,8 @@
 # Edi working notes
 
 This file is exploratory and is not an implementation specification. The canonical product decisions live in
-[`EDI-PRODUCT-PLAN.md`](../../EDI-PRODUCT-PLAN.md), [`ARCHITECTURE.md`](../../docs/edi/ARCHITECTURE.md), and
-[`ROADMAP.md`](../../docs/edi/ROADMAP.md). When a suggestion is accepted, move the decision into those documents
+[`EDI-PRODUCT-PLAN.md`](../../EDI-PRODUCT-PLAN.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), and
+[`ROADMAP.md`](ROADMAP.md). When a suggestion is accepted, move the decision into those documents
 and keep implementation guidance in [`CODEBASE.md`](CODEBASE.md).
 
 ## Review outcome — 2026-09-12
@@ -18,6 +18,10 @@ These notes have now been reconciled with the product decisions and milestone pl
   Dynamic Content area; the character bubble is for voice state, concise notices, and request-bound human input;
   local voice never falls through to a cloud provider without the user's explicit selection; and proposed packages
   are extraction candidates, not folders to create in advance.
+- **Card navigation (2026-09-13):** sections are Conversations, Library (this document's "Edi Workspace"), Skills,
+  Connectors (MCP included), Appearance, and Settings. Settings shows only groups that control something real;
+  Behavior, Computer Use, analytics, advanced AI routing, and custom voices wait for their runtimes. Keys live where
+  they're used, so there's no Providers page. See Architecture §2.
 - **Provider-neutral where possible:** Composio is one possible connector adapter, not the connector architecture.
   Edi's contracts, approvals, credential handling, and connection records must not depend on it.
 
@@ -658,6 +662,11 @@ Changing skins must not reset or modify:
 - agent state
 
 A skin changes how Edi looks and expresses itself, not what Edi is capable of doing.
+
+The current built-in foundation proves this boundary with six provider-independent states: idle, listening,
+thinking, speaking, happy, and attention. Edi, Cloud, and Sprout all consume the same validated state contract.
+Future skin packages should extend that contract by version instead of introducing provider-specific animation
+commands.
 
 ---
 
@@ -2868,3 +2877,22 @@ The architecture should make those concepts obvious.
 The key goal is:
 
 > Edi should be able to grow substantially in features, tools, workers, integrations, content types, and UI without turning the repository into a collection of giant generic folders or tightly coupled Electron code.
+
+
+### Multi-surface Edi
+
+Edi should be designed as **a companion, not an Electron app**. The desktop pet is its primary home, but Edi's core should eventually work across other surfaces such as VS Code/Cursor, browser extensions, web, and mobile.
+
+Core domains like **Agent, Tasks, Capabilities, Workspace, Artifacts, Models, Skills, and Identity** should remain independent of Electron. Each host provides its own context and capabilities through adapters.
+
+```text
+                 Edi Core
+                    │
+       ┌────────────┼────────────┐
+       │            │            │
+    Desktop      VS Code      Browser
+```
+
+Edi is currently desktop-first and **not fully structured this way yet**, but the planned package separation provides the foundation. The key architectural rule going forward is:
+
+> **Core Edi domains must not depend on Electron or a specific UI surface.**

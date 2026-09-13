@@ -1,24 +1,34 @@
 /*
- * The card is the content layer; header controls and the footer are glass
- * floating above it. Content scrolls beneath both, softened by scroll edges.
+ * The card is the content layer; header controls float above it as glass.
+ * Content scrolls beneath the header, softened by scroll edges. Compact cards
+ * navigate from the title menu; the expanded card adds a sidebar.
  */
 .workspace-card {
+  --sidebar-width: 184px;
   height: calc(100% - 16px);
   margin: 8px;
   overflow: hidden;
   isolation: isolate;
 }
 
+.workspace-pane {
+  position: absolute;
+  inset: 0;
+}
+.workspace-card[data-expanded] .workspace-pane {
+  left: var(--sidebar-width);
+}
+
 .workspace-content {
   position: absolute;
   inset: 0;
   overflow: auto;
-  padding: 64px 22px 72px;
+  padding: 64px 22px 48px;
   scrollbar-width: thin;
   scrollbar-color: var(--fill-pressed) transparent;
 }
 
-.workspace-card > .ds-scroll-edge {
+.workspace-pane > .ds-scroll-edge {
   z-index: 1;
 }
 
@@ -30,6 +40,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
   padding: 0 12px 0 14px;
   -webkit-app-region: drag;
 }
@@ -37,20 +48,58 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 .workspace-avatar {
   display: block;
-  width: 30px;
-  height: 32px;
+  flex: none;
+  width: 26px;
+  height: 28px;
   color: var(--accent);
 }
 .workspace-avatar .pet-art {
   width: 100%;
   height: 100%;
 }
+.workspace-title {
+  overflow: hidden;
+  font: 700 16px/1.2 var(--font-display);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .workspace-wordmark {
   font: 700 18px/1 var(--font-display);
   letter-spacing: -0.035em;
+}
+
+/* The title doubles as the section switcher, like a navigation-bar title menu. */
+.workspace-nav-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px 0 4px;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: transparent;
+  color: var(--label);
+  -webkit-app-region: no-drag;
+}
+.workspace-nav-trigger .ds-icon {
+  flex: none;
+  color: var(--label-tertiary);
+  transition: transform var(--spring-fast) var(--spring);
+}
+.workspace-nav-trigger:hover {
+  background: var(--fill);
+}
+.workspace-nav-trigger[aria-expanded='true'] {
+  background: var(--fill-hover);
+}
+.workspace-nav-trigger[aria-expanded='true'] .ds-icon {
+  transform: rotate(180deg);
 }
 
 .workspace-menu-dismiss {
@@ -64,13 +113,13 @@
 .workspace-menu {
   position: absolute;
   top: 50px;
-  right: 14px;
+  left: 14px;
   z-index: 4;
-  min-width: 190px;
-  transform-origin: top right;
+  min-width: 200px;
+  transform-origin: top left;
   animation: workspace-menu-in var(--spring-fast) var(--spring) both;
 }
-/* Materialize from the More button rather than fading in place. */
+/* Materialize from the title rather than fading in place. */
 @keyframes workspace-menu-in {
   from {
     opacity: 0;
@@ -79,26 +128,65 @@
   }
 }
 
-.workspace-footer {
+/* ---------- Expanded sidebar ---------- */
+.workspace-sidebar {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 12px;
+  inset: 0 auto 0 0;
   z-index: 2;
-  height: 34px;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 10px 14px;
+  background: var(--fill);
+  box-shadow: inset -0.5px 0 0 var(--separator);
+}
+.workspace-brand {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-capsule);
-  font: var(--text-footnote);
-  color: var(--label-secondary);
+  height: 56px;
+  padding: 0 6px;
+  -webkit-app-region: drag;
 }
-.workspace-footer kbd {
-  margin-left: auto;
-  font: var(--text-caption);
-  letter-spacing: 0.12em;
+.workspace-sidebar-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workspace-sidebar-list:last-child {
+  margin-top: auto;
+}
+.workspace-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--label);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  text-align: left;
+}
+.workspace-sidebar-link .ds-icon {
   color: var(--label-tertiary);
+}
+.workspace-sidebar-link:hover {
+  background: var(--fill-hover);
+}
+.workspace-sidebar-link[aria-current='page'] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.workspace-sidebar-link[aria-current='page'] .ds-icon {
+  color: inherit;
 }
 
 .workspace-error {
@@ -114,16 +202,11 @@
 .view-header {
   display: grid;
   gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-5);
+  margin: var(--space-2) 0 var(--space-5);
 }
 .view-footnote {
   margin-top: var(--space-3);
   text-align: center;
-}
-.extensions-controls {
-  display: grid;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
 }
 .empty-state {
   display: grid;
@@ -142,40 +225,43 @@
   color: var(--accent-strong);
 }
 .empty-state p {
-  max-width: 260px;
+  max-width: 280px;
 }
 
-/* Talk to Edi: the thread fills the card; the composer sits where the footer was. */
-.workspace-card[data-view='agent'] .workspace-content {
+/* Conversations: the thread fills the pane and the composer docks at the bottom. */
+.workspace-card[data-view='conversations'] .workspace-content {
   overflow: hidden;
   display: flex;
   flex-direction: column;
   padding: 56px 0 0;
 }
-.workspace-card[data-view='agent'] .workspace-view {
+.workspace-card[data-view='conversations'] .workspace-view {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.workspace-card[data-view='agent'] .workspace-footer,
-.workspace-card[data-view='agent'] .ds-scroll-edge[data-edge='bottom'] {
+.workspace-card[data-view='conversations'] .ds-scroll-edge[data-edge='bottom'] {
   display: none;
 }
 
 /* ---------- Expanded card ---------- */
 .workspace-card[data-expanded] .workspace-content {
-  padding: 72px 44px 80px;
+  padding: 68px 36px 40px;
 }
-.workspace-card[data-expanded][data-view='agent'] .workspace-content {
+.workspace-card[data-expanded][data-view='conversations'] .workspace-content {
   padding: 56px 0 0;
 }
-.workspace-card[data-expanded] .ds-large-title {
-  font-size: 32px;
+.workspace-card[data-expanded] .workspace-view {
+  max-width: 520px;
+  margin-inline: auto;
 }
-.workspace-card[data-expanded] .intro-hero {
-  transform: scale(1.3);
-  margin: 24px 0 36px;
+.workspace-card[data-expanded][data-view='conversations'] .workspace-view {
+  max-width: none;
+  width: 100%;
+}
+.workspace-card[data-expanded] .ds-large-title {
+  font-size: 30px;
 }
 
 @media (prefers-reduced-motion: reduce) {

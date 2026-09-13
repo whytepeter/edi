@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { systemPreferences } from 'electron';
-import type { AgentState } from '@edi/contracts';
+import { screenTextSchema, type AgentState, type ScreenText } from '@edi/contracts';
 
 export type ScreenAccess = NonNullable<AgentState['screenAccess']>;
 /** Unpinned cards hide on blur, except while a system permission ask is up. */
@@ -13,6 +13,8 @@ export function shouldHideCardOnBlur(pinned: boolean, holdingForPermission: bool
 const ASK_SHEET_MS = 800;
 const CAPTURE_POLL_MS = 50;
 const CAPTURE_WAIT_MS = 8_000;
+/** Recognition usually takes well under a second on a Retina display. */
+const TEXT_WAIT_MS = 10_000;
 
 /** Asks macOS for Screen Recording. Never a window-share picker. */
 export class ScreenRecording {
@@ -55,6 +57,12 @@ interface ScreenAskLibrary extends KoffiLib {
   lastHeight: () => number;
   lastLength: () => number;
   copyLast: (dest: Uint8Array) => void;
+  textState: (key: number) => number;
+  textLength: (key: number) => number;
+  takeText: (key: number, dest: Uint8Array, capacity: number) => void;
+  shapeBubble: (handle: bigint, radius: number, side: number, tail: number) => void;
+  /** Absent in a helper built before it existed; the window then keeps system corners. */
+  shapeWindow: ((handle: bigint, radius: number) => void) | null;
 }
 
 let screenAsk: ScreenAskLibrary | null | undefined;
@@ -88,6 +96,28 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
       copyLast: loaded.func('edi_copy_last_capture', 'void', ['void *']) as (
         dest: Uint8Array,
       ) => void,
+      textState: loaded.func('edi_text_state', 'int', ['uint32']) as (key: number) => number,
+      textLength: loaded.func('edi_text_length', 'int', ['uint32']) as (key: number) => number,
+      takeText: loaded.func('edi_take_text', 'void', [
+        'uint32',
+        'void *',
+        'int',
+      ]) as ScreenAskLibrary['takeText'],
+      shapeBubble: loaded.func('edi_shape_glass_bubble', 'void', [
+        'uint64',
+        'double',
+        'int',
+        'double',
+      ]) as ScreenAskLibrary['shapeBubble'],
+      shapeWindow: (() => {
+        try {
+          return loaded.func('edi_shape_glass_window', 'void', ['uint64', 'double']) as NonNullable<
+            ScreenAskLibrary['shapeWindow']
+          >;
+        } catch {
+          return null;
+        }
+      })(),
     };
     return screenAsk;
   } catch (error) {
@@ -160,6 +190,68 @@ export async function captureDisplayJpeg(
   const jpeg = Buffer.alloc(length);
   lib.copyLast(jpeg);
   return { jpeg: new Uint8Array(jpeg), width, height };
+}
+
+/**
+ * Text recognized on this Mac from the display's last full-resolution capture, used only to
+ * align Edi's pointer. Read once, then dropped by the native side. Undefined if unavailable.
+ */
+export async function recognizedDisplayText(displayId: number): Promise<ScreenText | undefined> {
+  const lib = loadBoundScreenAsk();
+  if (!lib) return undefined;
+  const key = displayId >>> 0;
+  const deadline = Date.now() + TEXT_WAIT_MS;
+  while (lib.textState(key) === 1 && Date.now() < deadline) {
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, CAPTURE_POLL_MS);
+    });
+  }
+  if (lib.textState(key) !== 2) return undefined;
+  const bytes = new Uint8Array(lib.textLength(key));
+  lib.takeText(key, bytes, bytes.length);
+  try {
+    return screenTextSchema.parse(JSON.parse(Buffer.from(bytes).toString('utf8')));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Give a native-glass window a speech-bubble silhouette with its tail in the corner nearest
+ * Edi. Without the native library the window keeps its plain rounded glass.
+ */
+export function shapeGlassBubble(
+  window: { getNativeWindowHandle(): Buffer },
+  side: 'left' | 'right',
+  radius: number,
+  tail: number,
+) {
+  const lib = loadBoundScreenAsk();
+  if (!lib) return;
+  try {
+    lib.shapeBubble(
+      window.getNativeWindowHandle().readBigUInt64LE(0),
+      radius,
+      side === 'right' ? 1 : -1,
+      tail,
+    );
+  } catch {
+    // Cosmetic only; the bubble still works as rounded glass.
+  }
+}
+
+/**
+ * Round a resizable native-glass window (the artifact window) with a stretchable mask, so its
+ * corners match Edi's card. Without the native library it keeps the system's rounded corners.
+ */
+export function shapeGlassWindow(window: { getNativeWindowHandle(): Buffer }, radius: number) {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.shapeWindow) return;
+  try {
+    lib.shapeWindow(window.getNativeWindowHandle().readBigUInt64LE(0), radius);
+  } catch {
+    // Cosmetic only.
+  }
 }
 
 function loadScreenAskLibrary(load: (path: string) => KoffiLib): KoffiLib | undefined {

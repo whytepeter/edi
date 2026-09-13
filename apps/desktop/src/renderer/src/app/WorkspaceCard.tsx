@@ -1,21 +1,40 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import type { WorkspaceView } from '@edi/contracts';
-import { IconButton, Menu, ToolbarGroup } from '../components/ui';
+import type { ArtifactRef, WorkspaceView } from '@edi/contracts';
+import { Icon, IconButton, Menu, ToolbarGroup } from '../components/ui';
 import { accentFor, type Command } from '../lib/bridge';
 import { useSettings } from '../hooks/useSettings';
 import { useAgentState } from '../hooks/useAgentState';
+import { usePermissions } from '../hooks/usePermissions';
 import { ApprovalSheet } from '../features/conversation/ApprovalSheet';
 import { Pet } from '../components/Pet';
-import { IntroView } from '../features/content/IntroView';
 import { AgentPanel } from '../features/conversation/AgentPanel';
+import { HomeView } from '../features/home/HomeView';
 import { AppearanceView } from '../features/appearance/AppearanceView';
-import { ExtensionsView } from '../features/extensions/ExtensionsView';
+import { LibraryView } from '../features/library/LibraryView';
+import { SkillsView } from '../features/skills/SkillsView';
+import { ConnectorsView } from '../features/connectors/ConnectorsView';
 import { ActivityView } from '../features/activity/ActivityView';
-import './workspace.css';
 import { PermissionCard } from '../features/permissions/PermissionCard';
-import { usePermissions } from '../hooks/usePermissions';
+import { SettingsView } from '../features/settings/SettingsView';
+import { AiSettings } from '../features/settings/AiSettings';
+import { VoiceSettings } from '../features/settings/VoiceSettings';
+import { KeyboardSettings } from '../features/settings/KeyboardSettings';
+import { PrivacySettings } from '../features/settings/PrivacySettings';
+import { AboutSettings } from '../features/settings/AboutSettings';
+import { useSystemInfo } from '../features/settings/useSystemInfo';
+import {
+  parentOf,
+  primaryDestinations,
+  sectionOf,
+  settingsDestination,
+  titleOf,
+  type Destination,
+} from './navigation';
+// Response and permission cards share the content block styles.
+import '../features/content/content.css';
+import './workspace.css';
 
-/** The floating content card: navigation, card controls, and the active view. */
+/** The floating card: section navigation, card controls, and the active view. */
 export function WorkspaceCard() {
   const { settings, setSettings, error: loadError } = useSettings();
   const { state: agent } = useAgentState();
@@ -25,7 +44,7 @@ export function WorkspaceCard() {
   useEffect(() => {
     blockedRef.current = blocked;
   }, [blocked]);
-  const [view, setView] = useState<WorkspaceView>('content');
+  const [view, setView] = useState<WorkspaceView>('home');
   const permissionSnapshot = usePermissions();
   const activePermission = permissionSnapshot.permissions.find(
     permission => permission.id === permissionSnapshot.active,
@@ -33,18 +52,35 @@ export function WorkspaceCard() {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState('');
-  const moreButton = useRef<HTMLButtonElement>(null);
+  const navButton = useRef<HTMLButtonElement>(null);
+  const section = sectionOf(view);
+  const parent = parentOf(view);
+  // Refetched on each visit to Home or Settings: voice and shortcut availability can change.
+  const system = useSystemInfo(section === 'settings' || section === 'home' ? view : null);
+  const refreshKey = `${agent.runId}:${agent.status}`;
 
   useEffect(() => {
     return window.edi?.onNavigate(setView);
   }, []);
 
+  // Edi answers "where am I?" from what the card actually shows.
+  useEffect(() => {
+    void window.edi?.command({ type: 'workspace-view', view }).catch(() => {});
+  }, [view]);
+
   async function send(command: Command) {
     try {
+      setError('');
       if (window.edi) await window.edi.command(command);
       // Plain-browser preview: apply presentation changes locally.
       else if (command.type === 'apply-skin') setSettings(s => ({ ...s, skin: command.skin }));
       else if (command.type === 'set-pinned') setSettings(s => ({ ...s, pinned: command.pinned }));
+      else if (command.type === 'set-pet-scale')
+        setSettings(s => ({ ...s, petScale: command.scale }));
+      else if (command.type === 'set-speak-replies')
+        setSettings(s => ({ ...s, speakReplies: command.enabled }));
+      else if (command.type === 'set-voice-model')
+        setSettings(s => ({ ...s, voiceModel: command.model }));
       return true;
     } catch {
       setError('Couldn’t make that change. Try again.');
@@ -54,8 +90,11 @@ export function WorkspaceCard() {
 
   function closeMenu() {
     setMenuOpen(false);
-    moreButton.current?.focus();
+    navButton.current?.focus();
   }
+
+  // Shown content opens in its own window beside the card; the page underneath stays put.
+  const openArtifact = (ref: ArtifactRef) => void send({ type: 'open-artifact', ref });
 
   function navigate(next: WorkspaceView) {
     setView(next);
@@ -74,127 +113,191 @@ export function WorkspaceCard() {
   }, []);
 
   const shownError = error || loadError;
+  const toMenuItem = (destination: Destination) => ({
+    id: destination.id,
+    label: destination.label,
+    icon: destination.icon,
+    onSelect: () => navigate(destination.id),
+  });
+  const sidebarLink = (destination: Destination) => (
+    <li key={destination.id}>
+      <button
+        type="button"
+        className="workspace-sidebar-link"
+        aria-current={section === destination.id ? 'page' : undefined}
+        onClick={() => navigate(destination.id)}
+      >
+        <Icon name={destination.icon} size={16} />
+        {destination.label}
+      </button>
+    </li>
+  );
 
   return (
     <div
-      className="workspace-card ds-card"
+      className="workspace-card ds-card glass-window"
       data-accent
       data-view={view}
+      data-section={section}
       data-expanded={expanded || undefined}
       style={{ '--accent': accentFor(settings.skin) } as CSSProperties}
     >
-      <main className="workspace-content" inert={blocked}>
-        {shownError && (
-          <div role="alert" className="workspace-error">
-            {shownError}
-          </div>
-        )}
-        {activePermission && <PermissionCard permission={activePermission} />}
-        <div className="workspace-view" hidden={Boolean(activePermission)}>
-          {view === 'content' && (
-            <IntroView skin={settings.skin} onTalk={() => navigate('agent')} />
-          )}
-          {view === 'agent' && <AgentPanel />}
-          {view === 'avatars' && (
-            <AppearanceView
-              skin={settings.skin}
-              onApply={skin => void send({ type: 'apply-skin', skin })}
-            />
-          )}
-          {view === 'extensions' && <ExtensionsView onOpenAppearance={() => navigate('avatars')} />}
-          {view === 'activity' && <ActivityView refreshKey={`${agent.runId}:${agent.status}`} />}
-        </div>
-      </main>
-
-      <div className="ds-scroll-edge" data-edge="top" />
-      <div className="ds-scroll-edge" data-edge="bottom" />
-
-      <header className="workspace-header" inert={blocked}>
-        <div className="workspace-identity">
-          {view === 'content' ? (
+      {expanded && (
+        <nav className="workspace-sidebar" aria-label="Edi sections" inert={blocked}>
+          <div className="workspace-brand">
             <span className="workspace-avatar">
               <Pet skin={settings.skin} />
             </span>
-          ) : (
-            <ToolbarGroup>
-              <IconButton icon="back" label="Back to content" onClick={() => navigate('content')} />
-            </ToolbarGroup>
-          )}
-          <span className="workspace-wordmark">edi</span>
-        </div>
-        <ToolbarGroup label="Card controls">
-          <IconButton
-            icon="pin"
-            label={settings.pinned ? 'Unpin card' : 'Pin card'}
-            aria-pressed={settings.pinned}
-            onClick={() => void send({ type: 'set-pinned', pinned: !settings.pinned })}
-          />
-          <IconButton
-            icon={expanded ? 'collapse' : 'expand'}
-            label={expanded ? 'Collapse card' : 'Expand card'}
-            aria-expanded={expanded}
-            onClick={async () => {
-              if (await send({ type: 'set-expanded', expanded: !expanded })) setExpanded(!expanded);
-            }}
-          />
-          <IconButton
-            ref={moreButton}
-            icon="more"
-            label="More options"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(open => !open)}
-          />
-          <IconButton
-            icon="close"
-            label="Dismiss card"
-            onClick={() => void send({ type: 'hide-workspace' })}
-          />
-        </ToolbarGroup>
-      </header>
-
-      {menuOpen && (
-        <>
-          <button className="workspace-menu-dismiss" aria-label="Close menu" onClick={closeMenu} />
-          <Menu
-            label="More"
-            className="workspace-menu"
-            onDismiss={closeMenu}
-            items={[
-              {
-                id: 'agent',
-                label: 'Talk to Edi',
-                icon: 'chat',
-                onSelect: () => navigate('agent'),
-              },
-              {
-                id: 'avatars',
-                label: 'Appearance',
-                icon: 'face',
-                onSelect: () => navigate('avatars'),
-              },
-              {
-                id: 'extensions',
-                label: 'Extensions',
-                icon: 'sparkles',
-                onSelect: () => navigate('extensions'),
-              },
-              {
-                id: 'activity',
-                label: 'Activity',
-                icon: 'clock',
-                onSelect: () => navigate('activity'),
-              },
-            ]}
-          />
-        </>
+            <span className="workspace-wordmark">edi</span>
+          </div>
+          <ul className="workspace-sidebar-list">{primaryDestinations.map(sidebarLink)}</ul>
+          <ul className="workspace-sidebar-list">{sidebarLink(settingsDestination)}</ul>
+        </nav>
       )}
 
-      <footer className="workspace-footer ds-glass" inert={blocked}>
-        <span className="ds-status-dot" aria-hidden="true" />
-        <span>Here when you need me</span>
-        <kbd aria-label="Command Shift E">⌘⇧E</kbd>
-      </footer>
+      <div className="workspace-pane">
+        <main className="workspace-content" inert={blocked}>
+          {shownError && (
+            <div role="alert" className="workspace-error">
+              {shownError}
+            </div>
+          )}
+          {activePermission && <PermissionCard permission={activePermission} />}
+          <div className="workspace-view" hidden={Boolean(activePermission)}>
+            {view === 'home' && (
+              <HomeView
+                skin={settings.skin}
+                agent={agent}
+                system={system}
+                refreshKey={refreshKey}
+                onOpen={navigate}
+                onAsk={async prompt => {
+                  const sent = await send({ type: 'ask-agent', prompt });
+                  if (sent) navigate('conversations');
+                  return sent;
+                }}
+              />
+            )}
+            {view === 'conversations' && (
+              <AgentPanel onSetUp={() => navigate('settings.ai')} onOpenArtifact={openArtifact} />
+            )}
+            {view === 'library' && <LibraryView refreshKey={refreshKey} onOpen={openArtifact} />}
+            {view === 'skills' && <SkillsView />}
+            {view === 'connectors' && <ConnectorsView />}
+            {view === 'appearance' && (
+              <AppearanceView
+                skin={settings.skin}
+                scale={settings.petScale}
+                onApply={skin => void send({ type: 'apply-skin', skin })}
+                onScale={(scale, commit) => void send({ type: 'set-pet-scale', scale, commit })}
+              />
+            )}
+            {view === 'settings' && (
+              <SettingsView
+                agent={agent}
+                system={system}
+                permissions={permissionSnapshot}
+                onOpen={navigate}
+              />
+            )}
+            {view === 'settings.ai' && <AiSettings />}
+            {view === 'settings.voice' && (
+              <VoiceSettings
+                system={system}
+                voiceModel={settings.voiceModel}
+                speakReplies={settings.speakReplies}
+                onVoiceModel={model => void send({ type: 'set-voice-model', model })}
+                onSpeakReplies={enabled => void send({ type: 'set-speak-replies', enabled })}
+              />
+            )}
+            {view === 'settings.keyboard' && <KeyboardSettings system={system} />}
+            {view === 'settings.privacy' && (
+              <PrivacySettings permissions={permissionSnapshot} onOpen={navigate} />
+            )}
+            {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}
+            {view === 'settings.about' && <AboutSettings system={system} />}
+          </div>
+        </main>
+
+        <div className="ds-scroll-edge" data-edge="top" />
+        <div className="ds-scroll-edge" data-edge="bottom" />
+
+        <header className="workspace-header" inert={blocked}>
+          <div className="workspace-identity">
+            {parent && (
+              <ToolbarGroup>
+                <IconButton
+                  icon="back"
+                  label={`Back to ${titleOf(parent)}`}
+                  onClick={() => navigate(parent)}
+                />
+              </ToolbarGroup>
+            )}
+            {parent || expanded ? (
+              <span className="workspace-title">{titleOf(view)}</span>
+            ) : (
+              <button
+                ref={navButton}
+                type="button"
+                className="workspace-nav-trigger"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label={`${titleOf(view)}, choose a section`}
+                onClick={() => setMenuOpen(open => !open)}
+              >
+                <span className="workspace-avatar">
+                  <Pet skin={settings.skin} />
+                </span>
+                <span className="workspace-title">{titleOf(view)}</span>
+                <Icon name="chevron-down" size={14} />
+              </button>
+            )}
+          </div>
+          <ToolbarGroup label="Card controls">
+            <IconButton
+              icon="pin"
+              label={settings.pinned ? 'Unpin card' : 'Pin card'}
+              aria-pressed={settings.pinned}
+              onClick={() => void send({ type: 'set-pinned', pinned: !settings.pinned })}
+            />
+            <IconButton
+              icon={expanded ? 'collapse' : 'expand'}
+              label={expanded ? 'Collapse card' : 'Expand card'}
+              aria-expanded={expanded}
+              onClick={async () => {
+                setMenuOpen(false);
+                if (await send({ type: 'set-expanded', expanded: !expanded }))
+                  setExpanded(!expanded);
+              }}
+            />
+            <IconButton
+              icon="close"
+              label="Dismiss card"
+              onClick={() => void send({ type: 'hide-workspace' })}
+            />
+          </ToolbarGroup>
+        </header>
+
+        {menuOpen && (
+          <>
+            <button
+              className="workspace-menu-dismiss"
+              aria-label="Close menu"
+              onClick={closeMenu}
+            />
+            <Menu
+              label="Sections"
+              className="workspace-menu"
+              onDismiss={closeMenu}
+              items={[
+                ...primaryDestinations.map(toMenuItem),
+                { separator: true },
+                toMenuItem(settingsDestination),
+              ]}
+            />
+          </>
+        )}
+      </div>
 
       {agent.approval && <ApprovalSheet key={agent.approval.callId} approval={agent.approval} />}
     </div>

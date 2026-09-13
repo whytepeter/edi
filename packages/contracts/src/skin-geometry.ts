@@ -3,6 +3,16 @@ import { z } from 'zod';
 // Desktop size is independent of the logical artboard and appearance previews.
 export const desktopPetSize = { width: 112, height: 120 } as const;
 
+/** How big Edi appears on the desktop, as a multiple of the default. Geometry does not change. */
+export const petScaleSchema = z.number().finite().min(0.6).max(1.6);
+export function petWindowSize(scale: number) {
+  const bounded = Math.min(1.6, Math.max(0.6, scale));
+  return {
+    width: Math.round(desktopPetSize.width * bounded),
+    height: Math.round(desktopPetSize.height * bounded),
+  };
+}
+
 const point = z.object({ x: z.number().finite(), y: z.number().finite() }).strict();
 const bounds = z
   .object({
@@ -69,19 +79,23 @@ const base = {
   },
 };
 export const skinGeometry = {
-  cloud: skinGeometrySchema.parse({
+  // A cream dumpling with a curled tuft; small hands appear only for gestures.
+  mochi: skinGeometrySchema.parse({
     ...base,
-    paintedBounds: { x: 8, y: 38, width: 146, height: 108 },
+    paintedBounds: { x: 13, y: 16, width: 136, height: 133 },
     bodyPath:
-      'M31 91C31 59 51 40 79 40C109 40 131 62 131 91C131 121 109 143 80 143C50 143 31 121 31 91Z',
-    decorationPath: '',
-  }),
-  sprout: skinGeometrySchema.parse({
-    ...base,
-    paintedBounds: { x: 8, y: 10, width: 146, height: 136 },
-    bodyPath: 'M34 82Q30 40 80 40Q130 40 127 83L123 112Q118 142 80 143Q40 143 36 113Z',
+      'M80 38C108 38 127 60 131 87C134 104 143 114 139 126C135 136 122 139 111 141C97 146 63 146 49 141C38 139 25 136 21 126C17 114 26 104 29 87C33 60 52 38 80 38Z',
     decorationPath:
-      'M80 39C58 33 57 14 59 12C76 13 86 22 80 39ZM81 39C81 21 96 17 106 20C103 34 96 40 81 39Z',
+      'M62 48C54 36 62 21 79 20C94 19 103 28 99 37C93 31 83 31 76 38C71 43 66 46 62 48ZM80 41C80 31 91 26 101 29C100 38 91 43 80 41Z',
+  }),
+  // Hoop earrings hang outside the head; resting hands are hidden by the skin but keep
+  // their shared anchors for gestures and the pointer.
+  edi: skinGeometrySchema.parse({
+    ...base,
+    paintedBounds: { x: 7, y: 22, width: 147, height: 127 },
+    bodyPath:
+      'M80 24C118 24 141 52 141 88C141 119 115 147 80 147C45 147 19 119 19 88C19 52 42 24 80 24Z',
+    decorationPath: '',
   }),
 } satisfies Record<string, SkinGeometry>;
 

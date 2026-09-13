@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron';
-import type { Settings } from '@edi/contracts';
+import type { ArtifactRef, Settings, WorkspaceView } from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
@@ -7,7 +7,7 @@ import type { PetDrag } from '../character/pet-drag';
 import type { SettingsStore } from '../settings/settings-store';
 import type { WindowPlacement } from '../windows/placement';
 import type { VoiceController } from '../voice/voice-controller';
-import { cardSize } from '../windows/factory';
+import { cardSize, resizePetWindow } from '../windows/factory';
 import type { PermissionManager } from '../permission-manager';
 
 interface CommandDependencies {
@@ -20,15 +20,38 @@ interface CommandDependencies {
   character: CharacterActions;
   voice: VoiceController<unknown>;
   permissions: PermissionManager;
+  /** Show a saved Library item in Finder, looked up by ID so the renderer never sends paths. */
+  revealLibraryItem(id: string): void;
+  /** Show an artifact in its own window beside the card. */
+  openArtifact(ref: ArtifactRef): void;
+  /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
+  artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
+  closeArtifact(): void;
+  reportView(view: WorkspaceView): void;
 }
 
 const fromPet = ['pet'] as const;
 const fromWorkspace = ['workspace'] as const;
+const fromArtifact = ['artifact'] as const;
 
 /** Which surface may send each command, and what it does. Exhaustive by type. */
 export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
-  const { workspace, pet, settings, agent, placement, petDrag, character, voice, permissions } =
-    deps;
+  const {
+    workspace,
+    pet,
+    settings,
+    agent,
+    placement,
+    petDrag,
+    character,
+    voice,
+    permissions,
+    revealLibraryItem,
+    openArtifact,
+    artifactAction,
+    closeArtifact,
+    reportView,
+  } = deps;
 
   // Move the card immediately; the write and broadcast follow.
   const updateLayout = (patch: Partial<Settings>) => {
@@ -101,6 +124,35 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'apply-skin': { from: fromWorkspace, handle: ({ skin }) => updateLayout({ skin }) },
     'set-pinned': { from: fromWorkspace, handle: ({ pinned }) => updateLayout({ pinned }) },
+    'set-speak-replies': {
+      from: fromWorkspace,
+      handle: ({ enabled }) => settings.update({ speakReplies: enabled }),
+    },
+    'set-pet-scale': {
+      from: fromWorkspace,
+      handle: ({ scale, commit }) => {
+        const bounds = resizePetWindow(pet, scale, settings.current.skin);
+        // While the slider moves, the card (and the slider in it) stays still even if a display
+        // edge pushes Edi; it re-attaches once, when the slider settles, and the size is saved.
+        if (!commit) return;
+        placement.place();
+        return settings.update({ petScale: scale, petPosition: { x: bounds.x, y: bounds.y } });
+      },
+    },
+    'open-artifact': { from: ['workspace', 'bubble'], handle: ({ ref }) => openArtifact(ref) },
+    'artifact-copy': { from: fromArtifact, handle: ({ ref }) => artifactAction('copy', ref) },
+    'artifact-download': {
+      from: fromArtifact,
+      handle: ({ ref }) => artifactAction('download', ref),
+    },
+    'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
+    'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
+    'workspace-view': { from: fromWorkspace, handle: ({ view }) => reportView(view) },
+    'set-voice-model': {
+      from: fromWorkspace,
+      handle: ({ model }) => settings.update({ voiceModel: model }),
+    },
+    'reveal-library-item': { from: fromWorkspace, handle: ({ id }) => revealLibraryItem(id) },
 
     'configure-agent': {
       from: fromWorkspace,

@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { presentationText } from '@edi/contracts';
-import { Button, Icon, TextField, ThinkingDots } from '../../components/ui';
+import { presentationText, type ArtifactRef } from '@edi/contracts';
+import { Button, EmptyState, Icon, ThinkingDots } from '../../components/ui';
 import type { Command } from '../../lib/bridge';
 import { useAgentState } from '../../hooks/useAgentState';
 import { StepList } from '../../components/StepList';
+import { ArtifactCard } from '../../components/artifacts/Artifact';
 import './conversation.css';
 
-/** Temporary OpenRouter connection and conversation. Not the final product home. */
-export function AgentPanel() {
+/** The current conversation. AI setup lives in Settings → AI. */
+export function AgentPanel({
+  onSetUp,
+  onOpenArtifact,
+}: {
+  onSetUp(): void;
+  onOpenArtifact(ref: ArtifactRef): void;
+}) {
   const { state, loading, error: loadError } = useAgentState();
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [commandError, setError] = useState('');
@@ -83,56 +88,14 @@ export function AgentPanel() {
   if (!state.configured) {
     return (
       <section className="agent-panel" data-setup>
-        <header className="view-header">
-          <p className="ds-eyebrow">OpenRouter</p>
-          <h1 className="ds-large-title">Connect Edi.</h1>
+        <EmptyState icon="chat" title="Connect an AI model first.">
           <p className="ds-body ds-secondary">
-            Use your OpenRouter key and the exact model ID you want to use.
+            Add your OpenRouter key in Settings, then come back to talk with Edi.
           </p>
-        </header>
-        {error && (
-          <p role="alert" className="agent-error">
-            {error}
-          </p>
-        )}
-        <form
-          className="agent-form"
-          onSubmit={event => {
-            event.preventDefault();
-            void command({ type: 'configure-agent', apiKey, model }).then(ok => {
-              if (ok) setApiKey('');
-            });
-          }}
-        >
-          <TextField
-            label="API key"
-            aria-label="OpenRouter API key"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={apiKey}
-            onChange={event => setApiKey(event.target.value)}
-            required
-            minLength={10}
-            maxLength={512}
-          />
-          <TextField
-            label="Model ID"
-            aria-label="OpenRouter model ID"
-            placeholder="provider/model-name"
-            value={model}
-            onChange={event => setModel(event.target.value)}
-            required
-            maxLength={160}
-            pattern="[a-zA-Z0-9_.:/\-]+"
-          />
-          <p className="ds-footnote ds-tertiary">
-            Stored encrypted on this Mac. Saving does not validate your key or make a paid request.
-          </p>
-          <Button type="submit" variant="prominent" block disabled={busy}>
-            Save connection
+          <Button variant="prominent" trailingIcon="chevron-right" onClick={onSetUp}>
+            Set up AI
           </Button>
-        </form>
+        </EmptyState>
       </section>
     );
   }
@@ -152,7 +115,9 @@ export function AgentPanel() {
         {state.messages.length === 0 && (
           <div className="agent-empty">
             <h1 className="ds-title">What’s on your mind?</h1>
-            <p className="ds-footnote ds-secondary">Edi remembers this conversation as you go.</p>
+            <p className="ds-footnote ds-secondary">
+              Type below, or hold <kbd>⌥ Space</kbd> and ask out loud.
+            </p>
           </div>
         )}
         {state.messages.map(message => {
@@ -165,16 +130,31 @@ export function AgentPanel() {
               data-role={message.role}
               data-pending={pending || undefined}
             >
-              <div className="agent-bubble">
-                {message.role === 'assistant' && pending && !body ? (
-                  <ThinkingDots />
-                ) : (
-                  <p className="agent-bubble-text">
-                    {body}
-                    {pending && body ? <span className="agent-caret" aria-hidden="true" /> : null}
-                  </p>
-                )}
-              </div>
+              {(body || pending || !message.artifacts?.length) && (
+                <div className="agent-bubble">
+                  {message.role === 'assistant' && pending && !body ? (
+                    <ThinkingDots />
+                  ) : (
+                    <p className="agent-bubble-text">
+                      {body}
+                      {pending && body ? <span className="agent-caret" aria-hidden="true" /> : null}
+                    </p>
+                  )}
+                </div>
+              )}
+              {message.artifacts?.map(artifact => (
+                <ArtifactCard
+                  key={artifact.id}
+                  artifact={artifact}
+                  onOpen={() =>
+                    onOpenArtifact(
+                      artifact.noteId && !pending
+                        ? { noteId: artifact.noteId }
+                        : { callId: artifact.id },
+                    )
+                  }
+                />
+              ))}
               {pending && <StepList steps={state.steps} label="What Edi did" />}
             </article>
           );
@@ -273,13 +253,8 @@ export function AgentPanel() {
       </form>
       <p className="agent-composer-meta">
         <span className="ds-caption ds-tertiary">{state.model}</span>
-        <Button
-          variant="plain"
-          size="small"
-          disabled={busy || running}
-          onClick={() => void command({ type: 'disconnect-agent' })}
-        >
-          Change connection
+        <Button variant="plain" size="small" onClick={onSetUp}>
+          AI settings
         </Button>
       </p>
     </section>

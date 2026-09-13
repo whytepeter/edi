@@ -1,0 +1,86 @@
+.home-view {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.home-hero {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  text-align: center;
+}
+.home-avatar {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 76px;
+  margin-bottom: var(--space-2);
+  color: var(--accent);
+}
+/* A soft pool of accent light behind the character. */
+.home-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-soft), transparent 70%);
+}
+.home-avatar .pet-art {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.home-composer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 5px 5px var(--space-4);
+  border-radius: var(--radius-capsule);
+}
+.home-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  outline: none;
+}
+.home-input::placeholder {
+  color: var(--label-tertiary);
+}
+.home-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+.home-send:disabled {
+  opacity: 0.35;
+}
+.home-composer:focus-within {
+  box-shadow:
+    var(--focus-ring),
+    inset 0 0 0 1px var(--accent-fill);
+}
+
+.home-hint {
+  margin-top: calc(var(--space-3) * -1);
+  text-align: center;
+}
+.home-hint kbd {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  font-weight: 600;
+  color: var(--label-secondary);
+}

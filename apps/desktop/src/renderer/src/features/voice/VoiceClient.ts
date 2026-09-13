@@ -10,6 +10,14 @@ const METER_MS = 50;
 /** Backpressure: retry an unaccepted chunk this often, for at most this long. */
 const RETRY_MS = 100;
 const RETRY_LIMIT = 60;
+/** Speech that may wait ahead of the playhead (about 3 MB of samples at 24 kHz). */
+const SPEECH_QUEUE_SECONDS = 30;
+/** Output loudness that counts as a fully open mouth, and how quickly the mouth follows. */
+const MOUTH_FULL_RMS = 0.16;
+const MOUTH_ATTACK = 0.55;
+const MOUTH_RELEASE = 0.22;
+/** Silence after the last queued chunk before the mouth hands back to the expression. */
+const MOUTH_IDLE_MS = 300;
 
 interface Capture {
   generation: number;
@@ -23,9 +31,17 @@ interface Capture {
  * cancel; this owns the microphone, decodes the recording to 16 kHz PCM16, and
  * plays spoken replies. Everything is tagged with main's session generation.
  */
-export function startVoiceClient(bridge: DesktopBridge): () => void {
+export function startVoiceClient(
+  bridge: DesktopBridge,
+  options: {
+    /** 0–1 loudness of Edi's own speech while it plays; null when playback ends. */
+    onSpeechLevel?: (level: number | null) => void;
+  } = {},
+): () => void {
   let capture: Capture | undefined;
   let player: PcmPlayer | undefined;
+  let output: AnalyserNode | undefined;
+  let mouthFrame = 0;
   let playback: { generation: number; token: number | null } | undefined;
 
   const report = (generation: number, event: 'capture-ready' | 'speech-detected' | 'failed') =>
@@ -77,9 +93,44 @@ export function startVoiceClient(bridge: DesktopBridge): () => void {
     }
   }
 
+  /** Follows the loudness of what is actually playing, so the mouth moves with the words. */
+  function followSpeech() {
+    if (mouthFrame || !output || !options.onSpeechLevel) return;
+    const analyser = output;
+    const emit = options.onSpeechLevel;
+    const samples = new Float32Array(analyser.fftSize);
+    let level = 0;
+    let quietSince = performance.now();
+    const tick = (now: number) => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const value of samples) sum += value * value;
+      const target = Math.min(1, Math.sqrt(sum / samples.length) / MOUTH_FULL_RMS);
+      level += (target - level) * (target > level ? MOUTH_ATTACK : MOUTH_RELEASE);
+      emit(Math.round(level * 100) / 100);
+      if (player?.snapshot().pendingNodes) quietSince = now;
+      if (now - quietSince > MOUTH_IDLE_MS) return stopFollowing();
+      mouthFrame = requestAnimationFrame(tick);
+    };
+    mouthFrame = requestAnimationFrame(tick);
+  }
+
+  function stopFollowing() {
+    cancelAnimationFrame(mouthFrame);
+    mouthFrame = 0;
+    options.onSpeechLevel?.(null);
+  }
+
   // Main sends one chunk at a time and waits for `voice-played`, so this never overlaps.
   async function play(generation: number, samples: Float32Array, rate: number) {
-    player ??= new PcmPlayer(new AudioContext());
+    if (!player) {
+      const context = new AudioContext();
+      output = context.createAnalyser();
+      output.fftSize = 512;
+      output.connect(context.destination);
+      // A long queue lets Chatterbox synthesize the next sentence while this one plays.
+      player = new PcmPlayer(context, output, SPEECH_QUEUE_SECONDS);
+    }
     if (playback?.generation !== generation) {
       playback = { generation, token: null };
       const token = await player.begin();
@@ -92,6 +143,7 @@ export function startVoiceClient(bridge: DesktopBridge): () => void {
       const result = player.push(token, samples, rate);
       if (result === 'stale') return;
       if (result === 'accepted') {
+        followSpeech();
         await bridge.command({ type: 'voice-played', generation }).catch(() => {});
         return;
       }
@@ -108,11 +160,13 @@ export function startVoiceClient(bridge: DesktopBridge): () => void {
     else if (event.type === 'stop-audio') {
       player?.stop();
       playback = undefined;
+      stopFollowing();
     }
   });
 
   return () => {
     unsubscribe();
+    stopFollowing();
     cancelCapture();
     void player?.dispose();
   };

@@ -6,12 +6,14 @@ import {
   PocketVoice,
   speakPocket,
 } from '../../apps/desktop/src/main/voice/pocket-process';
+import { ChatterboxVoice } from '../../apps/desktop/src/main/voice/chatterbox-process';
 
 const runtime = {
   python: '/usr/bin/python3',
   worker: resolve('tests/audio/worker-fixture.py'),
   cache: '/private/tmp/edi-unused-cache',
 };
+const chatterboxRuntime = { ...runtime, model: 'fixture' };
 const live = () => new AbortController().signal;
 /** The fixture encodes which utterance a process is serving in its samples. */
 const collect = (values: number[]) => async (pcm: Float32Array) => {
@@ -105,6 +107,38 @@ test('a crashed worker is replaced on the next reply', async () => {
     const values: number[] = [];
     await voice.speak('normal', live(), collect(values));
     assert.deepEqual(values, [0.25, 0.25]);
+  } finally {
+    voice.dispose();
+  }
+});
+
+test('Stopping Chatterbox Turbo mid-reply keeps the loaded model for the next reply', async () => {
+  const voice = new ChatterboxVoice(chatterboxRuntime);
+  const values: number[] = [];
+  try {
+    const stop = new AbortController();
+    await assert.rejects(
+      voice.speak('long', stop.signal, async pcm => {
+        values.push(pcm[0]!);
+        stop.abort();
+      }),
+    );
+    await voice.speak('Again.', live(), collect(values));
+    // 0.5 means the same warm process served the second reply.
+    assert.deepEqual(values, [0.25, 0.5, 0.5]);
+    assert.equal(voice.status, 'ready');
+  } finally {
+    voice.dispose();
+  }
+});
+
+test('Chatterbox Turbo keeps a warm worker and accepts expression tags', async () => {
+  const voice = new ChatterboxVoice(chatterboxRuntime);
+  const values: number[] = [];
+  try {
+    await voice.speak('That is funny. [laugh]', live(), collect(values));
+    await voice.speak('Again.', live(), collect(values));
+    assert.deepEqual(values, [0.25, 0.25, 0.5, 0.5]);
   } finally {
     voice.dispose();
   }

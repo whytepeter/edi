@@ -1,11 +1,13 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { PocketRuntime } from './pocket-process';
+import type { ChatterboxRuntime } from './chatterbox-process';
 import type { TranscriptionRuntime } from './transcription-process';
 
 export interface VoiceRuntime {
   transcription: TranscriptionRuntime;
   pocket: PocketRuntime;
+  chatterbox: ChatterboxRuntime | null;
 }
 
 /**
@@ -24,7 +26,9 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
   const runtime: VoiceRuntime = {
     transcription: {
       executable: join(transcription, build ?? 'missing', 'build/bin/whisper-cli'),
-      model: join(transcription, 'ggml-base.en.bin'),
+      model: existsSync(join(transcription, 'ggml-small.en.bin'))
+        ? join(transcription, 'ggml-small.en.bin')
+        : join(transcription, 'ggml-base.en.bin'),
       vadModel: join(transcription, 'ggml-silero-v6.2.0.bin'),
     },
     pocket: {
@@ -32,7 +36,15 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
       worker: join(appPath, 'voice/pocket_worker.py'),
       cache: join(voice, 'cache/huggingface'),
     },
+    chatterbox: null,
   };
+  const chatterbox: ChatterboxRuntime = {
+    python: join(voice, 'chatterbox-venv/bin/python'),
+    worker: join(appPath, 'voice/chatterbox_worker.py'),
+    cache: join(voice, 'cache/chatterbox'),
+    model: join(voice, 'cache/chatterbox/model'),
+  };
+  if (Object.values(chatterbox).every(existsSync)) runtime.chatterbox = chatterbox;
   const paths = [...Object.values(runtime.transcription), ...Object.values(runtime.pocket)];
   return paths.every(path => existsSync(path)) ? runtime : null;
 }
