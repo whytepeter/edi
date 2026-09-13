@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import { access, link, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
+import { artifactPreview, type ArtifactSummary } from '@edi/contracts';
 import { defineCapability, OutcomeUnknownError } from '../types';
 
 export interface ListedNote {
@@ -32,6 +33,8 @@ interface NotesDependencies {
   directory: () => string;
   store: NoteStore;
   now?: () => number;
+  /** Display a note in Edi's card. */
+  shown?: (artifact: ArtifactSummary) => void;
 }
 
 /** File names come only from a slug of the title, so input cannot choose a path. */
@@ -85,7 +88,7 @@ function noteContent(title: string, body: string) {
 }
 
 /** Open the reviewed path without following a replacement symbolic link. */
-async function readNote(path: string) {
+export async function readNote(path: string) {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
@@ -98,12 +101,77 @@ async function readNote(path: string) {
   }
 }
 
-export function notesCapabilities({ directory, store, now = Date.now }: NotesDependencies) {
+/** Read a Library note by id, confined to the notes folder. */
+export async function readLibraryNote(store: NoteStore, directory: () => string, id: string) {
+  const { note, path } = locate(store, directory, id);
+  try {
+    return { note, markdown: await readNote(path) };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error('That note’s file is gone.', { cause: error });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Create a new note file without replacing anything. Used by the reviewed `notes.save` and by
+ * the person's own Save button, which is itself the consent.
+ */
+export async function writeNewNote(
+  deps: { directory: () => string; store: NoteStore; now?: () => number },
+  note: { title: string; body: string; toolCallId: string | null },
+  /** The exact path a person reviewed; it is never swapped for another name. */
+  reviewedPath?: string,
+) {
+  const folder = resolve(deps.directory());
+  const path = reviewedPath ?? (await freePath(folder, slugify(note.title) || 'note'));
+  if (dirname(path) !== folder) throw new Error('Refusing to write outside the notes folder.');
+  const content = noteContent(note.title, note.body);
+  const bytes = Buffer.byteLength(content);
+  await mkdir(folder, { recursive: true });
+  // Write a private temp file, then hard-link it into place: `link` fails if the name was
+  // taken meanwhile, and the note appears whole or not at all.
+  const temp = join(folder, `.edi-${randomUUID()}.tmp`);
+  await writeFile(temp, content, { flag: 'wx', mode: 0o644 });
+  try {
+    await link(temp, path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(
+        reviewedPath
+          ? 'A file with that name appeared after you approved. Nothing was replaced.'
+          : 'A file with that name appeared meanwhile. Nothing was replaced.',
+        { cause: error },
+      );
+    }
+    throw error;
+  } finally {
+    await unlink(temp).catch(() => {});
+  }
+  const id = randomUUID();
+  try {
+    deps.store.add({
+      id,
+      title: note.title,
+      path,
+      bytes,
+      toolCallId: note.toolCallId,
+      createdAt: (deps.now ?? Date.now)(),
+    });
+  } catch {
+    // The file exists; failing to index it must not report the write as failed.
+    throw new OutcomeUnknownError(`Saved ${path}, but Edi could not record it in its history.`);
+  }
+  return { id, path };
+}
+
+export function notesCapabilities({ directory, store, now = Date.now, shown }: NotesDependencies) {
   const save = defineCapability({
     id: 'notes.save',
     title: 'Save a note',
     description:
-      'Save a new Markdown note to the user’s Edi Notes folder. The user reviews the exact file ' +
+      'Save a new Markdown note to the Notes folder in the user’s Edi workspace (Documents › Edi). The user reviews the exact file ' +
       'before anything is written. Use only when the user asks to save or write something down.',
     effect: 'write',
     timeoutMs: 10_000,
@@ -133,39 +201,7 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
           body: content.slice(0, 4000),
         },
         async execute() {
-          await mkdir(folder, { recursive: true });
-          // Write a private temp file, then hard-link it into place: `link` fails if
-          // the name was taken since review, and the note appears whole or not at all.
-          const temp = join(folder, `.edi-${randomUUID()}.tmp`);
-          await writeFile(temp, content, { flag: 'wx', mode: 0o644 });
-          try {
-            await link(temp, path);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-              throw new Error(
-                'A file with that name appeared after you approved. Nothing was replaced.',
-                { cause: error },
-              );
-            }
-            throw error;
-          } finally {
-            await unlink(temp).catch(() => {});
-          }
-          try {
-            store.add({
-              id: randomUUID(),
-              title,
-              path,
-              bytes,
-              toolCallId: callId,
-              createdAt: now(),
-            });
-          } catch {
-            // The file exists; failing to index it must not report the write as failed.
-            throw new OutcomeUnknownError(
-              `Saved ${path}, but Edi could not record it in its history.`,
-            );
-          }
+          await writeNewNote({ directory, store, now }, { title, body, toolCallId: callId }, path);
           return { summary: `Saved “${title}” to ${path}`, output: { path } };
         },
       };
@@ -338,5 +374,42 @@ export function notesCapabilities({ directory, store, now = Date.now }: NotesDep
     },
   });
 
-  return [save, list, read, edit, remove] as const;
+  const show = defineCapability({
+    id: 'notes.show',
+    title: 'Show a note',
+    description:
+      'Display a saved note in Edi’s card. Use this, not notes.read, when the user asks to see, ' +
+      'show, open or pull up a note. Reply in one short sentence; never read the note out.',
+    effect: 'read',
+    timeoutMs: 5_000,
+    input: z.object({ id: noteId }).strict(),
+    prepare({ id }, { callId }) {
+      const { note } = locate(store, directory, id);
+      return {
+        preview: {
+          title: 'Show a note',
+          action: 'Show',
+          summary: `Show “${note.title}”.`,
+          fields: [],
+        },
+        async execute() {
+          const { markdown } = await readLibraryNote(store, directory, id);
+          shown?.({
+            id: callId,
+            kind: 'note',
+            title: note.title,
+            preview: artifactPreview({ kind: 'note', markdown }),
+            noteId: note.id,
+          });
+          return {
+            summary: `Showed “${note.title}” in Edi’s card.`,
+            // The body stays out of the reply so it is displayed, not read aloud.
+            output: { shown: true, title: note.title },
+          };
+        },
+      };
+    },
+  });
+
+  return [save, list, read, edit, remove, show] as const;
 }

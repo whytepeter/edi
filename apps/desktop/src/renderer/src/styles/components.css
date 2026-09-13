@@ -147,7 +147,7 @@
   background: var(--content-base);
   box-shadow:
     var(--focus-ring),
-    inset 0 0 0 1px var(--accent);
+    inset 0 0 0 1px var(--accent-fill);
 }
 textarea.ds-input {
   resize: vertical;
@@ -193,6 +193,39 @@ textarea.ds-input {
 .ds-segmented-option[aria-checked='true'] {
   color: var(--label);
   font-weight: 600;
+}
+
+/* ---------- Switch ---------- */
+.ds-switch {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: var(--fill-pressed);
+  transition: background-color 160ms var(--ease-out);
+}
+.ds-switch[aria-checked='true'] {
+  background: var(--accent-strong);
+}
+.ds-switch:disabled {
+  opacity: 0.45;
+}
+.ds-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+  transition: transform var(--spring-fast) var(--spring);
+}
+.ds-switch[aria-checked='true'] .ds-switch-thumb {
+  transform: translateX(16px);
 }
 
 /* ---------- Lists ---------- */
@@ -243,6 +276,100 @@ textarea.ds-input {
   letter-spacing: var(--tracking-caption);
   color: var(--label-tertiary);
   margin-top: 4px;
+}
+
+/* ---------- Grouped lists (inset rows, iOS Settings style) ---------- */
+.ds-group-section {
+  display: grid;
+  gap: 6px;
+}
+.ds-group-title {
+  padding: 0 var(--space-3);
+  font: var(--text-footnote);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.ds-group-footer {
+  padding: 0 var(--space-3);
+  font: var(--text-footnote);
+  color: var(--label-tertiary);
+}
+
+.ds-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  overflow: hidden;
+}
+.ds-group > li + li {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+
+.ds-group-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 8px var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  text-align: left;
+}
+.ds-group-row[data-link]:hover {
+  background: var(--fill-hover);
+}
+.ds-group-row[data-link]:active {
+  background: var(--fill-pressed);
+}
+.ds-group-row > .ds-icon {
+  flex: none;
+  color: var(--label-quaternary);
+}
+.ds-group-row-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.ds-group-row-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+.ds-group-row-title {
+  font-weight: 500;
+}
+.ds-group-row-detail {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  overflow-wrap: anywhere;
+}
+.ds-group-row-value {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ds-group-row kbd {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  font: var(--text-footnote);
+  font-weight: 600;
+  color: var(--label);
 }
 
 /* ---------- Menus (context menu window and in-card popover) ---------- */
@@ -339,7 +466,7 @@ textarea.ds-input {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-fill);
   animation: ds-think 1.2s ease-in-out infinite;
 }
 .ds-thinking i:nth-child(2) {
@@ -373,7 +500,7 @@ textarea.ds-input {
   width: 3px;
   height: 100%;
   border-radius: 2px;
-  background: var(--accent);
+  background: var(--accent-fill);
   transform-origin: center;
   animation: ds-listen 0.9s ease-in-out infinite alternate;
 }
@@ -468,4 +595,35 @@ textarea.ds-input {
   background: #6fbf8a;
   box-shadow: 0 0 0 3px rgb(111 191 138 / 0.18);
   flex-shrink: 0;
+}
+
+/* ---------- Range slider ---------- */
+.ds-range {
+  flex: 1;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-app-region: no-drag;
+}
+.ds-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--radius-capsule);
+  background: var(--fill-pressed);
+}
+.ds-range::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.25),
+    inset 0 0 0 0.5px var(--hairline);
+  appearance: none;
+}
+.ds-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    var(--focus-ring),
+    0 1px 3px rgb(0 0 0 / 0.25);
 }

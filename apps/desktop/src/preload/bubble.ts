@@ -52,7 +52,11 @@ contextBridge.exposeInMainWorld('ediBubble', {
     }
     await ipcRenderer.invoke('edi:command', { type: 'respond-approval', callId, decision });
   },
+  async openArtifact(callId: string) {
+    if (!uuid.test(callId)) throw new Error('Invalid content.');
+    await ipcRenderer.invoke('edi:command', { type: 'open-artifact', ref: { callId } });
+  },
   async showContent() {
-    await ipcRenderer.invoke('edi:command', { type: 'show-workspace', view: 'agent' });
+    await ipcRenderer.invoke('edi:command', { type: 'show-workspace', view: 'conversations' });
   },
 });

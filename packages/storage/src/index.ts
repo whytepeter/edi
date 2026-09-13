@@ -9,4 +9,5 @@ export {
   type NoteRecord,
   type Exchange,
   type ThreadTurn,
+  type ShownCall,
 } from './repositories';

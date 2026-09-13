@@ -35,6 +35,10 @@ export const workerInputSchema = z
       .max(4),
     /** The question was spoken and the reply will be read aloud. */
     spoken: z.boolean(),
+    /** Selected speech engine supports Chatterbox paralinguistic expression tags. */
+    expressiveVoice: z.boolean().default(false),
+    /** Trusted, current, non-secret product configuration supplied by main. */
+    selfContext: z.string().max(12_000).default(''),
     tools: z.array(toolManifestEntrySchema).max(64),
   })
   .strict();
@@ -52,7 +56,12 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('done') }).strict(),
-  z.object({ type: z.literal('error') }).strict(),
+  z
+    .object({
+      type: z.literal('error'),
+      kind: z.enum(['auth', 'credits', 'model', 'temporary', 'unknown']).default('unknown'),
+    })
+    .strict(),
 ]);
 export type WorkerMessage = z.infer<typeof workerMessageSchema>;
 

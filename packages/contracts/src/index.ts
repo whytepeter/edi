@@ -3,13 +3,24 @@ import { approvalRequestSchema, toolStepSchema, type Activity } from './capabili
 export * from './capabilities';
 export * from './screen-context';
 export * from './presentation';
+export * from './screen-grounding';
 export * from './permissions';
 export * from './screen-intent';
 export * from './voice';
 export * from './voice-session';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 import { permissionIdSchema, type PermissionSnapshot } from './permissions';
+import { petScaleSchema } from './skin-geometry';
+import {
+  artifactKindSchema,
+  artifactRefSchema,
+  artifactSummarySchema,
+  type Artifact,
+  type ArtifactRef,
+} from './artifacts';
+export * from './artifacts';
 export {
+  placeArtifact,
   placeCard,
   placeSpeechBubble,
   placeContextMenu,
@@ -23,6 +34,8 @@ export {
   handTip,
   mapSkinPoint,
   desktopPetSize,
+  petScaleSchema,
+  petWindowSize,
   type SkinGeometry,
 } from './skin-geometry';
 
@@ -57,6 +70,8 @@ export const chatMessageSchema = z
     id: z.string().min(1).max(80),
     role: z.enum(['user', 'assistant']),
     text: z.string().max(32000),
+    /** Content Edi showed during this turn, rendered inline in the conversation. */
+    artifacts: z.array(artifactSummarySchema).max(6).optional(),
   })
   .strict();
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
@@ -72,6 +87,8 @@ export const agentStateSchema = z.object({
   text: z.string().max(32000),
   error: z.string(),
   steps: z.array(toolStepSchema).max(20),
+  /** Content shown during the live turn. */
+  artifacts: z.array(artifactSummarySchema).max(6).default([]),
   /** Completed history plus the live turn, oldest first. */
   messages: z.array(chatMessageSchema).max(24),
   /** Screen Recording permission as of the last request; null before any request. */
@@ -91,6 +108,7 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
     text: '',
     error: '',
     steps: [],
+    artifacts: [],
     messages: [],
     approval: null,
     screenAccess: null,
@@ -98,8 +116,24 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
   };
 }
 
-export const skinSchema = z.enum(['cloud', 'sprout']);
+export const skinSchema = z.enum(['edi', 'mochi']);
 export type SkinId = z.infer<typeof skinSchema>;
+export const voiceModelSchema = z.enum(['pocket', 'chatterbox-turbo']);
+export type VoiceModelId = z.infer<typeof voiceModelSchema>;
+
+/**
+ * Semantic character states, independent of artwork and voice provider. A skin
+ * may express them differently, but it must not invent provider-specific moods.
+ */
+export const characterExpressionSchema = z.enum([
+  'idle',
+  'listening',
+  'thinking',
+  'speaking',
+  'happy',
+  'attention',
+]);
+export type CharacterExpression = z.infer<typeof characterExpressionSchema>;
 export const screenPointSchema = z
   .object({
     x: z.number().finite().min(-100000).max(100000),
@@ -119,29 +153,130 @@ export const statusBubbleStateSchema = z.enum([
   'speaking',
   'notice',
   'approval',
+  'artifact',
 ]);
 export type StatusBubbleState = z.infer<typeof statusBubbleStateSchema>;
 export const bubbleSideSchema = z.enum(['left', 'right']);
 export type BubbleSide = z.infer<typeof bubbleSideSchema>;
-export const settingsSchema = z.object({
-  skin: skinSchema,
-  pinned: z.boolean(),
-  petPosition: screenPointSchema.nullable().default(null),
-});
+/** Retired bundled skins move to Edi instead of resetting every preference. */
+const retiredSkins = new Set(['mira', 'cloud', 'sprout']);
+const legacyScale: Record<string, number> = { small: 0.75, medium: 1, large: 1.35 };
+export const settingsSchema = z.preprocess(
+  value => {
+    if (!value || typeof value !== 'object') return value;
+    const saved = { ...(value as Record<string, unknown>) };
+    if (typeof saved.skin === 'string' && retiredSkins.has(saved.skin)) saved.skin = 'edi';
+    if (saved.petScale === undefined && typeof saved.petSize === 'string')
+      saved.petScale = legacyScale[saved.petSize];
+    delete saved.petSize;
+    return saved;
+  },
+  z.object({
+    skin: skinSchema,
+    pinned: z.boolean(),
+    petPosition: screenPointSchema.nullable().default(null),
+    /** When false, a spoken question is answered in the conversation without speech. */
+    speakReplies: z.boolean().default(true),
+    /** Speech engine used for spoken replies. */
+    voiceModel: voiceModelSchema.default('pocket'),
+    petScale: petScaleSchema.default(1),
+  }),
+);
 export type Settings = z.infer<typeof settingsSchema>;
 export const defaultSettings: Settings = {
-  skin: 'cloud',
+  skin: 'edi',
   pinned: false,
   petPosition: null,
+  speakReplies: true,
+  voiceModel: 'pocket',
+  petScale: 1,
 };
-export const workspaceViewSchema = z.enum([
-  'content',
-  'agent',
-  'avatars',
-  'extensions',
-  'activity',
-]);
+/**
+ * Every place the card can show, as a stable, versioned destination list. Edi's
+ * own navigation targets these IDs; there are no arbitrary routes.
+ */
+export const workspaceSections = [
+  'home',
+  'conversations',
+  'library',
+  'skills',
+  'connectors',
+  'appearance',
+  'settings',
+] as const;
+export const settingsPages = [
+  'settings.ai',
+  'settings.voice',
+  'settings.keyboard',
+  'settings.privacy',
+  'settings.activity',
+  'settings.about',
+] as const;
+export const workspaceViewSchema = z.enum([...workspaceSections, ...settingsPages]);
 export type WorkspaceView = z.infer<typeof workspaceViewSchema>;
+export type WorkspaceSection = (typeof workspaceSections)[number];
+
+/** A saved note as the Library lists it. The file path stays in main. */
+export const libraryItemSchema = z
+  .object({
+    id: z.string().min(1).max(80),
+    kind: artifactKindSchema,
+    title: z.string().max(200),
+    bytes: z.number().int().nonnegative(),
+    createdAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export const librarySchema = z.array(libraryItemSchema).max(500);
+export type LibraryItem = z.infer<typeof libraryItemSchema>;
+
+/**
+ * One entry in the model picker. Main fetches OpenRouter's public catalog and keeps
+ * only models Edi can use: image input (screen questions) and tool calling (notes).
+ */
+export const modelOptionSchema = z
+  .object({
+    id: modelIdSchema,
+    name: z.string().max(160),
+    contextLength: z.number().int().nonnegative(),
+    /** US dollars per million input tokens; null when the catalog doesn't say. */
+    inputPrice: z.number().nonnegative().nullable(),
+    /** Edi's pick for a kind of use; null for everything else. */
+    recommended: z.enum(['fast', 'balanced', 'best']).nullable(),
+  })
+  .strict();
+export const modelCatalogSchema = z.array(modelOptionSchema).max(1000);
+export type ModelOption = z.infer<typeof modelOptionSchema>;
+
+/** What is actually available on this Mac right now, for Settings to report truthfully. */
+export const systemInfoSchema = z
+  .object({
+    version: z.string().max(40),
+    voice: z
+      .object({
+        available: z.boolean(),
+        name: z.string().max(60),
+        models: z
+          .array(
+            z
+              .object({
+                id: voiceModelSchema,
+                name: z.string().max(60),
+                available: z.boolean(),
+                expressions: z.boolean(),
+                detail: z.string().max(160),
+              })
+              .strict(),
+          )
+          .length(2),
+      })
+      .strict(),
+    pushToTalk: z
+      .object({ status: z.enum(['starting', 'ready', 'unavailable']), label: z.string().max(20) })
+      .strict(),
+    notesFolder: z.string().max(1024),
+  })
+  .strict();
+export type SystemInfo = z.infer<typeof systemInfoSchema>;
 export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -153,7 +288,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('character-action'),
-      action: z.enum(['conversation', 'content', 'stop', 'sleep', 'quit', 'dismiss']),
+      action: z.enum(['content', 'settings', 'sleep', 'quit', 'dismiss']),
     })
     .strict(),
   z
@@ -166,7 +301,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('configure-agent'),
-      apiKey: z.string().trim().min(10).max(512),
+      /** Omit to keep the saved key and change only the model. */
+      apiKey: z.string().trim().min(10).max(512).optional(),
       model: modelIdSchema,
     })
     .strict(),
@@ -191,6 +327,25 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
   z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
+  z.object({ type: z.literal('set-speak-replies'), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
+  z
+    .object({
+      type: z.literal('set-pet-scale'),
+      scale: petScaleSchema,
+      /** False while the slider is moving; true once, when it settles, to save. */
+      commit: z.boolean(),
+    })
+    .strict(),
+  z.object({ type: z.literal('open-artifact'), ref: artifactRefSchema }).strict(),
+  /** Artifact window actions. Main resolves content and paths from the reference itself. */
+  z.object({ type: z.literal('artifact-copy'), ref: artifactRefSchema }).strict(),
+  z.object({ type: z.literal('artifact-download'), ref: artifactRefSchema }).strict(),
+  z.object({ type: z.literal('artifact-reveal'), ref: artifactRefSchema }).strict(),
+  z.object({ type: z.literal('close-artifact') }).strict(),
+  /** The card reports where the person is, so Edi can answer "where am I?" truthfully. */
+  z.object({ type: z.literal('workspace-view'), view: workspaceViewSchema }).strict(),
+  z.object({ type: z.literal('reveal-library-item'), id: z.string().min(1).max(80) }).strict(),
   z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),
   ...voiceCommandSchemas,
   z
@@ -207,29 +362,41 @@ export interface DesktopBridge {
   permissions(): Promise<PermissionSnapshot>;
   onPermissions(callback: (snapshot: PermissionSnapshot) => void): () => void;
   onNavigate(callback: (view: WorkspaceView) => void): () => void;
+  /** Main asks the artifact window to show different content (the window is reused). */
+  onOpenArtifact(callback: (ref: ArtifactRef) => void): () => void;
+  artifact(ref: ArtifactRef): Promise<Artifact>;
   agent(): Promise<AgentState>;
   /** Recent runs and their tool outcomes, newest first. */
   activity(): Promise<Activity>;
+  /** Workspace artifacts and saved notes, newest first. */
+  library(): Promise<LibraryItem[]>;
+  system(): Promise<SystemInfo>;
+  /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
+  models(): Promise<ModelOption[]>;
   onAgent(callback: (state: AgentState) => void): () => void;
   settings(): Promise<Settings>;
   command(command: Command): Promise<void>;
   onSettings(callback: (settings: Settings) => void): () => void;
   /** Voice session instructions for the pet window's microphone and speaker. */
   onVoice(callback: (event: VoiceHostEvent) => void): () => void;
+  /** Live semantic state; only the pet renderer translates this into motion. */
+  onCharacterExpression(callback: (expression: CharacterExpression) => void): () => void;
 }
 export const skins = [
   {
-    id: 'cloud',
-    name: 'Cloud',
-    description: 'A little curious. Always nearby.',
-    color: '#759bea',
-    fill: '#f5f8ff',
+    id: 'edi',
+    name: 'Edi',
+    description: 'Warm, bright, and always nearby.',
+    color: '#3d2419',
+    fill: '#b5744c',
+    accent: '#3d2419',
   },
   {
-    id: 'sprout',
-    name: 'Sprout',
-    description: 'A softer shade of company.',
-    color: '#759881',
-    fill: '#f0f5ec',
+    id: 'mochi',
+    name: 'Mochi',
+    description: 'Soft, cheerful, and a little bouncy.',
+    color: '#71493D',
+    fill: '#fbf2e8',
+    accent: '#71493D',
   },
 ] as const;

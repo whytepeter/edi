@@ -1,0 +1,267 @@
+/* Inline artifact card: a compact, tappable preview of shown content. */
+.artifact-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 320px;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: 14px;
+  background: var(--content-base);
+  box-shadow:
+    var(--shadow-control),
+    inset 0 0 0 0.5px var(--hairline);
+  color: var(--label);
+  text-align: left;
+}
+.artifact-card:hover {
+  box-shadow:
+    var(--shadow-floating),
+    inset 0 0 0 1px var(--accent-soft);
+}
+.artifact-card > .ds-icon {
+  flex: none;
+  align-self: center;
+  color: var(--label-quaternary);
+}
+.artifact-card-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.artifact-card-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.artifact-card-title {
+  overflow: hidden;
+  font: var(--text-headline);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.artifact-card-kind {
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+}
+.artifact-card-preview {
+  display: -webkit-box;
+  margin-top: 4px;
+  overflow: hidden;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  white-space: pre-line;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/*
+ * Expanded artifact: its own native-glass window beside the card. macOS blurs and tints the
+ * desktop behind it; the page adds a light tint for legible text and the specular rim that
+ * makes it read as glass. The header is the drag handle; content scrolls beneath it.
+ */
+.artifact-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+}
+.artifact-window-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 60px;
+  padding: 10px 12px 10px 16px;
+  box-shadow: inset 0 -0.5px 0 var(--separator);
+  -webkit-app-region: drag;
+}
+.artifact-window-title {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+.artifact-window-title h1 {
+  margin: 0;
+  overflow: hidden;
+  font: 700 15px/1.25 var(--font-display);
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.artifact-window-title span {
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+}
+.artifact-window-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+.artifact-window-actions .ds-icon-button[data-done] {
+  color: var(--accent-strong);
+}
+.artifact-window-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5) 24px var(--space-8);
+  user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: var(--fill-pressed) transparent;
+}
+.artifact-window-body > .md {
+  max-width: 680px;
+  line-height: 1.6;
+}
+/* An interactive page fills the window below the header and scrolls itself. */
+.artifact-window-body[data-kind='html'] {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+.artifact-html {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+}
+.artifact-window-error {
+  margin: 0 0 var(--space-3);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+
+/* Markdown and structured content. */
+.md {
+  display: grid;
+  gap: var(--space-3);
+  font: var(--text-body);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.md > * {
+  margin: 0;
+}
+.md h2 {
+  font: var(--text-title);
+  letter-spacing: var(--tracking-title);
+}
+.md h3 {
+  font: 650 16px/1.3 var(--font-display);
+  letter-spacing: -0.012em;
+}
+.md h4 {
+  font: var(--text-headline);
+}
+/* A heading starts a new section, so it sits closer to what follows than to what precedes. */
+.md > :is(h2, h3, h4):not(:first-child) {
+  margin-top: var(--space-2);
+}
+.md hr {
+  height: 0;
+  margin-block: var(--space-1);
+  border: 0;
+  border-top: 0.5px solid var(--separator);
+}
+.md ul,
+.md ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+}
+.md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--fill-hover);
+  font:
+    12px/1.4 ui-monospace,
+    'SF Mono',
+    Menlo,
+    monospace;
+}
+.md pre {
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+.md pre code {
+  padding: 0;
+  background: none;
+}
+.md blockquote {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--accent-soft);
+  color: var(--label-secondary);
+}
+.md-link {
+  color: var(--accent-strong);
+}
+.md-task,
+.artifact-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  list-style: none;
+}
+.md ul:has(> .md-task) {
+  padding-left: 0;
+}
+.artifact-checklist {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  font: var(--text-body);
+}
+.md-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1.5px var(--label-tertiary);
+}
+[data-done] > .md-check {
+  background: var(--accent-strong);
+  box-shadow: none;
+}
+[data-done] > span:last-child {
+  color: var(--label-tertiary);
+  text-decoration: line-through;
+}
+.md-table {
+  overflow-x: auto;
+}
+.md-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--text-callout);
+}
+.md-table th,
+.md-table td {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--separator);
+  text-align: left;
+  vertical-align: top;
+}
+.md-table th {
+  font-weight: 600;
+  color: var(--label-secondary);
+}

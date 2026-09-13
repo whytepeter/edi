@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agentStateSchema,
+  characterExpressionSchema,
   commandSchema,
   emptyAgentState,
   settingsSchema,
@@ -82,7 +83,7 @@ test('card placement flips at left edge and clamps small/negative-origin display
   assert.throws(() => clampWindow({ x: NaN, y: 0, width: 1, height: 1 }, area));
 });
 
-test('both bundled skins validate and reject out-of-bounds anchors', () => {
+test('all bundled skins validate and reject out-of-bounds anchors', () => {
   for (const geometry of Object.values(skinGeometry)) {
     assert.equal(skinGeometrySchema.safeParse(geometry).success, true);
     assert.equal(
@@ -102,7 +103,7 @@ test('both bundled skins validate and reject out-of-bounds anchors', () => {
   }
 });
 test('skin coordinates match centered SVG scaling including negative display origins', () => {
-  const geometry = skinGeometry.cloud;
+  const geometry = skinGeometry.mochi;
   assert.deepEqual(
     mapSkinPoint(geometry, { x: 80, y: 85 }, { x: -500, y: 10, width: 320, height: 170 }),
     { x: -340, y: 95 },
@@ -126,11 +127,16 @@ test('bridge rejects unknown capabilities and invalid skin selections', () => {
     commandSchema.safeParse({ type: 'pet-hit-test', interactive: 'yes' }).success,
     false,
   );
-  assert.equal(commandSchema.safeParse({ type: 'show-workspace', view: 'agent' }).success, true);
-  assert.equal(
-    commandSchema.safeParse({ type: 'show-workspace', view: 'settings' }).success,
-    false,
-  );
+  for (const view of ['conversations', 'library', 'settings', 'settings.keyboard'])
+    assert.equal(commandSchema.safeParse({ type: 'show-workspace', view }).success, true);
+  // Destinations are a closed list: retired views and arbitrary routes are refused.
+  for (const view of ['agent', 'extensions', 'settings.computer-use', '/settings'])
+    assert.equal(commandSchema.safeParse({ type: 'show-workspace', view }).success, false);
+});
+test('character expressions stay semantic and bounded', () => {
+  for (const expression of ['idle', 'listening', 'thinking', 'speaking', 'happy', 'attention'])
+    assert.equal(characterExpressionSchema.safeParse(expression).success, true);
+  assert.equal(characterExpressionSchema.safeParse('cartesia-excited').success, false);
 });
 test('content accepts bounded presentation blocks without executable content', () => {
   const card = {
@@ -161,9 +167,32 @@ test('content accepts bounded presentation blocks without executable content', (
   );
 });
 test('stored settings require a supported avatar and boolean pin state', () => {
-  assert.equal(settingsSchema.safeParse({ skin: 'sprout', pinned: true }).success, true);
-  assert.equal(settingsSchema.safeParse({ skin: 'cloud' }).success, false);
+  assert.equal(settingsSchema.safeParse({ skin: 'mochi', pinned: true }).success, true);
+  assert.equal(settingsSchema.safeParse({ skin: 'edi', pinned: false }).success, true);
+  // Preferences saved with the retired Mira skin move to Edi instead of resetting.
+  assert.equal(settingsSchema.parse({ skin: 'mira', pinned: true }).skin, 'edi');
+  assert.equal(settingsSchema.safeParse({ skin: 'edi' }).success, false);
+  // Retired bundled characters move to Edi; old size choices become a scale.
+  for (const skin of ['cloud', 'sprout', 'mira'])
+    assert.equal(settingsSchema.parse({ skin, pinned: false }).skin, 'edi');
+  assert.equal(
+    settingsSchema.parse({ skin: 'edi', pinned: false, petSize: 'large' }).petScale,
+    1.35,
+  );
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petPosition, null);
+  // Preferences saved before speech could be turned off keep speaking.
+  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).speakReplies, true);
+  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petScale, 1);
+  assert.equal(
+    commandSchema.safeParse({ type: 'set-pet-scale', scale: 3, commit: true }).success,
+    false,
+  );
+  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).voiceModel, 'pocket');
+  assert.equal(
+    settingsSchema.safeParse({ skin: 'cloud', pinned: false, voiceModel: 'chatterbox-turbo' })
+      .success,
+    true,
+  );
   assert.equal(
     settingsSchema.safeParse({ skin: 'cloud', pinned: false, petPosition: { x: Infinity, y: 0 } })
       .success,
@@ -325,6 +354,16 @@ test('agent commands bound prompts, keys, and model IDs', () => {
       model: 'vendor/model',
       endpoint: 'https://other.example',
     }).success,
+    false,
+  );
+  // Changing only the model keeps the saved key; the key is never sent back to a renderer.
+  assert.equal(
+    commandSchema.safeParse({ type: 'configure-agent', model: 'vendor/model' }).success,
+    true,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'configure-agent', apiKey: 'short', model: 'vendor/model' })
+      .success,
     false,
   );
 });

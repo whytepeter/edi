@@ -4,6 +4,7 @@ import {
   VoiceController,
   cleanTranscript,
   speakable,
+  takeSpeech,
   type VoiceDependencies,
   type VoiceStatus,
 } from '../../apps/desktop/src/main/voice/voice-controller';
@@ -91,8 +92,8 @@ test('hold-to-talk transcribes before deciding whether the prompt needs screens'
     { prompt: 'What is this button?', screens: 'screens-after-transcription' },
   ]);
   assert.equal(h.voice.phase, 'idle');
-  // Opening clears any old bubble; listening only appears once capture is confirmed.
-  assert.deepEqual(h.statuses.slice(0, 3), ['hidden', 'listening', 'thinking']);
+  // Opening gives immediate character feedback without claiming the mic is ready.
+  assert.deepEqual(h.statuses.slice(0, 3), ['opening', 'listening', 'thinking']);
   assert.ok(h.statuses.includes('speaking'));
   assert.equal(h.statuses.at(-1), 'hidden');
 });
@@ -137,16 +138,34 @@ test('an empty transcript asks nothing and says it did not catch that', async ()
   assert.deepEqual(h.statuses.at(-1), { notice: 'I didn’t catch that.' });
 });
 
+test('with spoken replies off, the answer stays in the conversation and nothing plays', async () => {
+  let spoke = false;
+  const h = harness({
+    speakReplies: () => false,
+    speak: async () => {
+      spoke = true;
+    },
+  });
+  const generation = await holdAndSpeak(h);
+  await h.voice.audio(generation, new Uint8Array(3200));
+  assert.equal(h.asked.length, 1);
+  assert.equal(spoke, false);
+  assert.equal(h.statuses.includes('speaking'), false);
+  assert.deepEqual(h.statuses.at(-1), { notice: 'Answered in Conversations.' });
+});
+
 test('Stop while speaking aborts speech, silences the player and stops the agent', async () => {
   let aborted = false;
   const h = harness({
-    speak: (_text, signal) =>
-      new Promise((_, reject) =>
+    speak: (_text, signal, consume) => {
+      void consume(new Float32Array(4).fill(0.1), 24000).catch(() => {});
+      return new Promise((_, reject) =>
         signal.addEventListener('abort', () => {
           aborted = true;
           reject(new Error('stopped'));
         }),
-      ),
+      );
+    },
   });
   const generation = await holdAndSpeak(h);
   const done = h.voice.audio(generation, new Uint8Array(3200));
@@ -175,6 +194,78 @@ test('without a runtime the controller declines and nothing opens', () => {
   assert.equal(h.sent.length, 0);
 });
 
+test('Edi shows speaking only when synthesized audio arrives, not while it is generated', async () => {
+  let deliver!: () => void;
+  const h = harness({
+    speak: (_text, _signal, consume) =>
+      new Promise<void>(resolve => {
+        deliver = () => void consume(new Float32Array(4).fill(0.1), 24000).then(resolve, resolve);
+      }),
+  });
+  const generation = await holdAndSpeak(h);
+  const done = h.voice.audio(generation, new Uint8Array(3200));
+  for (let i = 0; i < 6; i++) await tick();
+  // The reply text is ready and handed to the voice, but no sound exists yet.
+  assert.equal(h.statuses.includes('speaking'), false);
+  assert.equal(h.voice.phase, 'processing');
+  deliver();
+  await tick();
+  assert.ok(h.statuses.includes('speaking'));
+  assert.equal(h.voice.phase, 'speaking');
+  h.voice.stop();
+  await done;
+});
+
+test('speech starts on the first spoken sentence before the run ends', async () => {
+  const spoken: string[] = [];
+  let report: ((state: AgentState) => void) | undefined;
+  let finish!: (state: AgentState) => void;
+  const running: AgentState = {
+    ...{
+      configured: true,
+      model: 'm',
+      status: 'running',
+      runId: 'run-1',
+      prompt: 'What is this button?',
+      text: '',
+      error: '',
+      steps: [],
+      messages: [],
+      approval: null,
+      screenAccess: 'granted',
+    },
+  };
+  const h = harness({
+    whenFinished: (_runId, _signal, onUpdate) => {
+      report = onUpdate;
+      return new Promise(resolve => {
+        finish = resolve;
+      });
+    },
+    speak: async (text, _signal, consume) => {
+      spoken.push(text);
+      void consume(new Float32Array(4).fill(0.1), 24000).catch(() => {});
+    },
+  });
+  const generation = await holdAndSpeak(h);
+  const done = h.voice.audio(generation, new Uint8Array(3200));
+  await tick();
+  await tick();
+  report?.({ ...running, text: 'It is the Save button. ' });
+  await tick();
+  assert.deepEqual(spoken, ['It is the Save button.']);
+  assert.ok(h.statuses.includes('speaking'));
+  const finished: AgentState = {
+    ...running,
+    status: 'done',
+    text: 'It is the Save button. I can also open it.',
+  };
+  report?.(finished);
+  finish(finished);
+  await done;
+  assert.deepEqual(spoken, ['It is the Save button.', 'I can also open it.']);
+});
+
 test('transcripts and replies are cleaned for listening', () => {
   assert.equal(cleanTranscript(' [BLANK_AUDIO] (music) hello  there '), 'hello there');
   assert.equal(
@@ -183,4 +274,36 @@ test('transcripts and replies are cleaned for listening', () => {
   );
   const long = `${'Word '.repeat(100)}end. ${'More '.repeat(100)}`;
   assert.ok(speakable(long).length <= 601);
+  assert.equal(speakable('That worked. [laugh]'), 'That worked.');
+  assert.equal(speakable('That worked. [laugh]', true), 'That worked. [laugh]');
+  assert.deepEqual(takeSpeech('Hello there. More coming', '', false, false), {
+    say: 'Hello there.',
+    spoken: 'Hello there.',
+  });
+  assert.deepEqual(takeSpeech('Hello there. I can help.', 'Hello there.', false, true), {
+    say: 'I can help.',
+    spoken: 'Hello there. I can help.',
+  });
+  // No fixed word count: the first clip waits for a sentence end or a natural clause break.
+  assert.equal(takeSpeech('one two three four five six seven', '', false, false).say, '');
+  assert.equal(
+    takeSpeech('Sure, here is what I found in your notes, and more', '', false, false).say,
+    'Sure, here is what I found in your notes,',
+  );
+  assert.equal(takeSpeech('Sure, I can', '', false, false).say, '');
+  // The first clip is short even when several sentences already arrived; the rest go together.
+  const all = 'Sure thing. Here it is. Your list is open. I added three items.';
+  const first = takeSpeech(all, '', false, false);
+  assert.equal(first.say, 'Sure thing. Here it is.');
+  assert.equal(
+    takeSpeech(all, first.spoken, false, true).say,
+    'Your list is open. I added three items.',
+  );
+  // A long first sentence starts at a clause break.
+  const longFirst =
+    'I looked through everything in your workspace, and the palette you liked is in Reports. More';
+  assert.equal(
+    takeSpeech(longFirst, '', false, false).say,
+    'I looked through everything in your workspace,',
+  );
 });

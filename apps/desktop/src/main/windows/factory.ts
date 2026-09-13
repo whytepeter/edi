@@ -1,34 +1,56 @@
 import { BrowserWindow, screen, type BrowserWindowConstructorOptions } from 'electron';
 import { join } from 'node:path';
+import { shapeGlassBubble, shapeGlassWindow } from '../permissions';
+import { ARTIFACT_PARTITION } from './artifact-sandbox';
 import {
   clampWindow,
-  desktopPetSize,
+  mapSkinPoint,
+  petWindowSize,
+  skinGeometry,
   type BubbleSide,
+  type ArtifactRef,
+  type ArtifactSummary,
   type SkinId,
   type StatusBubbleState,
 } from '@edi/contracts';
 
 /** Renderer entry points. One bundle serves all of them, selected by `?surface=`. */
-export type Surface = 'workspace' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
+export type Surface =
+  'workspace' | 'artifact' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
 
 export const cardSize = {
   compact: { width: 408, height: 480 },
   expanded: { width: 740, height: 650 },
 } as const;
 
-/** Transparent inset around bubbles and menus so their soft shadows are not clipped. */
-export const floatingMargin = 8;
+/**
+ * Bubbles and menus are native glass windows: macOS draws their blur, rounded corners and
+ * shadow, so the window is exactly the visible surface with no transparent inset.
+ */
+export const floatingMargin = 0;
 
-/** Window sizes include `floatingMargin` on every side. */
+/** The tail band under a speech bubble; its tip is the window corner nearest Edi. */
+export const bubbleTail = 5;
+const withTail = (width: number, height: number) => ({ width, height: height + bubbleTail });
 export const statusBubbleSize: Record<StatusBubbleState, { width: number; height: number }> = {
-  unavailable: { width: 160, height: 52 },
-  thinking: { width: 88, height: 52 },
-  listening: { width: 92, height: 52 },
-  speaking: { width: 92, height: 52 },
-  notice: { width: 248, height: 68 },
-  approval: { width: 340, height: 220 },
+  unavailable: withTail(156, 36),
+  thinking: withTail(72, 36),
+  listening: withTail(76, 36),
+  speaking: withTail(76, 36),
+  notice: withTail(232, 52),
+  approval: withTail(324, 204),
+  artifact: withTail(300, 120),
 };
-export const characterMenuSize = { width: 200, height: 178 } as const;
+export const characterMenuSize = { width: 184, height: 134 } as const;
+
+/** Real desktop blur (CSS backdrop-filter cannot see behind a window). */
+const nativeGlass = (material: 'menu' | 'popover'): Partial<BrowserWindowConstructorOptions> => ({
+  vibrancy: material,
+  // These windows never take focus, so keep the material active instead of greying out.
+  visualEffectState: 'active',
+  roundedCorners: true,
+  hasShadow: true,
+});
 
 const isolated = { contextIsolation: true, sandbox: true, nodeIntegration: false } as const;
 const withBridge = { ...isolated, preload: join(__dirname, '../preload/index.js') };
@@ -52,6 +74,9 @@ function loadSurface(win: BrowserWindow, surface: Surface, params: Record<string
   return win;
 }
 
+/** Glass windows with content are masked to this radius (CSS --radius-glass-window). */
+const glassWindowRadius = 22;
+
 export function createWorkspaceWindow() {
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
   const win = new BrowserWindow({
@@ -61,20 +86,46 @@ export function createWorkspaceWindow() {
     x: x + Math.max(0, width - 550),
     y: y + Math.max(0, height - 540),
     title: 'Edi',
-    backgroundColor: '#00000000',
-    hasShadow: true,
+    // Real glass like the artifact window: the window is the card, macOS blurs the desktop.
+    ...nativeGlass('popover'),
     webPreferences: withBridge,
   });
+  win.once('show', () => shapeGlassWindow(win, glassWindowRadius));
   return loadSurface(win, 'workspace');
 }
 
-export function createPetWindow(saved: { x: number; y: number } | null) {
-  const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+/** Shown content gets its own window beside the card, like an artifact panel. */
+export const artifactWindowSize = { width: 560, height: 640, minWidth: 360, minHeight: 320 };
+
+export function createArtifactWindow(ref: ArtifactRef) {
   const win = new BrowserWindow({
     ...floating,
-    ...desktopPetSize,
-    x: x + width - desktopPetSize.width - 20,
-    y: y + height - desktopPetSize.height - 25,
+    // Real glass: macOS blurs and tints the desktop behind the window; the page adds only a
+    // light tint and a rim, so it reads as a pane of glass rather than a blurred card.
+    ...nativeGlass('popover'),
+    width: artifactWindowSize.width,
+    height: artifactWindowSize.height,
+    minWidth: artifactWindowSize.minWidth,
+    minHeight: artifactWindowSize.minHeight,
+    // Documents are worth resizing; the card is not.
+    resizable: true,
+    title: 'Edi',
+    skipTaskbar: true,
+    // Its own in-memory session: interactive pages get no network and no shared storage.
+    webPreferences: { ...withBridge, partition: ARTIFACT_PARTITION },
+  });
+  win.once('show', () => shapeGlassWindow(win, glassWindowRadius));
+  return loadSurface(win, 'artifact', { ref: JSON.stringify(ref) });
+}
+
+export function createPetWindow(saved: { x: number; y: number } | null, petScale: number) {
+  const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+  const size = petWindowSize(petScale);
+  const win = new BrowserWindow({
+    ...floating,
+    ...size,
+    x: x + width - size.width - 20,
+    y: y + height - size.height - 25,
     hasShadow: false,
     skipTaskbar: true,
     // Spoken replies start after an asynchronous turn, not inside the click handler.
@@ -83,10 +134,25 @@ export function createPetWindow(saved: { x: number; y: number } | null) {
   // Transparent margins pass clicks through; the renderer re-enables hits over the body.
   win.setIgnoreMouseEvents(true, { forward: true });
   if (saved) {
-    const restored = { ...saved, ...desktopPetSize };
+    const restored = { ...saved, ...size };
     win.setBounds(clampWindow(restored, screen.getDisplayMatching(restored).workArea));
   }
   return loadSurface(win, 'pet');
+}
+
+/**
+ * Resize Edi around the point where the card attaches, so the card (and the slider in it)
+ * stays still while Edi grows or shrinks. Only a display edge can force a move.
+ */
+export function resizePetWindow(pet: BrowserWindow, petScale: number, skin: SkinId) {
+  const old = pet.getBounds();
+  const size = petWindowSize(petScale);
+  const geometry = skinGeometry[skin];
+  const anchor = mapSkinPoint(geometry, geometry.anchors.workspace, old);
+  const local = mapSkinPoint(geometry, geometry.anchors.workspace, { x: 0, y: 0, ...size });
+  const next = { ...size, x: Math.round(anchor.x - local.x), y: Math.round(anchor.y - local.y) };
+  pet.setBounds(clampWindow(next, screen.getDisplayMatching(old).workArea));
+  return pet.getBounds();
 }
 
 export interface StatusBubbleOptions {
@@ -95,26 +161,44 @@ export interface StatusBubbleOptions {
   skin: SkinId;
   /** Only for `notice`; validated again by the renderer. */
   text?: string;
+  /** Only for `artifact`: the compact preview. */
+  artifact?: ArtifactSummary;
 }
 
-export function createStatusBubbleWindow({ state, side, skin, text }: StatusBubbleOptions) {
+export function createStatusBubbleWindow({
+  state,
+  side,
+  skin,
+  text,
+  artifact,
+}: StatusBubbleOptions) {
   const win = new BrowserWindow({
     ...floating,
     ...statusBubbleSize[state],
-    hasShadow: false,
+    ...nativeGlass('popover'),
+    // The bubble mask supplies the corners; system rounding would clip the tail's tip.
+    roundedCorners: false,
     skipTaskbar: true,
-    focusable: state === 'approval',
+    focusable: state === 'approval' || state === 'artifact',
     // The preload exposes only approval response and content-reveal actions.
     webPreferences: { ...isolated, preload: join(__dirname, '../preload/bubble.js') },
   });
-  return loadSurface(win, 'voice-status', { state, side, skin, ...(text ? { text } : {}) });
+  // Shape once the window is on screen and its glass view has its final size.
+  win.once('show', () => shapeGlassBubble(win, side, 18, bubbleTail));
+  return loadSurface(win, 'voice-status', {
+    state,
+    side,
+    skin,
+    ...(text ? { text } : {}),
+    ...(artifact ? { artifact: JSON.stringify(artifact) } : {}),
+  });
 }
 
 export function createCharacterMenuWindow() {
   const win = new BrowserWindow({
     ...floating,
     ...characterMenuSize,
-    hasShadow: false,
+    ...nativeGlass('menu'),
     skipTaskbar: true,
     webPreferences: withBridge,
   });

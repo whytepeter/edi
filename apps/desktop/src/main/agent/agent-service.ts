@@ -9,10 +9,12 @@ import {
 } from '@edi/capabilities';
 import {
   emptyAgentState,
+  groundPresentation,
   parsePresentation,
   resolvePresentation,
   type AgentState,
   type ApprovalRequest,
+  type ArtifactSummary,
   type ChatMessage,
   type ToolStep,
 } from '@edi/contracts';
@@ -30,6 +32,8 @@ const RUN_BUDGET_MS = 120_000;
 const HISTORY_TURNS = 10;
 const MAX_TEXT = 32_000;
 const MAX_STEPS_SHOWN = 20;
+/** How long a finished reply waits for on-screen text before pointing without it. */
+const GROUNDING_WAIT_MS = 1500;
 
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
@@ -40,12 +44,18 @@ interface AgentServiceOptions {
   screenPermissionRequired?: () => void;
   /** A finished reply pointed at something on screen (global logical coordinates). */
   point?: (target: PointTarget) => void;
+  /** Live, non-secret Edi configuration for identity and setup questions. */
+  selfContext?: () => string;
+  /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
+  threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
 }
 
 export type PointTarget = NonNullable<ReturnType<typeof resolvePresentation>>;
 
 interface ActiveRun {
   id: string;
+  /** A voice turn: shown content goes to the bubble rather than taking over the card. */
+  spoken: boolean;
   /** Kept in memory for this run only (to map pointing back to displays). Never stored. */
   screenshots: Screenshot[];
   worker: Worker;
@@ -64,6 +74,7 @@ export class AgentService {
   private run?: ActiveRun;
   /** Finished turns shown in the card; refreshed on load and when a run ends. */
   private cachedThread: ThreadTurn[] = [];
+  private cachedArtifacts = new Map<string, ArtifactSummary[]>();
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
   private starting?: object;
   private configuring = false;
@@ -90,12 +101,15 @@ export class AgentService {
     this.state = this.withMessages({ ...this.state, configured, model });
   }
 
-  async configure(apiKey: string, model: string) {
+  /** Without a new key, the saved key is kept and only the model changes. */
+  async configure(apiKey: string | undefined, model: string) {
     if (this.configuring || this.run)
       throw new Error('Stop the response before changing the connection.');
+    const key = apiKey ?? this.options.credentials.apiKey;
+    if (!key) throw new Error('Enter your OpenRouter key.');
     this.configuring = true;
     try {
-      await this.options.credentials.save(apiKey, model);
+      await this.options.credentials.save(key, model);
       this.update({ ...idle(), configured: true, model });
     } finally {
       this.configuring = false;
@@ -121,7 +135,7 @@ export class AgentService {
    */
   async ask(
     prompt: string,
-    options: { screens?: CapturedScreens; spoken?: boolean } = {},
+    options: { screens?: CapturedScreens; spoken?: boolean; expressiveVoice?: boolean } = {},
   ): Promise<string | undefined> {
     const { credentials, repositories } = this.options;
     if (!credentials.configured || this.configuring) throw new Error('Set up OpenRouter first.');
@@ -137,6 +151,7 @@ export class AgentService {
       text: '',
       error: '',
       steps: [],
+      artifacts: [],
       approval: null,
     });
     const { screenshots, access } = await (
@@ -171,10 +186,13 @@ export class AgentService {
       history: repositories.runs.recentExchanges(HISTORY_TURNS),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
       spoken: options.spoken ?? false,
+      expressiveVoice: options.expressiveVoice ?? false,
+      selfContext: this.options.selfContext?.() ?? '',
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {
       id,
+      spoken: options.spoken ?? false,
       screenshots,
       worker: new Worker(join(__dirname, 'agent-worker.js'), { workerData }),
       abort: new AbortController(),
@@ -194,10 +212,16 @@ export class AgentService {
   }
 
   /** Resolves with the final state of `runId`, or rejects if `signal` aborts first. */
-  whenFinished(runId: string, signal: AbortSignal): Promise<AgentState> {
+  whenFinished(
+    runId: string,
+    signal: AbortSignal,
+    onUpdate?: (state: AgentState) => void,
+  ): Promise<AgentState> {
     return new Promise((resolve, reject) => {
       const check = (state: AgentState) => {
-        if (state.runId !== runId || state.status === 'running') return;
+        if (state.runId !== runId) return;
+        onUpdate?.(state);
+        if (state.status === 'running') return;
         unsubscribe();
         resolve(state);
       };
@@ -220,6 +244,18 @@ export class AgentService {
       this.update({ ...this.state, status: 'stopped' });
     }
     if (this.run) this.finish(this.run, 'stopped');
+  }
+
+  /** Whether the running turn was spoken; undefined when nothing is running. */
+  get runningSpoken() {
+    return this.run?.spoken;
+  }
+
+  /** A display tool showed content in the running turn. Ignored after the turn ends. */
+  addArtifact(artifact: ArtifactSummary) {
+    if (!this.run) return;
+    const artifacts = [...this.state.artifacts.filter(a => a.id !== artifact.id), artifact];
+    this.update({ ...this.state, artifacts: artifacts.slice(-6) });
   }
 
   /** Bound to the pending call: a decision for any other call ID is rejected. */
@@ -247,18 +283,24 @@ export class AgentService {
     } else if (message.type === 'tool-call') {
       void this.invokeTool(run, message.id, message.name, message.input);
     } else if (message.type === 'done') {
-      const produced = this.state.text || this.state.steps.length;
+      const produced = this.state.text || this.state.steps.length || this.state.artifacts.length;
       this.finish(
         run,
         produced ? 'done' : 'error',
         produced ? '' : 'No text was returned. Try a text-capable model.',
       );
     } else {
-      this.finish(
-        run,
-        'error',
-        'OpenRouter could not complete this response. Check your key, model ID, credits, and connection.',
-      );
+      const errors = {
+        auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
+        credits: 'OpenRouter has no available credits. Add credits, then try again.',
+        model:
+          'The selected OpenRouter model is unavailable or incompatible. Choose another model in Settings → AI.',
+        temporary:
+          'OpenRouter and its backup providers could not answer after retrying. Try again in a moment.',
+        unknown:
+          'OpenRouter could not complete this response after retrying. Check Settings → AI and your connection.',
+      } as const;
+      this.finish(run, 'error', errors[message.kind]);
     }
   }
 
@@ -287,7 +329,30 @@ export class AgentService {
     this.options.repositories.runs.finish(run.id, { status, text, error, at: Date.now() });
     this.refreshThread();
     this.update({ ...this.state, status, text, error, approval: null });
-    const target = status === 'done' ? resolvePresentation(presentation, run.screenshots) : null;
+    if (status === 'done' && presentation.actions.length)
+      void this.present(run.id, presentation, run.screenshots);
+  }
+
+  /**
+   * Aligns the reply's pointing with text recognized on the same capture, then shows it,
+   * unless a newer question has started in the meantime.
+   */
+  private async present(
+    runId: string,
+    presentation: ReturnType<typeof parsePresentation>,
+    screenshots: Screenshot[],
+  ) {
+    const shot = screenshots[presentation.screen - 1];
+    let aligned = presentation;
+    if (shot?.text) {
+      const text = await Promise.race([
+        shot.text.catch(() => undefined),
+        new Promise<undefined>(resolve => setTimeout(resolve, GROUNDING_WAIT_MS)),
+      ]);
+      if (text) aligned = groundPresentation(presentation, shot, text);
+    }
+    if (this.run || this.starting || this.state.runId !== runId) return;
+    const target = resolvePresentation(aligned, screenshots);
     if (target) this.options.point?.(target);
   }
 
@@ -336,6 +401,8 @@ export class AgentService {
 
   private refreshThread() {
     this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS);
+    this.cachedArtifacts =
+      this.options.threadArtifacts?.(this.cachedThread.map(turn => turn.id)) ?? new Map();
   }
 
   private withMessages(state: AgentState): AgentState {
@@ -350,7 +417,14 @@ export class AgentService {
       seen.add(turn.id);
       messages.push({ id: `${turn.id}-u`, role: 'user', text: turn.prompt });
       const reply = turn.reply || turn.error;
-      if (reply) messages.push({ id: `${turn.id}-a`, role: 'assistant', text: reply });
+      const artifacts = this.cachedArtifacts.get(turn.id);
+      if (reply || artifacts?.length)
+        messages.push({
+          id: `${turn.id}-a`,
+          role: 'assistant',
+          text: reply,
+          ...(artifacts?.length ? { artifacts } : {}),
+        });
     }
     const live =
       Boolean(state.prompt) &&
@@ -358,8 +432,13 @@ export class AgentService {
     if (live) {
       const id = state.runId ?? 'pending';
       messages.push({ id: `${id}-u`, role: 'user', text: state.prompt });
-      if (state.text || state.status === 'running') {
-        messages.push({ id: `${id}-a`, role: 'assistant', text: state.text });
+      if (state.text || state.status === 'running' || state.artifacts.length) {
+        messages.push({
+          id: `${id}-a`,
+          role: 'assistant',
+          text: state.text,
+          ...(state.artifacts.length ? { artifacts: state.artifacts } : {}),
+        });
       } else if (state.error) {
         messages.push({ id: `${id}-a`, role: 'assistant', text: state.error });
       }

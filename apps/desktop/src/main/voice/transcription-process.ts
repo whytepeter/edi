@@ -55,6 +55,8 @@ export async function transcribePcm(
         '-',
         '-l',
         'en',
+        '--prompt',
+        'Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.',
         '-t',
         '4',
         '-ng',

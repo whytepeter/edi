@@ -73,3 +73,29 @@ export function placeContextMenu(point: Point, size: Size, margin: number, area:
   if (y + size.height > area.y + area.height) y = point.y - size.height + margin;
   return clampWindow({ x, y, width: size.width, height: size.height }, area);
 }
+
+/** Space between the card and the artifact window. The card window has an 8 px inset. */
+const GAP = 4;
+
+/**
+ * Where shown content opens: beside the card, on the side away from Edi, top-aligned with the
+ * card. When that side has no room it tries the other side, then overlaps inside the display.
+ */
+export function placeArtifact(
+  card: Rect,
+  pet: Rect,
+  area: Rect,
+  size: { width: number; height: number },
+): Rect {
+  const width = Math.min(size.width, area.width);
+  const height = Math.min(Math.max(size.height, card.height), area.height);
+  const petOnRight = pet.x + pet.width / 2 > card.x + card.width / 2;
+  const left = card.x - GAP - width;
+  const right = card.x + card.width + GAP;
+  const fitsLeft = left >= area.x;
+  const fitsRight = right + width <= area.x + area.width;
+  let x = petOnRight ? (fitsLeft ? left : fitsRight ? right : left) : fitsRight ? right : left;
+  x = Math.max(area.x, Math.min(x, area.x + area.width - width));
+  const y = Math.max(area.y, Math.min(card.y, area.y + area.height - height));
+  return { x: Math.round(x), y: Math.round(y), width, height };
+}

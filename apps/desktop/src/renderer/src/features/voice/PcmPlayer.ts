@@ -11,6 +11,11 @@ export class PcmPlayer {
   constructor(
     private readonly context: AudioContext,
     private readonly destination: AudioNode = context.destination,
+    /**
+     * Audio allowed to wait ahead of the playhead. A synthesizer only starts its next clip once
+     * this queue accepts the last one, so a short queue turns slow synthesis into audible gaps.
+     */
+    private readonly maxQueuedSeconds = 3,
   ) {}
 
   /** Call from a user gesture. The token invalidates late chunks and pending resumes. */
@@ -50,7 +55,10 @@ export class PcmPlayer {
     const now = this.context.currentTime;
     const duration = pcm.length / sampleRate;
     // Bound both duration and node count; tiny chunks must not exhaust the renderer.
-    if (Math.max(0, this.tail - now) + duration > 3 || this.sources.size >= 128) {
+    if (
+      Math.max(0, this.tail - now) + duration > this.maxQueuedSeconds ||
+      this.sources.size >= 128
+    ) {
       return 'backpressure';
     }
     const late = this.started && this.tail < now;

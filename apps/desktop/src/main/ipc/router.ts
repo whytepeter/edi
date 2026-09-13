@@ -2,14 +2,20 @@ import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import {
   commandSchema,
   type Activity,
+  type Artifact,
+  type ArtifactRef,
+  artifactRefSchema,
   type AgentState,
   type Command,
+  type LibraryItem,
+  type ModelOption,
   type Settings,
+  type SystemInfo,
   type PermissionSnapshot,
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
-export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble';
+export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact';
 
 type CommandOf<T extends Command['type']> = Extract<Command, { type: T }>;
 interface Route<T extends Command['type']> {
@@ -25,6 +31,10 @@ interface IpcDependencies {
   settings(): Settings;
   agentState(): AgentState;
   activity(): Activity;
+  library(): LibraryItem[];
+  system(): SystemInfo;
+  models(): Promise<ModelOption[]>;
+  artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
 }
 
@@ -34,6 +44,10 @@ export function registerIpc({
   settings,
   agentState,
   activity,
+  library,
+  system,
+  models,
+  artifact,
   permissions,
 }: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
@@ -48,7 +62,7 @@ export function registerIpc({
   };
 
   ipcMain.handle('edi:settings:get', event => {
-    authorize(callerOf(event), ['workspace', 'pet']);
+    authorize(callerOf(event), ['workspace', 'pet', 'artifact']);
     return settings();
   });
   ipcMain.handle('edi:agent:get', event => {
@@ -58,6 +72,22 @@ export function registerIpc({
   ipcMain.handle('edi:activity:get', event => {
     authorize(callerOf(event), ['workspace']);
     return activity();
+  });
+  ipcMain.handle('edi:library:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return library();
+  });
+  ipcMain.handle('edi:system:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return system();
+  });
+  ipcMain.handle('edi:artifact:get', (event, ref: unknown) => {
+    authorize(callerOf(event), ['artifact']);
+    return artifact(artifactRefSchema.parse(ref));
+  });
+  ipcMain.handle('edi:models:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return models();
   });
   ipcMain.handle('edi:permissions:get', event => {
     authorize(callerOf(event), ['workspace']);

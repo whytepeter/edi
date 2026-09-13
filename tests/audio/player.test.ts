@@ -93,6 +93,16 @@ test('queue is bounded and late delivery reports a scheduling gap', async () => 
   assert.equal(player.snapshot().schedulingGaps, 1);
 });
 
+test('a longer speech queue accepts clips ahead of playback', async () => {
+  const { context } = setup();
+  const player = new PcmPlayer(context as unknown as AudioContext, undefined, 30);
+  const token = (await player.begin())!;
+  for (let second = 0; second < 29; second += 1) {
+    assert.equal(player.push(token, new Float32Array(24000), 24000), 'accepted');
+  }
+  assert.equal(player.push(token, new Float32Array(24000), 24000), 'backpressure');
+});
+
 test('invalid PCM, suspended device and disposal fail safely', async () => {
   const { player, context } = setup();
   const token = (await player.begin())!;

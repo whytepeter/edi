@@ -75,3 +75,40 @@
   background: linear-gradient(transparent, var(--content-base) 65%);
   mask-image: linear-gradient(transparent, #000 55%);
 }
+
+/* Native glass windows: macOS supplies the desktop blur, vibrancy and shadow. */
+:root[data-native-glass],
+:root[data-native-glass] body {
+  background: transparent;
+}
+/* The menu and bubble windows are the surface itself, so they paint nothing of their own.
+   Scoped to those windows: menus inside the card still need their own material. */
+:root[data-surface='voice-status'] .ds-bubble,
+:root[data-surface='character-menu'] .ds-menu {
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+:root[data-surface='voice-status'] .ds-bubble::before,
+:root[data-surface='character-menu'] .ds-menu::before {
+  display: none;
+}
+/*
+ * Glass windows with content (the card, the artifact window): the window is the surface. The
+ * page adds a light tint so text stays legible over any desktop, keeps the specular rim from
+ * .ds-card, and fades scroll edges into that tint rather than an opaque color.
+ */
+:root[data-native-glass] .ds-card.glass-window {
+  height: 100%;
+  margin: 0;
+  border-radius: var(--radius-glass-window);
+  background: var(--window-tint);
+  box-shadow: none;
+}
+:root[data-native-glass] .glass-window .ds-scroll-edge[data-edge='top'] {
+  background: linear-gradient(var(--window-tint) 35%, transparent);
+}
+:root[data-native-glass] .glass-window .ds-scroll-edge[data-edge='bottom'] {
+  background: linear-gradient(transparent, var(--window-tint) 65%);
+}

@@ -40,10 +40,14 @@ export function ActivityView({ refreshKey }: { refreshKey: string }) {
 
   return (
     <section>
-      <header className="view-header">
-        <p className="ds-eyebrow">Activity</p>
-        {activity && activity.length > 0 && <h1 className="ds-large-title">What Edi has done.</h1>}
-      </header>
+      {activity && activity.length > 0 && (
+        <header className="view-header">
+          <h1 className="ds-large-title">What Edi has done.</h1>
+          <p className="ds-body ds-secondary">
+            Every request, and each action Edi took or you refused.
+          </p>
+        </header>
+      )}
       {error && (
         <p role="alert" className="workspace-error">
           {error}

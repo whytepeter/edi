@@ -5,9 +5,9 @@
  *   content  — solid, legible base where text and media live
  *   glass    — translucent functional layer floating above content (toolbars,
  *              controls, segmented tracks). It blurs whatever scrolls beneath it.
- *   floating — standalone windows over the desktop (menu, speech bubble). Electron
- *              cannot blur the desktop behind a transparent window, so these use
- *              the thick material: nearly opaque, with the same specular rim.
+ *   floating — standalone windows over the desktop (menu, speech bubbles). CSS cannot
+ *              blur the desktop behind a window, so these use native macOS vibrancy
+ *              (see windows/factory.ts) and their page paints no glass of its own.
  * Never stack light glass on light glass; legibility collapses.
  */
 /*
@@ -19,15 +19,23 @@
 :root,
 [data-accent] {
   --accent-strong: oklch(from var(--accent) calc(l - 0.15) calc(c + 0.04) h);
+  /* A filled accent surface (user message, send button) that carries --on-accent text. */
+  --accent-fill: var(--accent);
   --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 9%, transparent);
 }
+/*
+ * Dark mode. Skin accents can be very dark (Edi's is deep brown), so dark-mode variants set a
+ * minimum lightness instead of nudging it: text and fills stay readable on dark surfaces,
+ * and tints come from the lifted color so they read as the accent, not as mud.
+ */
 @media (prefers-color-scheme: dark) {
   :root,
   [data-accent] {
-    --accent-strong: oklch(from var(--accent) calc(l + 0.08) c h);
-    --accent-soft: color-mix(in oklab, var(--accent) 24%, transparent);
-    --accent-softer: color-mix(in oklab, var(--accent) 14%, transparent);
+    --accent-strong: oklch(from var(--accent) max(calc(l + 0.08), 0.82) min(c, 0.12) h);
+    --accent-fill: oklch(from var(--accent) max(l, 0.74) min(c, 0.13) h);
+    --accent-soft: color-mix(in oklab, var(--accent-fill) 22%, transparent);
+    --accent-softer: color-mix(in oklab, var(--accent-fill) 12%, transparent);
   }
 }
 
@@ -58,6 +66,8 @@
   --glass-fill-dense: rgb(255 255 255 / 0.8);
   --glass-blur: blur(22px) saturate(180%);
   --glass-thick-fill: rgb(253 253 255 / 0.9);
+  /* Over native window glass: enough tint for legible text, light enough to stay glass. */
+  --window-tint: rgb(250 251 253 / 0.46);
   /* Specular rim: light catches the top-left edge, fades toward the bottom-right. */
   --rim-highlight: rgb(255 255 255 / 0.95);
   --rim-mid: rgb(255 255 255 / 0.18);
@@ -88,6 +98,8 @@
 
   /* Shape: concentric radii — inner radius = outer radius − the padding between them. */
   --radius-window: 26px;
+  /* Native glass windows are masked to this radius (windows/factory.ts glassWindowRadius). */
+  --radius-glass-window: 22px;
   --radius-inset: 18px;
   --radius-control: 12px;
   --radius-small: 8px;
@@ -149,6 +161,7 @@
     --glass-fill-hover: rgb(64 68 80 / 0.7);
     --glass-fill-dense: rgb(46 49 60 / 0.82);
     --glass-thick-fill: rgb(38 40 49 / 0.92);
+    --window-tint: rgb(28 30 37 / 0.42);
     --rim-highlight: rgb(255 255 255 / 0.3);
     --rim-mid: rgb(255 255 255 / 0.04);
     --rim-shade: rgb(255 255 255 / 0.12);
@@ -163,6 +176,7 @@
 /* Reduce Transparency: frost everything to solid, drop blur. */
 @media (prefers-reduced-transparency: reduce) {
   :root {
+    --window-tint: var(--content-base);
     --content-base: rgb(250 251 253);
     --glass-fill: rgb(240 242 247);
     --glass-fill-hover: rgb(232 235 242);

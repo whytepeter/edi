@@ -1,5 +1,12 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { ApprovalRequest, BubbleSide, SkinId, StatusBubbleState } from '@edi/contracts';
+import type {
+  ApprovalRequest,
+  ArtifactSummary,
+  BubbleSide,
+  SkinId,
+  StatusBubbleState,
+} from '@edi/contracts';
+import { ArtifactCard } from '../../components/artifacts/Artifact';
 import {
   Button,
   ListeningBars,
@@ -10,7 +17,10 @@ import {
 import { accentFor } from '../../lib/bridge';
 import './pet.css';
 
-const announcement: Record<Exclude<StatusBubbleState, 'notice' | 'approval'>, string> = {
+const announcement: Record<
+  Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>,
+  string
+> = {
   unavailable: 'voice coming soon',
   thinking: 'Edi is thinking',
   // Main selects these states only while capture or playback is active.
@@ -23,6 +33,7 @@ interface ApprovalBubbleBridge {
   subscribeApproval(callback: (approval: ApprovalRequest) => void): () => void;
   respond(callId: string, decision: 'approve' | 'deny'): Promise<void>;
   showContent(): Promise<void>;
+  openArtifact(callId: string): Promise<void>;
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
@@ -33,11 +44,13 @@ export function StatusBubble({
   side,
   skin,
   text: notice,
+  artifact,
 }: {
   state: StatusBubbleState;
   side: BubbleSide;
   skin: SkinId;
   text: string;
+  artifact: ArtifactSummary | null;
 }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [armed, setArmed] = useState(false);
@@ -82,6 +95,27 @@ export function StatusBubble({
     }
   }
 
+  if (state === 'artifact')
+    return (
+      <div
+        className="status-bubble-surface"
+        data-accent
+        data-side={side}
+        data-state={state}
+        style={{ '--accent': accentFor(skin) } as CSSProperties}
+      >
+        {artifact ? (
+          <ArtifactCard
+            artifact={artifact}
+            onOpen={() =>
+              void approvalBridge()
+                ?.openArtifact(artifact.id)
+                .catch(() => {})
+            }
+          />
+        ) : null}
+      </div>
+    );
   const staticText = state === 'notice' ? notice : state === 'approval' ? '' : announcement[state];
   return (
     <div

@@ -124,15 +124,49 @@ local to cloud.
 
 ### Presentation and character
 
+- Character lifecycle and skin guide: `docs/CHARACTER.md`
 - Character interactions: `apps/desktop/src/main/character`
 - Window placement: `apps/desktop/src/main/windows`
 - Presentation parsing: `packages/contracts/src/presentation.ts`
+- Alignment with recognized text: `packages/contracts/src/screen-grounding.ts`; Vision recognition in `native/screen-capture/ask.m`, read by `recognizedDisplayText` in `apps/desktop/src/main/permissions.ts`
 - Overlay controller: `apps/desktop/src/main/presentation/pointer.ts`
 - Renderers: `features/pet` and `features/pointer`
 
 Model output can select only validated point/draw actions. Main maps screenshot pixels to display coordinates;
-the overlay does not move the user's cursor or accept clicks. Character state, semantic mood, skin assets, voice,
-and agent state remain separate so one can change without resetting the others.
+the overlay does not move the user's cursor or accept clicks. `CharacterActions` translates lifecycle events into
+a validated semantic expression; the pet renderer alone maps that state to skin artwork and motion. Character
+state, skin assets, voice, and agent state remain separate so one can change without resetting the others.
+
+### Card navigation and Settings
+
+- Destinations: `workspaceSections`, `settingsPages`, and `workspaceViewSchema` in `packages/contracts/src/index.ts`
+- Labels, icons, parents and titles: `apps/desktop/src/renderer/src/app/navigation.ts`
+- Shell (title menu, expanded sidebar, view switch): `apps/desktop/src/renderer/src/app/WorkspaceCard.tsx`
+- Home: `apps/desktop/src/renderer/src/features/home`
+- Settings pages: `apps/desktop/src/renderer/src/features/settings`; grouped rows are `GroupedList`/`GroupedRow` in `components/ui`
+- Model picker data: `apps/desktop/src/main/agent/model-catalog.ts` (OpenRouter public catalog, image input + tools only, 1-hour cache; `EDI_MODEL_CATALOG=off` in desktop tests)
+- Runtime facts for Settings (version, voice and shortcut availability): `system()` on the bridge, built in
+  `apps/desktop/src/main/index.ts`
+
+To add a section or settings page: add its ID to the contract list, give it a label/parent in `navigation.ts`, render
+it in `WorkspaceCard`, and extend the contract test. Main and Edi's own navigation can then target it with
+`show-workspace`. Only add a Settings group when it controls something that works; a page for an unbuilt feature
+says so plainly instead of showing inert controls.
+
+### Artifacts and workspace
+
+- Contract: `packages/contracts/src/artifacts.ts` (semantic kinds, summaries for the thread, full content, refs)
+- Tools: `workspace.show` in `packages/capabilities/src/builtins/workspace.ts`; `notes.show` and `writeNewNote`
+  in `builtins/notes.ts`
+- Host: `apps/desktop/src/main/index.ts` rebuilds summaries from successful display tool calls
+  (`toolCalls.shown`), resolves full content (`edi:artifact:get`), opens content in the card or the bubble, and
+  keeps SQLite as the canonical conversation record
+- Renderer: `components/artifacts` (safe Markdown renderer, `ArtifactCard`, `ArtifactView`), inline in
+  `features/conversation/AgentPanel.tsx`, opened in place by `WorkspaceCard`
+
+Shown content is data, never HTML. It is displayed, not returned to the model, so voice replies never read it out.
+`workspace.show` also creates a useful representation under Documents › Edi › Artifacts: reports and checklists
+are Markdown, while tables are CSV. The generated-content view has no second Copy or Save step.
 
 ### Storage
 
@@ -163,7 +197,7 @@ Voice turn:
 
 ```text
 click/hold/⌥ Space → VoiceController → microphone permission → renderer capture
-→ local transcription → AgentService → Pocket provider → bounded PCM → renderer playback
+→ local transcription → AgentService → selected local voice → bounded PCM → renderer playback
 ```
 
 ## TypeScript and tests
