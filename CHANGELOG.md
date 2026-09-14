@@ -7,6 +7,11 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Page reader for web fetch: Edi researches on its own (search, read result pages, follow links) and passes a
+  question with each page. A separate fast model with no tools (the newest Gemini Flash in OpenRouter's
+  catalog, else the chosen model) reads the page and Edi receives only its answer and the page's links, so raw
+  page text and instructions hidden in it never reach the model that can use Edi's tools. If the reader fails,
+  a shorter slice of the page is returned. Up to 10 steps per answer.
 - Cloud voices: Cartesia (Sonic 3.6) and ElevenLabs (Flash v2.5) with separate keys, checked with the provider
   before they are saved and encrypted with the keychain. Settings → Voice explains each provider, links to where
   keys are made, lists the account's voices (your own first) with previews, and a voice named "Edi" becomes

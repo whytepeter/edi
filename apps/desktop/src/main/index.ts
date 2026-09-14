@@ -362,7 +362,21 @@ async function start() {
     process.env.EDI_MODEL_CATALOG === 'off'
       ? { list: () => Promise.reject(new Error('Model catalog disabled.')) }
       : new ModelCatalog();
+  // Web pages are read by the newest fast model in OpenRouter's catalog (cached for an hour).
+  let readerModel: string | null = null;
+  const refreshReaderModel = () =>
+    void modelCatalog
+      .list()
+      .then(models => {
+        readerModel = models.find(model => model.recommended === 'fast')?.id ?? readerModel;
+      })
+      .catch(() => {});
+  refreshReaderModel();
   agent = new AgentService({
+    readerModel: () => {
+      refreshReaderModel();
+      return readerModel;
+    },
     credentials: new OpenRouterCredentials(),
     repositories,
     capabilities: [

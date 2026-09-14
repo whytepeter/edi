@@ -11,6 +11,7 @@ import {
   emptyAgentState,
   groundPresentation,
   parsePresentation,
+  modelIdSchema,
   resolvePresentation,
   type AgentState,
   type ApprovalRequest,
@@ -46,6 +47,8 @@ interface AgentServiceOptions {
   point?: (target: PointTarget) => void;
   /** Live, non-secret Edi configuration for identity and setup questions. */
   selfContext?: () => string;
+  /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
+  readerModel?: () => string | null;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
   threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
 }
@@ -179,6 +182,7 @@ export class AgentService {
       screens: screenshots.length,
       startedAt: Date.now(),
     });
+    const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model: credentials.model,
@@ -188,6 +192,7 @@ export class AgentService {
       spoken: options.spoken ?? false,
       expressiveVoice: options.expressiveVoice ?? false,
       selfContext: this.options.selfContext?.() ?? '',
+      ...(readerModel ? { readerModel } : {}),
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {

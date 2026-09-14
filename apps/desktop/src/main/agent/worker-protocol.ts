@@ -20,6 +20,8 @@ export const workerInputSchema = z
   .object({
     apiKey: z.string().min(10).max(4_096),
     model: modelIdSchema,
+    /** A fast model that reads fetched pages and answers Edi's question; defaults to `model`. */
+    readerModel: modelIdSchema.optional(),
     prompt: z.string().min(1).max(8_000),
     /** Earlier completed exchanges, oldest first, text only. */
     history: z
