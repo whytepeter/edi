@@ -51,6 +51,11 @@ import { macDependencies } from './platform/mac-actions';
 import { ApprovalRules } from './agent/approval-rules';
 import { ComposioCredentials } from './connectors/composio-credentials';
 import { ConnectorManager } from './connectors/manager';
+import {
+  connectAppCapability,
+  resumeWhenConnected,
+  type WaitingRequest,
+} from './connectors/connect-offer';
 import { EncryptedSecretStore } from './connectors/secrets';
 import {
   artifactExport,
@@ -62,6 +67,7 @@ import {
   isCloudVoiceModel,
   voiceCatalog,
   voiceName,
+  connectorCatalog,
   voiceSelectionSchema,
   type VoiceSelection,
   defaultCharacterId,
@@ -119,6 +125,8 @@ import {
 
 /** Display tools whose successful calls become artifacts in the conversation. */
 const DISPLAY_CAPABILITIES = ['workspace.show', 'notes.show'] as const;
+/** How long a request waits for an app the person agreed to connect. */
+const WAIT_FOR_APP_MS = 15 * 60_000;
 
 let quitting = false;
 
@@ -278,6 +286,10 @@ async function start() {
   let windowAction = (_action: 'close' | 'sleep') => {};
   let cardOpen = () => false;
   let connectedApps = () => '';
+  let connectorSummary = (): Pick<EdiSetupSnapshot, 'connectors' | 'appsToConnect'> => ({
+    connectors: [],
+    appsToConnect: [],
+  });
   let currentView: WorkspaceView = 'home';
   let pushToTalk = (): EdiSetupSnapshot['current']['pushToTalk'] => ({
     status: 'starting',
@@ -428,7 +440,7 @@ async function start() {
       },
       // Built-in abilities are listed above; skills are add-ons, and none exist yet.
       skills: [],
-      connectors: [],
+      ...connectorSummary(),
       permissions: (permissionPort.current?.snapshot().permissions ?? []).map(({ id, status }) => ({
         id,
         status,
@@ -737,6 +749,65 @@ async function start() {
       .filter(connector => connector.status === 'connected')
       .map(connector => connector.name)
       .join(', ');
+  // Short-list apps the model may offer to connect: not connected yet, and reachable (Composio
+  // apps only once the person's Composio key is saved).
+  const appsToConnect = () => {
+    const connected = new Set(
+      connectors
+        .list()
+        .filter(connector => connector.status === 'connected')
+        .map(connector => connector.catalogId),
+    );
+    return connectorCatalog
+      .filter(
+        entry =>
+          !connected.has(entry.id) &&
+          (entry.provider !== 'composio' || composioCredentials.configured),
+      )
+      .map(({ id, name }) => ({ id, name }));
+  };
+  connectorSummary = () => ({
+    connectors: connectors.list().map(connector => ({
+      id: connector.catalogId ?? connector.id,
+      name: connector.name,
+      active: connector.status === 'connected',
+    })),
+    appsToConnect: appsToConnect(),
+  });
+  const continueAfterConnecting = async (waiting: WaitingRequest) => {
+    if (agent.state.status === 'running')
+      await new Promise<void>(resolve => {
+        const stop = agent.onChange(state => {
+          if (state.status === 'running') return;
+          stop();
+          resolve();
+        });
+      });
+    const runId = await agent
+      .ask(
+        `${waiting.app.name} is connected now. Continue my earlier request: ${waiting.request}`,
+        {
+          conversationId: waiting.conversationId,
+        },
+      )
+      .catch(() => undefined);
+    if (runId) character.showContent();
+  };
+  // Once an app the person agreed to connect is live, Edi continues their request in the same
+  // conversation; whatever it then wants to do is reviewed as usual.
+  const waitingOnApps = resumeWhenConnected({
+    onChange: listener => connectors.onChange(listener),
+    continueRequest: waiting => void continueAfterConnecting(waiting),
+    waitMs: WAIT_FOR_APP_MS,
+  });
+  const connectApp = connectAppCapability({
+    available: appsToConnect,
+    start: appId => connectors.add({ catalogId: appId }),
+    resumeAfter: (connectionId, app, request, runId) => {
+      const conversationId = agent.conversationOfRun(runId);
+      if (conversationId) waitingOnApps.wait(connectionId, { conversationId, app, request });
+    },
+  });
   const tasks = new TaskService({
     rules: approvalRules,
     connectedTools: () => connectors.capabilities(),
@@ -797,6 +868,7 @@ async function start() {
       ...macTools.filter(tool => tool.id.startsWith('mac.')),
       ...taskTools,
       ...ediTools,
+      connectApp,
     ],
     threadArtifacts: runIds => {
       const byRun = new Map<string, ArtifactSummary[]>();

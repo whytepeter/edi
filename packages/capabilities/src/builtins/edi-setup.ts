@@ -43,6 +43,8 @@ export interface EdiSetupSnapshot {
   };
   skills: { id: string; name: string; active: boolean }[];
   connectors: { id: string; name: string; active: boolean }[];
+  /** Short-list apps the user can connect now (edi_connect_app), by id. */
+  appsToConnect: { id: string; name: string }[];
   permissions: { id: string; status: string }[];
   availableCharacters: { id: string; name: string }[];
   availableVoices: {

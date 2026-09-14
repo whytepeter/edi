@@ -188,7 +188,13 @@ export class AgentService {
    */
   async ask(
     prompt: string,
-    options: { screens?: CapturedScreens; spoken?: boolean; expressiveVoice?: boolean } = {},
+    options: {
+      screens?: CapturedScreens;
+      spoken?: boolean;
+      expressiveVoice?: boolean;
+      /** Continue this conversation (for example after an app finished connecting). */
+      conversationId?: string;
+    } = {},
   ): Promise<string | undefined> {
     const { credentials, repositories } = this.options;
     if (!credentials.configured || this.configuring) throw new Error('Set up OpenRouter first.');
@@ -196,7 +202,7 @@ export class AgentService {
 
     const starting = {};
     this.starting = starting;
-    const conversationId = this.conversationFor(prompt);
+    const conversationId = this.conversationFor(prompt, options.conversationId);
     this.update({
       ...this.state,
       status: 'running',
@@ -315,6 +321,11 @@ export class AgentService {
     });
   }
 
+  /** The conversation a running response belongs to. */
+  conversationOfRun(runId: string) {
+    return this.run?.id === runId ? this.run.conversationId : undefined;
+  }
+
   /** The next question starts a new conversation. */
   newConversation() {
     this.assertIdle();
@@ -375,8 +386,16 @@ export class AgentService {
    * after two hours, and the next question then starts a fresh one; one the person opened
    * continues regardless.
    */
-  private conversationFor(prompt: string) {
+  private conversationFor(prompt: string, requested?: string) {
     const { conversations } = this.options.repositories;
+    if (requested && conversations.get(requested)) {
+      if (this.conversationId !== requested) {
+        this.conversationId = requested;
+        this.conversationChosen = true;
+        this.refreshThread();
+      }
+      return requested;
+    }
     const current = this.conversationId ? conversations.get(this.conversationId) : undefined;
     const stale = current && !this.conversationChosen && Date.now() - current.updatedAt > FRESH_MS;
     if (current && !stale) return current.id;
