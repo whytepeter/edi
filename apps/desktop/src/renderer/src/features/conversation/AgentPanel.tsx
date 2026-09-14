@@ -5,7 +5,7 @@ import { Button, EmptyState, Icon, IconButton, ThinkingDots } from '../../compon
 import { ConversationList } from './ConversationList';
 import type { Command } from '../../lib/bridge';
 import { useAgentState } from '../../hooks/useAgentState';
-import { StepList } from '../../components/StepList';
+import { ActionTrail } from './ActionTrail';
 import { ArtifactCard } from '../../components/artifacts/Artifact';
 import './conversation.css';
 import { useAssistantName } from '../../hooks/useAssistantName';
@@ -184,6 +184,14 @@ export function AgentPanel({
     );
 
   const lastAssistant = [...state.messages].reverse().find(message => message.role === 'assistant');
+  const lastUser = [...state.messages].reverse().find(message => message.role === 'user');
+  // Steps and a failure belong to the latest turn; its error already reads as Edi's reply.
+  const liveAssistantId = state.runId || running ? lastAssistant?.id : undefined;
+  const retryPrompt = state.prompt || lastUser?.text || '';
+  const failedId =
+    state.status === 'error' && retryPrompt && lastAssistant?.text === state.error
+      ? lastAssistant.id
+      : undefined;
   const streamingId = running ? lastAssistant?.id : undefined;
 
   return (
@@ -239,11 +247,23 @@ export function AgentPanel({
                   }
                 />
               ))}
-              {pending && <StepList steps={state.steps} label={`What ${assistant} did`} />}
+              {message.id === liveAssistantId && (
+                <ActionTrail steps={state.steps} working={running} />
+              )}
+              {message.id === failedId && (
+                <Button
+                  size="small"
+                  className="agent-retry"
+                  disabled={busy || running}
+                  onClick={() => void command({ type: 'ask-agent', prompt: retryPrompt })}
+                >
+                  Try again
+                </Button>
+              )}
             </article>
           );
         })}
-        {state.error && !running && (
+        {state.error && !running && !failedId && (
           <p role="alert" className="agent-error">
             {state.error}
           </p>

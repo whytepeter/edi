@@ -28,13 +28,25 @@ const announcement = (
 interface ApprovalBubbleBridge {
   approval(): Promise<ApprovalRequest | null>;
   subscribeApproval(callback: (approval: ApprovalRequest) => void): () => void;
-  respond(callId: string, decision: 'approve' | 'deny'): Promise<void>;
+  respond(callId: string, decision: 'approve' | 'approve-always' | 'deny'): Promise<void>;
   showContent(): Promise<void>;
   openArtifact(callId: string): Promise<void>;
   subscribeText(callback: (text: string) => void): () => void;
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
+
+/** One short line under the question: the target for a single item, the first few for a batch. */
+function approvalDetail(approval: ApprovalRequest) {
+  const { fields, body } = approval.preview;
+  const to = fields.find(field => field.label === 'To' || field.label === 'Location');
+  if (to) return to.value;
+  if (fields[0]) return fields[0].value;
+  if (!body) return '';
+  const lines = body.split('\n').filter(Boolean);
+  const shown = lines.slice(0, 2).join(', ');
+  return lines.length > 2 ? `${shown} +${lines.length - 2} more` : shown;
+}
 
 /** A side-of-head state bubble. Ordinary chat text is deliberately not accepted here. */
 export function StatusBubble({
@@ -81,7 +93,7 @@ export function StatusBubble({
     return () => window.clearTimeout(timer);
   }, [approval]);
 
-  async function respond(decision: 'approve' | 'deny') {
+  async function respond(decision: 'approve' | 'approve-always' | 'deny') {
     if (!approval || sending) return;
     setSending(true);
     setError('');
@@ -146,19 +158,14 @@ export function StatusBubble({
         {state === 'approval' ? (
           approval ? (
             <section className="bubble-approval" aria-labelledby="bubble-approval-title">
-              <p className="ds-eyebrow">{name} needs your OK</p>
-              <h2 id="bubble-approval-title">{approval.preview.title}</h2>
-              <p>{approval.preview.summary}</p>
-              {approval.preview.fields.slice(0, 2).map(field => (
-                <div className="bubble-approval-field" key={field.label}>
-                  <span>{field.label}</span>
-                  <strong>{field.value}</strong>
-                </div>
-              ))}
+              <h2 id="bubble-approval-title">{approval.preview.summary}</h2>
+              {approvalDetail(approval) && (
+                <p className="bubble-approval-detail">{approvalDetail(approval)}</p>
+              )}
               {error && <p role="alert">{error}</p>}
               <div className="bubble-approval-actions">
-                <Button size="small" disabled={sending} onClick={() => void showDetails()}>
-                  View details
+                <Button size="small" disabled={sending} onClick={() => void respond('deny')}>
+                  Deny
                 </Button>
                 <Button
                   size="small"
@@ -169,13 +176,18 @@ export function StatusBubble({
                   {approval.preview.action}
                 </Button>
               </div>
-              <button
-                className="bubble-deny"
-                disabled={sending}
-                onClick={() => void respond('deny')}
-              >
-                Don’t allow
-              </button>
+              <div className="bubble-approval-more">
+                <button
+                  type="button"
+                  disabled={!armed || sending}
+                  onClick={() => void respond('approve-always')}
+                >
+                  Always allow in this chat
+                </button>
+                <button type="button" disabled={sending} onClick={() => void showDetails()}>
+                  Details
+                </button>
+              </div>
             </section>
           ) : (
             <ThinkingDots />

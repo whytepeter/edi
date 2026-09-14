@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApprovalRequest } from '@edi/contracts';
 import { Button } from '../../components/ui';
 import './approval.css';
-import { useAssistantName } from '../../hooks/useAssistantName';
 
 /** Guards against a click or keystroke that was already in flight when the sheet appeared. */
 const ARM_DELAY_MS = 600;
@@ -12,7 +11,6 @@ const ARM_DELAY_MS = 600;
  * dimmed and inert until the person decides. Escape declines.
  */
 export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
-  const assistant = useAssistantName();
   const [armed, setArmed] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -28,7 +26,7 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
     return () => clearTimeout(timer);
   }, [callId]);
 
-  async function respond(decision: 'approve' | 'deny') {
+  async function respond(decision: 'approve' | 'approve-always' | 'deny') {
     setSending(true);
     setError('');
     try {
@@ -54,17 +52,14 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={summaryId}
+        aria-describedby={preview.body ? summaryId : undefined}
         tabIndex={-1}
         onKeyDown={onKeyDown}
       >
-        <p className="ds-eyebrow">{assistant} needs your OK</p>
-        <h2 id={titleId} className="ds-title">
-          {preview.title}
-        </h2>
-        <p id={summaryId} className="ds-callout ds-secondary">
+        <p className="approval-kind">{approval.capability.title}</p>
+        <h2 id={titleId} className="approval-question">
           {preview.summary}
-        </p>
+        </h2>
         {preview.fields.length > 0 && (
           <dl className="approval-fields">
             {preview.fields.map(field => (
@@ -76,7 +71,7 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
           </dl>
         )}
         {preview.body && (
-          <pre className="approval-body" aria-label="Content preview" tabIndex={0}>
+          <pre id={summaryId} className="approval-body" aria-label="What will change" tabIndex={0}>
             {preview.body}
           </pre>
         )}
@@ -87,7 +82,7 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
         )}
         <div className="approval-actions">
           <Button disabled={sending} onClick={() => void respond('deny')}>
-            Don’t Allow
+            Deny
           </Button>
           <Button
             variant="prominent"
@@ -97,6 +92,14 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
             {preview.action}
           </Button>
         </div>
+        <button
+          type="button"
+          className="approval-always"
+          disabled={!armed || sending}
+          onClick={() => void respond('approve-always')}
+        >
+          Always allow “{approval.capability.title}” in this chat
+        </button>
       </div>
     </div>
   );

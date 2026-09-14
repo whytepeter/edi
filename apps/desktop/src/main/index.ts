@@ -853,9 +853,9 @@ async function start() {
     'files.search': 'Searching your files',
     'files.list': 'Looking in a folder',
     'files.read': 'Reading a file',
-    'files.move': 'Moving a file',
-    'files.create_folder': 'Making a folder',
-    'files.trash': 'Moving it to the Trash',
+    'files.move': 'Moving files',
+    'files.create_folder': 'Making folders',
+    'files.trash': 'Moving to the Trash',
     'edi.open_page': 'Opening that',
     'edi.change_preferences': 'Adjusting myself',
     'edi.inspect_setup': 'Checking my settings',
@@ -871,7 +871,8 @@ async function start() {
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
-    character.showApproval(state.approval);
+    // One place to decide: the card's own review while it is open, the bubble otherwise.
+    character.showApproval(cardOpen() ? null : state.approval);
     const running = state.status === 'running' && !state.approval;
     // A new request gets a warm nod; progress follows unless the person is already watching
     // the conversation, where the steps are shown in full.
@@ -913,6 +914,9 @@ async function start() {
     workspace.hide();
   });
   workspace.on('blur', hideOnBlur);
+  const approvalSurface = () => character.showApproval(cardOpen() ? null : agent.state.approval);
+  workspace.on('show', approvalSurface);
+  workspace.on('hide', approvalSurface);
 
   const resolveArtifact = async (ref: ArtifactRef): Promise<Artifact> => {
     const noteId =

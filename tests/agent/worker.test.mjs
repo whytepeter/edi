@@ -50,6 +50,9 @@ function launch(mode, tools = [], context = {}) {
       parentPort.postMessage({ type: 'debug-request', body });
       requests++;
       if (testMode === 'error') return new Response('test-only-secret must not escape', { status: 401 });
+      if (testMode === 'malformed')
+        return new Response(JSON.stringify({ error: { code: 502, message: 'Provider returned error',
+          metadata: { raw: 'finish_reason: MALFORMED_FUNCTION_CALL' } } }), { status: 502 });
       if (testMode === 'wait') return new Promise((resolve, reject) => {
         options.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
       });
@@ -330,4 +333,9 @@ test('what the user has open reaches the model as marked context, and its page i
   // The open page counts as a link the user gave: the same address refused without context
   // (see the composed-link test) now reaches the host.
   assert.equal(messages.filter(m => m.type === 'tool-call').length, 1);
+});
+
+test('a model that cannot write out its actions gets a specific error, not a generic retry one', async () => {
+  const { messages } = await collect(launch('malformed'));
+  assert.deepEqual(messages.at(-1), { type: 'error', kind: 'tools' });
 });

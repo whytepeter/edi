@@ -118,7 +118,9 @@ test('list and read: folders first, text in parts, binary refused', async () => 
 test('changes are previewed exactly and refuse the workspace, Library, roots and overwrites', async () => {
   const { base, run, tool, trashed } = await home();
   const prepared = await tool('files.move').prepare(
-    { from: '~/Downloads/Invoices/march-invoice.txt', to: '~/Desktop/march.txt' } as never,
+    {
+      moves: [{ from: '~/Downloads/Invoices/march-invoice.txt', to: '~/Desktop/march.txt' }],
+    } as never,
     context,
   );
   assert.equal(prepared.preview.action, 'Move');
@@ -130,7 +132,7 @@ test('changes are previewed exactly and refuse the workspace, Library, roots and
   assert.ok((await readdir(join(base, 'Desktop'))).includes('march.txt'));
 
   const rename = await tool('files.move').prepare(
-    { from: '~/Desktop/march.txt', to: '~/Desktop/notes.md' } as never,
+    { moves: [{ from: '~/Desktop/march.txt', to: '~/Desktop/notes.md' }] } as never,
     context,
   );
   assert.equal(rename.preview.action, 'Rename');
@@ -138,12 +140,58 @@ test('changes are previewed exactly and refuse the workspace, Library, roots and
 
   for (const path of ['~/Documents/Edi/Notes/list.md', '~/Downloads', '~/Library/x'])
     await assert.rejects(
-      tool('files.trash').prepare({ path } as never, context) as Promise<unknown>,
+      tool('files.trash').prepare({ paths: [path] } as never, context) as Promise<unknown>,
       /workspace|Downloads itself|Library/,
     );
 
-  await run('files.create_folder', { path: '~/Desktop/Receipts' });
+  await run('files.create_folder', { paths: ['~/Desktop/Receipts'] });
   assert.ok((await readdir(join(base, 'Desktop'))).includes('Receipts'));
-  await run('files.trash', { path: '~/Desktop/Receipts' });
+  await run('files.trash', { paths: ['~/Desktop/Receipts'] });
   assert.deepEqual(trashed, [join(base, 'Desktop/Receipts')]);
+});
+
+test('a batch is reviewed once, runs every item and reports the ones that did not work', async () => {
+  const { base, tool } = await home();
+  for (const name of ['a.png', 'b.png', 'c.png'])
+    await writeFile(join(base, 'Desktop', name), 'png');
+  const folders = await tool('files.create_folder').prepare(
+    { paths: ['~/Desktop/Screenshots', '~/Desktop/Screenshots/Old'] } as never,
+    context,
+  );
+  assert.equal(folders.preview.summary, 'Create 2 folders.');
+  await folders.execute(live());
+
+  const batch = await tool('files.move').prepare(
+    {
+      moves: ['a.png', 'b.png', 'c.png', 'notes.md'].map(name => ({
+        from: `~/Desktop/${name}`,
+        to: `~/Desktop/Screenshots/${name}`,
+      })),
+    } as never,
+    context,
+  );
+  assert.equal(batch.preview.summary, 'Move 4 items into ~/Desktop/Screenshots.');
+  assert.equal(batch.preview.body, 'a.png\nb.png\nc.png\nnotes.md');
+  await writeFile(join(base, 'Desktop/Screenshots/notes.md'), 'already here');
+  const result = await batch.execute(live());
+  assert.match(result.summary, /^Moved 3 items; 1 didn’t work \(notes\.md\)\.$/);
+  assert.deepEqual((await readdir(join(base, 'Desktop/Screenshots'))).sort(), [
+    'Old',
+    'a.png',
+    'b.png',
+    'c.png',
+    'notes.md',
+  ]);
+  await assert.rejects(
+    tool('files.move').prepare(
+      {
+        moves: [
+          { from: '~/Desktop/notes.md', to: '~/Desktop/x.md' },
+          { from: '~/Downloads/photo.png', to: '~/Desktop/x.md' },
+        ],
+      } as never,
+      context,
+    ) as Promise<unknown>,
+    /Two items would be moved/,
+  );
 });

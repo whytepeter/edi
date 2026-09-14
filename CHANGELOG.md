@@ -7,6 +7,14 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Approvals that don't nag. File changes come as one batch (move, create folders or move to the Trash for up to
+  50 items) reviewed once with the full list, and every review offers "Always allow … in this chat". The bubble
+  review is now Claude-like: the question, one detail line, Deny and the action, with Always allow and Details
+  below; it appears only while the card is closed, so a review never shows twice. The card's review is denser
+  and never lets the conversation read through.
+- Conversations show what Edi did as one quiet line ("Move files — waiting for you", "4 actions") that expands to
+  each action, instead of a column of steps. A failed reply shows once, with Try again. When a model can't write
+  out many actions at once, Edi says so instead of blaming OpenRouter.
 - Multiple conversations. Conversations has a toolbar with the current conversation's title, All conversations and
   New conversation; the list shows each conversation's title (its first question), when it was last used and how
   many questions it has, and conversations can be opened or deleted (their turns go; anything saved stays in

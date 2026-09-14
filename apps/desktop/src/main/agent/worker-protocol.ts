@@ -74,7 +74,9 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('error'),
-      kind: z.enum(['auth', 'credits', 'model', 'temporary', 'unknown']).default('unknown'),
+      kind: z
+        .enum(['auth', 'credits', 'model', 'tools', 'temporary', 'unknown'])
+        .default('unknown'),
     })
     .strict(),
 ]);

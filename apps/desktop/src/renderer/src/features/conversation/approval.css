@@ -16,14 +16,46 @@
   overflow: auto;
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-5) var(--space-5) var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-3);
   border-radius: var(--radius-inset);
-  background: var(--glass-fill-dense);
+  /* Dense enough that the conversation behind never reads through the buttons. */
+  background: color-mix(in oklab, var(--content-base) 92%, transparent);
+  backdrop-filter: blur(24px) saturate(1.4);
   transform-origin: bottom center;
   animation: approval-rise var(--spring-fast) var(--spring) both;
 }
 .approval-sheet:focus-visible {
   box-shadow: var(--shadow-control), var(--focus-ring);
+}
+.approval-kind {
+  margin: 0;
+  font: var(--text-caption);
+  font-weight: 600;
+  color: var(--label-tertiary);
+}
+.approval-question {
+  margin: 0;
+  font: var(--text-headline);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.approval-always {
+  justify-self: center;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+  cursor: pointer;
+}
+.approval-always:hover:not(:disabled) {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.approval-always:disabled {
+  opacity: 0.5;
 }
 .approval-fields {
   display: grid;

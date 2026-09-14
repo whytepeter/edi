@@ -50,6 +50,7 @@ export const approvalRequestSchema = z
   .object({
     callId: z.string().uuid(),
     runId: z.string().uuid(),
+    capability: z.object({ id: z.string().max(80), title: z.string().max(120) }).strict(),
     preview: approvalPreviewSchema,
   })
   .strict();

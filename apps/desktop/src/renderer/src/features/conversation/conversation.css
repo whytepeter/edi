@@ -311,3 +311,119 @@
   display: flex;
   gap: var(--space-2);
 }
+
+/* What Edi did in a turn: one quiet, expandable line instead of a column of steps. */
+.action-trail {
+  width: min(100%, 420px);
+  border-radius: 12px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.action-trail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+  text-align: left;
+}
+.action-trail-head:hover {
+  color: var(--label);
+}
+.action-trail-head > .ds-icon {
+  flex: none;
+  transition: transform 180ms var(--ease-out);
+}
+.action-trail[data-open] .action-trail-head > .ds-icon {
+  transform: rotate(180deg);
+}
+.action-trail-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.action-trail-dot {
+  --tone: var(--label-tertiary);
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+.action-trail-dot[data-status='succeeded'] {
+  --tone: #3f9a63;
+}
+.action-trail-dot[data-status='running'],
+.action-trail-dot[data-status='awaiting-approval'] {
+  --tone: var(--accent-strong);
+  animation: step-pulse 1.2s ease-in-out infinite;
+}
+.action-trail-dot[data-status='failed'],
+.action-trail-dot[data-status='denied'] {
+  --tone: #c2502e;
+}
+.action-trail-dot[data-status='unknown'] {
+  --tone: #c27a1a;
+}
+.action-trail-list {
+  display: grid;
+  margin: 0;
+  padding: 0 12px 8px;
+  list-style: none;
+}
+.action-trail-list li {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+}
+.action-trail-list li + li {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+.action-trail-list .action-trail-dot {
+  transform: translateY(-1px);
+}
+.action-trail-text {
+  display: grid;
+  min-width: 0;
+}
+.action-trail-title {
+  font: var(--text-footnote);
+  font-weight: 600;
+  color: var(--label);
+}
+.action-trail-summary {
+  overflow: hidden;
+  font: var(--text-caption);
+  color: var(--label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.action-trail-status {
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-trail-dot {
+    animation: none !important;
+  }
+}
+.agent-retry {
+  justify-self: start;
+}
+
+/* Content Edi made, in the flow of the reply: as wide as a reply, a two-line glimpse. */
+.agent-turn .artifact-card {
+  max-width: 420px;
+  border-radius: 12px;
+}
+.agent-turn .artifact-card-preview {
+  -webkit-line-clamp: 2;
+}

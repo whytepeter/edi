@@ -402,52 +402,139 @@ export function fileCapabilities(deps: FileDependencies) {
     },
   });
 
+  /** Up to 50 items per call, previewed together and approved once. */
+  const MAX_BATCH = 50;
+  const home = (path: string) => displayPath(path, deps.home);
+  const listing = (lines: string[]) => {
+    const shown = lines.slice(0, 40).join('\n');
+    return lines.length > 40 ? `${shown}\n…and ${lines.length - 40} more` : shown;
+  };
+  const common = (paths: string[]) => {
+    const parents = [...new Set(paths.map(path => dirname(path)))];
+    return parents.length === 1 ? home(parents[0]!) : null;
+  };
+  /** Runs each item, stopping at none: reports what changed and what didn't. */
+  async function each<T>(
+    items: T[],
+    work: (item: T) => Promise<string>,
+    label: (item: T) => string,
+  ) {
+    const done: string[] = [];
+    const failed: { item: string; error: string }[] = [];
+    for (const item of items) {
+      try {
+        done.push(await work(item));
+      } catch (error) {
+        failed.push({
+          item: label(item),
+          error: error instanceof Error ? error.message.slice(0, 200) : 'Didn’t work.',
+        });
+      }
+    }
+    if (!done.length && failed.length) throw new Error(failed[0]!.error);
+    return { done, failed };
+  }
+  const outcome = (verb: string, done: string[], failed: { item: string }[], after = '') =>
+    `${verb} ${done.length} ${done.length === 1 ? 'item' : 'items'}${after}` +
+    (failed.length
+      ? `; ${failed.length} didn’t work (${failed.map(entry => entry.item).join(', ')}).`
+      : '.');
+
   const move = defineCapability({
     id: 'files.move',
-    title: 'Rename or move',
+    title: 'Move files',
     description:
-      'Rename a file or folder, or move it into another folder Edi can use. Give the full new ' +
-      'path including the name. Never replaces an existing item. The user reviews it first.',
+      'Rename or move files and folders within folders Edi can use. Put every move for a task in ' +
+      'ONE call (up to 50), e.g. all screenshots into ~/Desktop/Screenshots; give each full new ' +
+      'path including the name. Never replaces existing items. The user reviews the whole list once.',
     effect: 'write',
-    timeoutMs: 15_000,
-    input: z.object({ from: pathInput, to: pathInput }).strict(),
-    async prepare({ from, to }) {
-      const source = await writable(deps, from);
-      const destination = await writable(deps, to);
-      const renaming = dirname(source.path) === dirname(destination.path);
+    timeoutMs: 60_000,
+    input: z
+      .object({
+        moves: z
+          .array(z.object({ from: pathInput, to: pathInput }).strict())
+          .min(1)
+          .max(MAX_BATCH),
+      })
+      .strict(),
+    async prepare({ moves }) {
+      const planned = await Promise.all(
+        moves.map(async ({ from, to }) => ({
+          source: await writable(deps, from),
+          destination: await writable(deps, to),
+        })),
+      );
+      const targets = new Set<string>();
+      for (const { destination } of planned) {
+        if (targets.has(destination.path))
+          throw new Error(`Two items would be moved to ${home(destination.path)}.`);
+        targets.add(destination.path);
+      }
+      const renaming = planned.every(
+        ({ source, destination }) => dirname(source.path) === dirname(destination.path),
+      );
+      const into = common(planned.map(({ destination }) => destination.path));
+      const count = planned.length;
+      const first = planned[0]!;
       return {
         preview: {
           title: renaming ? 'Rename' : 'Move',
           action: renaming ? 'Rename' : 'Move',
-          summary: renaming
-            ? `Rename ${basename(source.path)} to ${basename(destination.path)}.`
-            : `Move ${basename(source.path)} to ${displayPath(dirname(destination.path), deps.home)}.`,
-          fields: [
-            { label: 'From', value: displayPath(source.path, deps.home) },
-            { label: 'To', value: displayPath(destination.path, deps.home) },
-          ],
+          summary:
+            count === 1
+              ? renaming
+                ? `Rename ${basename(first.source.path)} to ${basename(first.destination.path)}.`
+                : `Move ${basename(first.source.path)} to ${home(dirname(first.destination.path))}.`
+              : `${renaming ? 'Rename' : 'Move'} ${count} items${into && !renaming ? ` into ${into}` : ''}.`,
+          fields:
+            count === 1
+              ? [
+                  { label: 'From', value: home(first.source.path) },
+                  { label: 'To', value: home(first.destination.path) },
+                ]
+              : [],
+          ...(count > 1
+            ? {
+                body: listing(
+                  planned.map(({ source, destination }) =>
+                    renaming || !into
+                      ? `${home(source.path)} → ${basename(destination.path)}`
+                      : basename(source.path),
+                  ),
+                ),
+              }
+            : {}),
         },
         async execute() {
-          await ensureAccess(deps, source.root);
-          await ensureAccess(deps, destination.root);
-          await lstat(source.path);
-          const exists = await lstat(destination.path).then(
-            () => true,
-            () => false,
+          const { done, failed } = await each(
+            planned,
+            async ({ source, destination }) => {
+              await ensureAccess(deps, source.root);
+              await ensureAccess(deps, destination.root);
+              await lstat(source.path);
+              const exists = await lstat(destination.path).then(
+                () => true,
+                () => false,
+              );
+              if (exists) throw new Error(`${basename(destination.path)} already exists there.`);
+              const parent = await stat(dirname(destination.path)).catch(() => null);
+              if (!parent?.isDirectory()) throw new Error('The destination folder doesn’t exist.');
+              try {
+                await rename(source.path, destination.path);
+              } catch (error) {
+                if ((error as { code?: string }).code === 'EXDEV')
+                  throw new Error('Edi can only move items within the same disk.', {
+                    cause: error,
+                  });
+                throw error;
+              }
+              return home(destination.path);
+            },
+            ({ source }) => basename(source.path),
           );
-          if (exists) throw new Error(`${basename(destination.path)} already exists there.`);
-          const parent = await stat(dirname(destination.path)).catch(() => null);
-          if (!parent?.isDirectory()) throw new Error('The destination folder doesn’t exist.');
-          try {
-            await rename(source.path, destination.path);
-          } catch (error) {
-            if ((error as { code?: string }).code === 'EXDEV')
-              throw new Error('Edi can only move items within the same disk.', { cause: error });
-            throw error;
-          }
           return {
-            summary: `${renaming ? 'Renamed' : 'Moved'} to ${displayPath(destination.path, deps.home)}.`,
-            output: { path: displayPath(destination.path, deps.home) },
+            summary: outcome(renaming ? 'Renamed' : 'Moved', done, failed),
+            output: { moved: done, ...(failed.length ? { failed } : {}) },
           };
         },
       };
@@ -456,28 +543,40 @@ export function fileCapabilities(deps: FileDependencies) {
 
   const makeFolder = defineCapability({
     id: 'files.create_folder',
-    title: 'Create a folder',
+    title: 'Create folders',
     description:
-      'Create one new folder inside a folder Edi can use. The parent must already exist. The ' +
-      'user reviews it first.',
+      'Create new folders inside folders Edi can use, all in ONE call (up to 50). Parents must ' +
+      'exist or be earlier in the same list. The user reviews them once.',
     effect: 'write',
-    timeoutMs: 10_000,
-    input: z.object({ path: pathInput }).strict(),
-    async prepare({ path }) {
-      const target = await writable(deps, path);
+    timeoutMs: 20_000,
+    input: z.object({ paths: z.array(pathInput).min(1).max(MAX_BATCH) }).strict(),
+    async prepare({ paths }) {
+      const targets = await Promise.all(paths.map(path => writable(deps, path)));
+      const into = common(targets.map(target => target.path));
       return {
         preview: {
-          title: 'Create a folder',
-          action: 'Create Folder',
-          summary: `Create ${basename(target.path)} in ${displayPath(dirname(target.path), deps.home)}.`,
-          fields: [{ label: 'Folder', value: displayPath(target.path, deps.home) }],
+          title: targets.length === 1 ? 'Create a folder' : 'Create folders',
+          action: targets.length === 1 ? 'Create Folder' : 'Create Folders',
+          summary:
+            targets.length === 1
+              ? `Create ${basename(targets[0]!.path)} in ${home(dirname(targets[0]!.path))}.`
+              : `Create ${targets.length} folders${into ? ` in ${into}` : ''}.`,
+          fields: [],
+          body: listing(targets.map(target => (into ? basename(target.path) : home(target.path)))),
         },
         async execute() {
-          await ensureAccess(deps, target.root);
-          await mkdir(target.path);
+          const { done, failed } = await each(
+            targets,
+            async target => {
+              await ensureAccess(deps, target.root);
+              await mkdir(target.path);
+              return home(target.path);
+            },
+            target => basename(target.path),
+          );
           return {
-            summary: `Created ${displayPath(target.path, deps.home)}.`,
-            output: { path: displayPath(target.path, deps.home) },
+            summary: outcome('Created', done, failed),
+            output: { created: done, ...(failed.length ? { failed } : {}) },
           };
         },
       };
@@ -488,31 +587,59 @@ export function fileCapabilities(deps: FileDependencies) {
     id: 'files.trash',
     title: 'Move to Trash',
     description:
-      'Move one file or folder Edi can use to the macOS Trash, where the user can restore it. ' +
-      'The user reviews it first. For Edi’s own saved items, use workspace_delete.',
+      'Move files or folders Edi can use to the macOS Trash, where the user can restore them, all ' +
+      'in ONE call (up to 50). The user reviews the list once. For Edi’s own saved items, use ' +
+      'workspace_delete.',
     effect: 'write',
-    timeoutMs: 15_000,
-    input: z.object({ path: pathInput }).strict(),
-    async prepare({ path }) {
-      const target = await writable(deps, path);
-      const info = await lstat(target.path).catch(() => null);
-      if (!info) throw new Error(`${path} doesn’t exist.`);
+    timeoutMs: 60_000,
+    input: z.object({ paths: z.array(pathInput).min(1).max(MAX_BATCH) }).strict(),
+    async prepare({ paths }) {
+      const targets = await Promise.all(
+        paths.map(async path => {
+          const target = await writable(deps, path);
+          if (!(await lstat(target.path).catch(() => null)))
+            throw new Error(`${path} doesn’t exist.`);
+          return target;
+        }),
+      );
+      const into = common(targets.map(target => target.path));
+      const first = targets[0]!;
       return {
         preview: {
           title: 'Move to Trash',
           action: 'Move to Trash',
-          summary: `Move ${basename(target.path)} to the Trash. You can put it back from the Trash.`,
-          fields: [
-            { label: info.isDirectory() ? 'Folder' : 'File', value: basename(target.path) },
-            { label: 'Location', value: displayPath(dirname(target.path), deps.home) },
-          ],
+          summary:
+            targets.length === 1
+              ? `Move ${basename(first.path)} to the Trash. You can put it back from the Trash.`
+              : `Move ${targets.length} items${into ? ` from ${into}` : ''} to the Trash. You can put them back.`,
+          fields:
+            targets.length === 1
+              ? [
+                  { label: 'Item', value: basename(first.path) },
+                  { label: 'Location', value: home(dirname(first.path)) },
+                ]
+              : [],
+          ...(targets.length > 1
+            ? {
+                body: listing(
+                  targets.map(target => (into ? basename(target.path) : home(target.path))),
+                ),
+              }
+            : {}),
         },
         async execute() {
-          await ensureAccess(deps, target.root);
-          await deps.trash(target.path);
+          const { done, failed } = await each(
+            targets,
+            async target => {
+              await ensureAccess(deps, target.root);
+              await deps.trash(target.path);
+              return home(target.path);
+            },
+            target => basename(target.path),
+          );
           return {
-            summary: `Moved ${basename(target.path)} to the Trash.`,
-            output: { path: displayPath(target.path, deps.home) },
+            summary: outcome('Moved', done, failed, ' to the Trash'),
+            output: { trashed: done, ...(failed.length ? { failed } : {}) },
           };
         },
       };

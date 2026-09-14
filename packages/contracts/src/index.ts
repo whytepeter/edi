@@ -380,7 +380,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('respond-approval'),
       callId: z.string().uuid(),
-      decision: z.enum(['approve', 'deny']),
+      /** approve-always also allows this kind of action for the rest of the conversation. */
+      decision: z.enum(['approve', 'approve-always', 'deny']),
     })
     .strict(),
   z.object({ type: z.literal('show-workspace'), view: workspaceViewSchema.optional() }).strict(),

@@ -77,6 +77,8 @@
 
 .bubble-approval {
   align-items: stretch;
+  width: 100%;
+  min-width: 0;
 }
 
 .bubble-approval h2,
@@ -84,41 +86,24 @@
   margin: 0;
 }
 
+/* Claude-style review: the question, one detail line, Deny and the action, then quieter options. */
 .bubble-approval h2 {
-  margin-top: 2px;
+  display: -webkit-box;
   overflow: hidden;
   color: var(--label-primary);
-  font: var(--text-headline);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bubble-approval > p:not(.ds-eyebrow) {
-  display: -webkit-box;
-  margin-top: var(--space-1);
-  overflow: hidden;
-  color: var(--label-secondary);
-  font: var(--text-footnote);
+  font: var(--text-callout);
+  font-weight: 600;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
-.bubble-approval-field {
-  display: grid;
-  grid-template-columns: minmax(52px, auto) minmax(0, 1fr);
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  color: var(--label-tertiary);
-  font: var(--text-caption);
-}
-
-.bubble-approval-field strong {
+.bubble-approval-detail {
+  margin-top: 2px;
   overflow: hidden;
   color: var(--label-secondary);
-  font-weight: 500;
-  text-align: right;
-  text-overflow: ellipsis;
+  font: var(--text-caption);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .bubble-approval-actions {
@@ -128,10 +113,14 @@
   margin-top: var(--space-3);
 }
 
-.bubble-deny {
-  width: 100%;
-  margin-top: var(--space-1);
-  padding: var(--space-1);
+.bubble-approval-more {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.bubble-approval-more button {
+  padding: 2px 0;
   border: 0;
   color: var(--label-tertiary);
   background: transparent;
@@ -139,7 +128,7 @@
   cursor: pointer;
 }
 
-.bubble-deny:hover:not(:disabled) {
+.bubble-approval-more button:hover:not(:disabled) {
   color: var(--label-secondary);
 }
 

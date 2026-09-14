@@ -107,7 +107,11 @@ export class CapabilityBroker {
       let decision: 'approved' | 'denied';
       try {
         decision = await this.deps.approvals.request(
-          { ...context, preview: action.preview },
+          {
+            ...context,
+            capability: { id: capability.id, title: capability.title },
+            preview: action.preview,
+          },
           signal,
         );
       } catch {

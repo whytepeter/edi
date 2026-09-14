@@ -97,7 +97,14 @@ export class AgentService {
   private starting?: object;
   private configuring = false;
   private readonly listeners = new Set<(state: AgentState) => void>();
-  private readonly approvals = new ApprovalQueue(head => this.onApprovalChange(head));
+  private readonly approvals = new ApprovalQueue(
+    head => this.onApprovalChange(head),
+    request =>
+      this.run?.id === request.runId &&
+      Boolean(this.allowedInConversation.get(this.run.conversationId)?.has(request.capability.id)),
+  );
+  /** Kinds of action the person allowed for the rest of a conversation, this session only. */
+  private readonly allowedInConversation = new Map<string, Set<string>>();
   private readonly broker: CapabilityBroker;
 
   constructor(private readonly options: AgentServiceOptions) {
@@ -298,6 +305,7 @@ export class AgentService {
     if (this.run?.conversationId === id || (this.starting && this.conversationId === id))
       throw new Error('Stop the response before deleting this conversation.');
     this.options.repositories.conversations.remove(id);
+    this.allowedInConversation.delete(id);
     if (this.conversationId === id) {
       this.conversationId = null;
       this.showConversation();
@@ -360,11 +368,21 @@ export class AgentService {
   }
 
   /** Bound to the pending call: a decision for any other call ID is rejected. */
-  respondToApproval(callId: string, decision: 'approve' | 'deny') {
-    if (!this.run || this.state.approval?.callId !== callId) {
+  respondToApproval(callId: string, decision: 'approve' | 'approve-always' | 'deny') {
+    const approval = this.state.approval;
+    if (!this.run || approval?.callId !== callId) {
       throw new Error('That approval is no longer pending.');
     }
-    this.approvals.respond(callId, decision === 'approve' ? 'approved' : 'denied');
+    if (decision === 'approve-always') {
+      const allowed = this.allowedInConversation.get(this.run.conversationId) ?? new Set<string>();
+      allowed.add(approval.capability.id);
+      this.allowedInConversation.set(this.run.conversationId, allowed);
+    }
+    this.approvals.respond(
+      callId,
+      decision === 'deny' ? 'denied' : 'approved',
+      decision === 'approve-always',
+    );
   }
 
   private onWorkerMessage(run: ActiveRun, raw: unknown) {
@@ -407,6 +425,8 @@ export class AgentService {
         credits: 'OpenRouter has no available credits. Add credits, then try again.',
         model:
           'The selected OpenRouter model is unavailable or incompatible. Choose another model in Settings → AI.',
+        tools:
+          'The model couldn’t write out all of those actions at once. Try again, ask for a smaller step, or choose another model in Settings → AI.',
         temporary:
           'OpenRouter and its backup providers could not answer after retrying. Try again in a moment.',
         unknown:

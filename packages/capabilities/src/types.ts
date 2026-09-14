@@ -70,7 +70,13 @@ export interface ToolCallRecorder {
 /** Asks a person. Must reject with an AbortError if `signal` aborts first. */
 export interface ApprovalGate {
   request(
-    request: { callId: string; runId: string; preview: ApprovalPreview },
+    request: {
+      callId: string;
+      runId: string;
+      /** Which kind of action this is, so a person can allow it for the rest of a chat. */
+      capability: { id: string; title: string };
+      preview: ApprovalPreview;
+    },
     signal: AbortSignal,
   ): Promise<'approved' | 'denied'>;
 }

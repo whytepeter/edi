@@ -46,8 +46,8 @@ contextBridge.exposeInMainWorld('ediBubble', {
     ipcRenderer.on('edi:bubble-approval', listener);
     return () => ipcRenderer.removeListener('edi:bubble-approval', listener);
   },
-  async respond(callId: string, decision: 'approve' | 'deny') {
-    if (!uuid.test(callId) || (decision !== 'approve' && decision !== 'deny')) {
+  async respond(callId: string, decision: 'approve' | 'approve-always' | 'deny') {
+    if (!uuid.test(callId) || !['approve', 'approve-always', 'deny'].includes(decision)) {
       throw new Error('Invalid approval response.');
     }
     await ipcRenderer.invoke('edi:command', { type: 'respond-approval', callId, decision });
