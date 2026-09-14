@@ -50,6 +50,9 @@ importers:
       '@edi/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@edi/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       '@edi/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -135,6 +138,8 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.2
+
+  packages/skills: {}
 
   packages/storage:
     dependencies:

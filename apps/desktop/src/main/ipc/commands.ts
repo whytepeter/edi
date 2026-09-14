@@ -11,6 +11,7 @@ import type { TaskService } from '../agent/task-service';
 import type { Scheduler } from '../agent/scheduler';
 import type { ApprovalRules } from '../agent/approval-rules';
 import type { ConnectorManager } from '../connectors/manager';
+import type { SkillLibrary } from '../skills/library';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
@@ -30,6 +31,9 @@ interface CommandDependencies {
   scheduler: Scheduler;
   approvalRules: ApprovalRules;
   connectors: ConnectorManager;
+  skills: SkillLibrary;
+  /** Documents › Edi › Skills in Finder, created if missing. */
+  openSkillsFolder(): Promise<void>;
   placement: WindowPlacement;
   petDrag: PetDrag;
   character: CharacterActions;
@@ -70,6 +74,8 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     scheduler,
     approvalRules,
     connectors,
+    skills,
+    openSkillsFolder,
     placement,
     petDrag,
     character,
@@ -311,6 +317,12 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ id, tool, enabled }) => connectors.setToolEnabled(id, tool, enabled),
     },
     'test-connector': { from: fromWorkspace, handle: ({ id }) => connectors.check(id) },
+    'set-skill-enabled': {
+      from: fromWorkspace,
+      handle: ({ name, enabled }) => skills.setEnabled(name, enabled),
+    },
+    'remove-skill': { from: fromWorkspace, handle: ({ name }) => skills.remove(name) },
+    'open-skills-folder': { from: fromWorkspace, handle: () => openSkillsFolder() },
     'use-recommended-tools': {
       from: fromWorkspace,
       handle: ({ id }) => connectors.useRecommendedTools(id),

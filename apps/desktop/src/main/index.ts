@@ -14,7 +14,7 @@ import {
   systemPreferences,
 } from 'electron';
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 
 if (process.env.EDI_CWD) process.chdir(process.env.EDI_CWD);
@@ -51,6 +51,9 @@ import { macDependencies } from './platform/mac-actions';
 import { ApprovalRules } from './agent/approval-rules';
 import { ComposioCredentials } from './connectors/composio-credentials';
 import { ConnectorManager } from './connectors/manager';
+import { SkillLibrary } from './skills/library';
+import { skillCapabilities } from './skills/capabilities';
+import { builtInSkills } from '../shared/built-in-skills';
 import {
   connectAppCapability,
   resumeWhenConnected,
@@ -80,6 +83,7 @@ import {
   type LibraryItem,
   type SystemInfo,
   type WorkspaceView,
+  type SkillSummary,
 } from '@edi/contracts';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
@@ -196,6 +200,21 @@ async function start() {
   await fileAccess.load();
   const notesFolder = () => join(workspaceFolder, 'Notes');
   moveLegacyNotes(join(app.getPath('documents'), 'Edi Notes'), notesFolder(), repositories.notes);
+  // Skills by Fewerlabs ship with Edi; the person's own live in Documents › Edi › Skills.
+  const skillsFolder = () => join(workspaceFolder, 'Skills');
+  const skills = new SkillLibrary({
+    builtIn: builtInSkills,
+    folder: skillsFolder,
+    off: () => settings.current.skillsOff,
+    setOff: async names => {
+      await settings.update({ skillsOff: names });
+    },
+    trash: path => shell.trashItem(path),
+  });
+  await skills.refresh();
+  const [useSkill, createSkill] = skillCapabilities(skills);
+  const enabledSkills = () =>
+    skills.enabled().map(({ name, description }) => ({ name, description }));
   const permissionPort: { current?: PermissionManager } = {};
   // Local speech/transcription assets are resolved before the agent so its setup skill
   // reports the same availability used by the voice controller.
@@ -393,6 +412,10 @@ async function start() {
           name: `Use connected apps (Connectors)${connectedApps() ? `: ${connectedApps()}` : ', none connected yet'}`,
           asksFirst: true,
         },
+        {
+          name: 'Use skills (ways of working, listed in Skills) and make new ones with Skill Creator',
+          asksFirst: true,
+        },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
           name: 'Change its character, size, pin, voice and whether replies are spoken',
@@ -410,7 +433,7 @@ async function start() {
         { name: 'Point at and draw on the screen', asksFirst: false },
       ],
       notYetAvailable: [
-        'Installing skills',
+        'Installing skills from a community catalog',
         'Clicking or typing in other apps',
         'Opening, reading or using logged-in websites in a browser',
         'Changing the keyboard shortcut',
@@ -439,7 +462,11 @@ async function start() {
         pushToTalk: pushToTalk(),
       },
       // Built-in abilities are listed above; skills are add-ons, and none exist yet.
-      skills: [],
+      skills: skills.list().map(skill => ({
+        id: skill.name,
+        name: skill.title,
+        active: skill.enabled,
+      })),
       ...connectorSummary(),
       permissions: (permissionPort.current?.snapshot().permissions ?? []).map(({ id, status }) => ({
         id,
@@ -496,6 +523,7 @@ async function start() {
   const macTools = macCapabilities(macDependencies(fileDeps));
   // Edi's tools. Background tasks get the same ones except starting tasks and controlling Edi.
   const toolCapabilities = [
+    useSkill,
     ...notesCapabilities({
       directory: notesFolder,
       store: repositories.notes,
@@ -816,6 +844,7 @@ async function start() {
     repositories,
     capabilities: toolCapabilities,
     selfContext: () => JSON.stringify(setupSnapshot()),
+    skills: enabledSkills,
     assistantName: () => companion(),
     readerModel: () => readerModel,
     finished: task => {
@@ -870,6 +899,7 @@ async function start() {
       ...taskTools,
       ...ediTools,
       connectApp,
+      createSkill,
     ],
     threadArtifacts: runIds => {
       const byRun = new Map<string, ArtifactSummary[]>();
@@ -903,6 +933,7 @@ async function start() {
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
     selfContext: () => JSON.stringify(setupSnapshot()),
+    skills: enabledSkills,
     assistantName: () => companion(),
   });
   await agent.load();
@@ -1345,6 +1376,30 @@ async function start() {
   scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
   approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
   connectors.onChange(list => broadcast([workspace], 'edi:connectors', list));
+  // A skill's apps show whether each is connected, so connector changes update Skills too.
+  const skillSummaries = (): SkillSummary[] => {
+    const connected = new Set(
+      connectors
+        .list()
+        .filter(connector => connector.status === 'connected')
+        .map(connector => connector.catalogId),
+    );
+    return skills.list().map(skill => ({
+      name: skill.name,
+      title: skill.title,
+      description: skill.description,
+      author: skill.author,
+      version: skill.version,
+      trust: skill.trust,
+      enabled: skill.enabled,
+      apps: skill.apps.flatMap(id => {
+        const entry = connectorCatalog.find(item => item.id === id);
+        return entry ? [{ id, name: entry.name, connected: connected.has(id) }] : [];
+      }),
+    }));
+  };
+  skills.onChange(() => broadcast([workspace], 'edi:skills', skillSummaries()));
+  connectors.onChange(() => broadcast([workspace], 'edi:skills', skillSummaries()));
   connectors.start();
   scheduler.start();
   // A Mac waking from sleep checks for anything that came due meanwhile.
@@ -1418,6 +1473,11 @@ async function start() {
       scheduler,
       approvalRules,
       connectors,
+      skills,
+      openSkillsFolder: async () => {
+        await mkdir(skillsFolder(), { recursive: true });
+        await shell.openPath(skillsFolder());
+      },
       placement,
       petDrag,
       character,
@@ -1484,6 +1544,10 @@ async function start() {
     schedules: () => scheduler.list(),
     approvalRules: () => approvalRules.list(),
     connectors: () => connectors.list(),
+    skills: async () => {
+      await skills.refresh();
+      return skillSummaries();
+    },
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),

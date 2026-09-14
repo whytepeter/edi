@@ -65,6 +65,8 @@ interface AgentServiceOptions {
   point?: (target: PointTarget) => void;
   /** Live, non-secret Edi configuration for identity and setup questions. */
   selfContext?: () => string;
+  /** Switched-on skills the model can pick from. */
+  skills?: () => { name: string; description: string }[];
   /** The companion's current name (the person's choice, or its character's). */
   assistantName?: () => string;
   /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
@@ -267,6 +269,7 @@ export class AgentService {
       maxSteps: 10,
       expressiveVoice: options.expressiveVoice ?? false,
       selfContext: this.options.selfContext?.() ?? '',
+      skills: this.options.skills?.() ?? [],
       desktopContext,
       ...(readerModel ? { readerModel } : {}),
       tools: this.broker.manifest(),

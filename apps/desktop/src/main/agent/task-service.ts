@@ -50,6 +50,8 @@ interface TaskServiceOptions {
   /** Tools from connected apps, read at the start of each run. */
   connectedTools?: () => readonly Capability[];
   selfContext?: () => string;
+  /** Switched-on skills the model can pick from. */
+  skills?: () => { name: string; description: string }[];
   assistantName?: () => string;
   readerModel?: () => string | null;
   /** How many tasks run at once; the rest wait their turn. */
@@ -274,6 +276,7 @@ export class TaskService {
       maxSteps: TASK_STEPS,
       expressiveVoice: false,
       selfContext: this.options.selfContext?.() ?? '',
+      skills: this.options.skills?.() ?? [],
       desktopContext: null,
       ...(readerModel ? { readerModel } : {}),
       tools: this.broker.manifest(),

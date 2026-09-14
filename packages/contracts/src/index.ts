@@ -44,6 +44,7 @@ import type { UsagePeriod, UsageSummary } from './usage';
 import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
 import { connectorUrlSchema, type Connector } from './connectors';
+import { skillNameSchema, type SkillSummary } from './skills';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -57,6 +58,7 @@ export * from './tasks';
 export * from './schedules';
 export * from './connectors';
 export * from './connector-catalog';
+export * from './skills';
 export {
   placeArtifact,
   placeCard,
@@ -249,6 +251,8 @@ export const settingsSchema = z.preprocess(
     petScale: petScaleSchema.default(1),
     /** The companion's name; null means the character's own name (Edi, Mochi). */
     name: assistantNameSchema.nullable().catch(null).default(null),
+    /** Skills the person switched off; every other available skill is on. */
+    skillsOff: z.array(skillNameSchema).max(200).catch([]).default([]),
   }),
 );
 export type Settings = z.infer<typeof settingsSchema>;
@@ -259,6 +263,7 @@ export const defaultSettings: Settings = {
   speakReplies: true,
   shareDesktopContext: true,
   taskBudgetUsd: defaultTaskBudgetUsd,
+  skillsOff: [],
   voiceModel: 'kokoro',
   voices: {
     kokoro: 'af_heart',
@@ -464,6 +469,11 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('use-recommended-tools'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('test-connector'), id: z.string().uuid() }).strict(),
+  z
+    .object({ type: z.literal('set-skill-enabled'), name: skillNameSchema, enabled: z.boolean() })
+    .strict(),
+  z.object({ type: z.literal('remove-skill'), name: skillNameSchema }).strict(),
+  z.object({ type: z.literal('open-skills-folder') }).strict(),
   z.object({ type: z.literal('remove-connector'), id: z.string().uuid() }).strict(),
   z
     .object({
@@ -597,6 +607,9 @@ export interface DesktopBridge {
   onApprovalRules(callback: (rules: ApprovalRule[]) => void): () => void;
   /** Connected apps and their tools. */
   connectors(): Promise<Connector[]>;
+  /** Every skill, re-reading Documents › Edi › Skills first. */
+  skills(): Promise<SkillSummary[]>;
+  onSkills(callback: (skills: SkillSummary[]) => void): () => void;
   onConnectors(callback: (connectors: Connector[]) => void): () => void;
   /** Whether the Composio API key has been configured. */
   composioConfigured(): Promise<boolean>;

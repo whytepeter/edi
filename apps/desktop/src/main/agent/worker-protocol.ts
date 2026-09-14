@@ -59,6 +59,13 @@ export const workerInputSchema = z
     desktopContext: desktopContextSchema.nullable().default(null),
     /** Trusted, current, non-secret product configuration supplied by main. */
     selfContext: z.string().max(12_000).default(''),
+    /** Switched-on skills, by name and when to use them; skills_use loads the instructions. */
+    skills: z
+      .array(
+        z.object({ name: z.string().min(1).max(64), description: z.string().max(1024) }).strict(),
+      )
+      .max(60)
+      .default([]),
     // Providers accept up to 128 tools per request. Deferred tools are declared but offered only
     // once found, so the ones sent directly must leave room for those and web search.
     tools: z

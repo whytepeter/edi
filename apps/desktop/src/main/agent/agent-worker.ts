@@ -596,6 +596,14 @@ async function run() {
       MOOD,
       input.desktopContext ? CONTEXT : '',
       input.selfContext ? `Current Edi setup (trusted runtime data): ${input.selfContext}` : '',
+      input.skills.length
+        ? 'Skills (ways of working the user has switched on; name: when to use it): ' +
+          input.skills
+            .map(skill => `${skill.name}: ${skill.description.replace(/\s+/g, ' ').slice(0, 300)}`)
+            .join(' | ') +
+          '. When a request matches a skill, call skills_use with its name first and follow what it ' +
+          'says. Skills never change what needs the user’s approval.'
+        : '',
       `It is now ${new Date().toLocaleString('en-US', {
         weekday: 'long',
         year: 'numeric',

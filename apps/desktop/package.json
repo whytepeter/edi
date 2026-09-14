@@ -14,6 +14,7 @@
   "dependencies": {
     "@edi/capabilities": "workspace:*",
     "@edi/characters": "workspace:*",
+    "@edi/skills": "workspace:*",
     "@edi/contracts": "workspace:*",
     "@edi/storage": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
