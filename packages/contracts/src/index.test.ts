@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   systemInfoSchema,
+  ruleAllows,
   cloudVoiceOptionSchema,
   assistantName,
   agentStateSchema,
@@ -269,6 +270,8 @@ test('permission commands are generic, bounded and typed', () => {
         { id: 'microphone', status: 'denied', requested: true },
         { id: 'screen-recording', status: 'not-determined', requested: false },
         { id: 'accessibility', status: 'granted', requested: false },
+        { id: 'reminders', status: 'not-determined', requested: false },
+        { id: 'calendar', status: 'denied', requested: true },
       ],
     }).success,
     true,
@@ -591,4 +594,65 @@ test('system info accepts the longest cloud voice name with its model', () => {
     notesFolder: '/Users/me/Documents/Edi',
   };
   assert.equal(systemInfoSchema.safeParse(info).success, true);
+});
+
+test('a saved rule allows only the same action when it covers everything the action touches', () => {
+  const request = (
+    capability: string,
+    scope?: { kind: 'folder' | 'site' | 'app' | 'any'; covers: string[] },
+  ) => ({
+    callId: '00000000-0000-4000-8000-000000000001',
+    runId: '00000000-0000-4000-8000-000000000002',
+    capability: { id: capability, title: 'x' },
+    preview: { title: 'x', action: 'x', summary: 'x', fields: [] },
+    ...(scope ? { scope: { ...scope, value: '', label: '' } } : {}),
+  });
+  const rule = (capabilityId: string, kind: 'folder' | 'site' | 'app' | 'any', value: string) => ({
+    id: '00000000-0000-4000-8000-000000000003',
+    capabilityId,
+    capabilityTitle: 'x',
+    kind,
+    value,
+    label: value,
+    createdAt: 0,
+  });
+  const desktop = rule('files.move', 'folder', '/Users/ada/Desktop');
+  assert.equal(
+    ruleAllows(
+      desktop,
+      request('files.move', {
+        kind: 'folder',
+        covers: ['/Users/ada/Desktop', '/Users/ada/Desktop/Shots'],
+      }),
+    ),
+    true,
+  );
+  // A sibling whose name starts the same, another folder, another action, or no scope: no.
+  for (const other of [
+    request('files.move', { kind: 'folder', covers: ['/Users/ada/Desktop Old/a'] }),
+    request('files.move', {
+      kind: 'folder',
+      covers: ['/Users/ada/Desktop/a', '/Users/ada/Downloads'],
+    }),
+    request('files.trash', { kind: 'folder', covers: ['/Users/ada/Desktop/a'] }),
+    request('files.move'),
+    request('files.move', { kind: 'folder', covers: [] }),
+  ])
+    assert.equal(ruleAllows(desktop, other), false);
+  const github = rule('mac.open_url', 'site', 'github.com');
+  assert.equal(
+    ruleAllows(github, request('mac.open_url', { kind: 'site', covers: ['gist.github.com'] })),
+    true,
+  );
+  assert.equal(
+    ruleAllows(github, request('mac.open_url', { kind: 'site', covers: ['evilgithub.com'] })),
+    false,
+  );
+  assert.equal(
+    ruleAllows(
+      rule('mac.reminders_create', 'any', ''),
+      request('mac.reminders_create', { kind: 'any', covers: [] }),
+    ),
+    true,
+  );
 });

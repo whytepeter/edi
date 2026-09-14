@@ -13,6 +13,7 @@ import {
   parsePresentation,
   modelIdSchema,
   resolvePresentation,
+  ruleAllows,
   type AgentState,
   type ApprovalRequest,
   type ArtifactSummary,
@@ -25,6 +26,7 @@ import type { Repositories, ThreadTurn } from '@edi/storage';
 import type { ScreenContext, Screenshot } from '../capture/screens';
 
 type CapturedScreens = ScreenContext;
+import type { ApprovalRules } from './approval-rules';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import {
@@ -66,6 +68,8 @@ interface AgentServiceOptions {
   readerModel?: () => string | null;
   /** What the person has in front of them, gathered when they ask; null when off or unknown. */
   desktopContext?: () => Promise<DesktopContext | null>;
+  /** Saved "Always allow" choices. */
+  rules?: ApprovalRules;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
   threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
 }
@@ -109,8 +113,11 @@ export class AgentService {
   private readonly approvals = new ApprovalQueue(
     head => this.onApprovalChange(head),
     request =>
-      this.run?.id === request.runId &&
-      Boolean(this.allowedInConversation.get(this.run.conversationId)?.has(request.capability.id)),
+      Boolean(this.options.rules?.allows(request)) ||
+      (this.run?.id === request.runId &&
+        Boolean(
+          this.allowedInConversation.get(this.run.conversationId)?.has(request.capability.id),
+        )),
   );
   /** Kinds of action the person allowed for the rest of a conversation, this session only. */
   private readonly allowedInConversation = new Map<string, Set<string>>();
@@ -401,7 +408,9 @@ export class AgentService {
     if (!this.run || approval?.callId !== callId) {
       throw new Error('That approval is no longer pending.');
     }
-    if (decision === 'approve-always') {
+    // An action that says where it applies is remembered there; others for this conversation.
+    const rule = decision === 'approve-always' ? this.options.rules?.save(approval) : null;
+    if (decision === 'approve-always' && !rule) {
       const allowed = this.allowedInConversation.get(this.run.conversationId) ?? new Set<string>();
       allowed.add(approval.capability.id);
       this.allowedInConversation.set(this.run.conversationId, allowed);
@@ -409,7 +418,7 @@ export class AgentService {
     this.approvals.respond(
       callId,
       decision === 'deny' ? 'denied' : 'approved',
-      decision === 'approve-always',
+      rule ? request => ruleAllows(rule, request) : decision === 'approve-always',
     );
   }
 

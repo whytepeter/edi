@@ -17,7 +17,12 @@ export {
   type ArtProblem,
   type SanitizedArt,
 } from './character/svg';
-import { approvalRequestSchema, toolStepSchema, type Activity } from './capabilities';
+import {
+  approvalRequestSchema,
+  toolStepSchema,
+  type Activity,
+  type ApprovalRule,
+} from './capabilities';
 export * from './capabilities';
 export * from './screen-context';
 export * from './presentation';
@@ -418,13 +423,17 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('remove-approval-rule'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
   z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
   z
     .object({
       type: z.literal('respond-approval'),
       callId: z.string().uuid(),
-      /** approve-always also allows this kind of action for the rest of the conversation. */
+      /**
+       * approve-always saves a rule where the action applies (a folder, site, app or any), or
+       * else allows this kind of action for the rest of the conversation.
+       */
       decision: z.enum(['approve', 'approve-always', 'deny']),
     })
     .strict(),
@@ -536,6 +545,9 @@ export interface DesktopBridge {
   /** Schedules and watches, enabled first then by next run. */
   schedules(): Promise<Schedule[]>;
   onSchedules(callback: (schedules: Schedule[]) => void): () => void;
+  /** Saved "Always allow" choices, newest first. */
+  approvalRules(): Promise<ApprovalRule[]>;
+  onApprovalRules(callback: (rules: ApprovalRule[]) => void): () => void;
   /** Saved conversations, most recently active first. */
   conversations(query?: string): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */

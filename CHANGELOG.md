@@ -7,6 +7,15 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Mac actions. Edi can open apps, open links in your browser, open files in allowed folders (with their usual app or
+  one you name; never apps, scripts, installers or shortcuts) and show files in Finder. It can check and add
+  Reminders (a due time also alerts) and check and add Calendar events through EventKit, with Reminders and Calendar
+  rows in Settings → Privacy & Permissions. The model is now told the current date, time and time zone.
+- "Always allow" that lasts. For an action that applies somewhere, the choice is saved for that place: moving,
+  creating or trashing files in a folder, opening links on a site, opening an app, or adding reminders and events.
+  It survives restarts, covers waiting reviews it applies to, and is listed under Settings → Privacy & Permissions →
+  Always allowed, where it can be removed. Other actions can still be allowed for one conversation or task.
+
 - Edi reads PDFs, including scanned pages, and text in pictures of documents (scans, photos, screenshots) with
   macOS PDFKit and Vision, on this Mac. The native helper is replaced by rename when rebuilt, so a running Edi is
   not killed by the build.

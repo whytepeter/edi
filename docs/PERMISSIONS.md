@@ -44,6 +44,25 @@ macOS offers no way to ask whether a protected folder is allowed without prompti
 taps Allow in Settings → Privacy & Permissions, or when a file tool first needs it. Full Disk Access is detected by
 opening a file only it unlocks, which never prompts. A refused folder links to System Settings.
 
+## Reminders and Calendar
+
+`reminders` and `calendar` are permission IDs backed by EventKit in the native helper (`edi_eventkit_*` in
+`native/screen-capture/ask.m`). Edi needs full access; write-only access counts as off. The first Reminders or
+Calendar tool call asks macOS if it never has, and Settings → Privacy & Permissions can ask or link to System
+Settings. The app's Info.plist must carry `NSRemindersFullAccessUsageDescription`,
+`NSCalendarsFullAccessUsageDescription` and their pre-14 equivalents (`package.json` `extendInfo` and
+`scripts/prepare-electron.mjs`): without them macOS ends the app when EventKit asks.
+
+## Always allow
+
+Every change is reviewed. "Always allow" is saved (`approval_rules`, migration 9) when the action says where it
+applies: a folder for file changes and opening files, a site for opening links, an app for opening apps, or any for
+adding reminders and events. A rule covers a later request only for the same action when every path, site or app it
+touches is inside the rule (`ruleAllows` in `packages/contracts/src/capabilities.ts`; a sibling folder with the same
+prefix or a look-alike site does not match). Actions without a scope, such as deleting workspace items, can be allowed
+for the current conversation or task only. Saved rules are listed under Settings → Privacy & Permissions → Always
+allowed, where removing one makes Edi ask again.
+
 ## Adding another permission
 
 Add the ID to `packages/contracts/src/permissions.ts`, register its main-process adapter and Settings URL in the composition root, and add user-facing copy to the shared permission card. The queue, bridge, IPC commands, focus refresh, and dismissal behavior remain unchanged. Add manager-state tests plus one feature-level test proving that the permission is requested only when needed.

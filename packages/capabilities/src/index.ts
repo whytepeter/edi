@@ -54,3 +54,12 @@ export {
   type FileDependencies,
   type FileRoot,
 } from './builtins/files';
+export {
+  macCapabilities,
+  parseLocalTime,
+  type CalendarEvent,
+  type EventAccess,
+  type EventStore,
+  type MacDependencies,
+  type ReminderItem,
+} from './builtins/mac';

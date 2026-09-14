@@ -9,6 +9,7 @@ import {
 } from '@edi/capabilities';
 import {
   presentationText,
+  ruleAllows,
   modelIdSchema,
   type ApprovalRequest,
   type Task,
@@ -17,6 +18,7 @@ import {
 } from '@edi/contracts';
 import type { Repositories, TaskRecord } from '@edi/storage';
 import { PausableTimer, WRAP_UP_MS } from './agent-service';
+import type { ApprovalRules } from './approval-rules';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import {
@@ -51,6 +53,8 @@ interface TaskServiceOptions {
   maxRunning?: number;
   createWorker?: (data: WorkerInput) => WorkerLike;
   now?: () => number;
+  /** Saved "Always allow" choices, shared with conversations. */
+  rules?: ApprovalRules;
   /** A task finished (done, failed or stopped by its limit), for a quiet notice. */
   finished?: (task: Task) => void;
 }
@@ -92,7 +96,10 @@ export class TaskService {
     () => this.onApprovals(),
     request => {
       const taskId = this.runs.get(request.runId);
-      return Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id));
+      return (
+        Boolean(this.options.rules?.allows(request)) ||
+        Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id))
+      );
     },
   );
   private readonly broker: CapabilityBroker;
@@ -196,7 +203,8 @@ export class TaskService {
     const head = this.approvals.current;
     if (!head || head.callId !== callId) throw new Error('That approval is no longer pending.');
     const taskId = this.runs.get(head.runId);
-    if (decision === 'approve-always' && taskId) {
+    const rule = decision === 'approve-always' ? this.options.rules?.save(head) : null;
+    if (decision === 'approve-always' && !rule && taskId) {
       const set = this.allowed.get(taskId) ?? new Set<string>();
       set.add(head.capability.id);
       this.allowed.set(taskId, set);
@@ -204,7 +212,7 @@ export class TaskService {
     this.approvals.respond(
       callId,
       decision === 'deny' ? 'denied' : 'approved',
-      decision === 'approve-always',
+      rule ? request => ruleAllows(rule, request) : decision === 'approve-always',
     );
   }
 

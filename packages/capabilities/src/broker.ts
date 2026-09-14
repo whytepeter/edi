@@ -111,6 +111,7 @@ export class CapabilityBroker {
             ...context,
             capability: { id: capability.id, title: capability.title },
             preview: action.preview,
+            ...(action.scope ? { scope: action.scope } : {}),
           },
           signal,
         );

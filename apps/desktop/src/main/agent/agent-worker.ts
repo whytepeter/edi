@@ -127,6 +127,11 @@ const WORKSPACE = [
   'For work that should keep going while the user does other things, use tasks_start. For work',
   'later or on repeat (“every morning”, “tomorrow at 3pm”) or “tell me when X changes”, use',
   'schedules_create (a watch for changes). Use tasks_list and schedules_list to report on them.',
+  'On the Mac: mac_open_app opens an app, mac_open_url opens a link in the browser for the user,',
+  'mac_open_file opens a file and mac_reveal shows one in Finder. “Remind me to …” or “add to my',
+  'reminders” is reminders_create (a one-off alert at a time); an appointment or meeting is',
+  'calendar_create; “what’s on my calendar” is calendar_events. A recurring or later piece of',
+  'work Edi must do itself is schedules_create, not a reminder. Use local dates and times.',
 ].join(' ');
 
 // Edi is also its own app: it can inspect and operate itself.
@@ -460,6 +465,15 @@ async function run() {
       MOOD,
       input.desktopContext ? CONTEXT : '',
       input.selfContext ? `Current Edi setup (trusted runtime data): ${input.selfContext}` : '',
+      `It is now ${new Date().toLocaleString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+      })} (${Intl.DateTimeFormat().resolvedOptions().timeZone}).`,
       input.screenshots.length ? POINTING : '',
       input.spoken ? SPOKEN : '',
       input.mode === 'task' ? TASK : '',

@@ -51,3 +51,41 @@ test('actions already allowed skip review; stale responses are refused', async (
   queue.respond(request(2, 'files.trash').callId, 'approved');
   assert.equal(await waiting, 'approved');
 });
+
+test('“Always allow” in a folder is saved, survives a restart, covers waiting reviews there, and can be removed', async () => {
+  const { createRepositories, openDatabase } = await import('../../packages/storage/src/index');
+  const { ApprovalRules } = await import('../../apps/desktop/src/main/agent/approval-rules');
+  const repositories = createRepositories(openDatabase(':memory:'));
+  const rules = new ApprovalRules(repositories, () => 100);
+  const inFolder = (n: number, covers: string[], runId?: string) => ({
+    ...request(n, 'files.move', runId),
+    scope: { kind: 'folder' as const, value: '/Users/ada/Desktop', label: '~/Desktop', covers },
+  });
+  const queue = new ApprovalQueue(
+    () => {},
+    pending => rules.allows(pending),
+  );
+  const first = queue.request(inFolder(1, ['/Users/ada/Desktop/a.png']), live());
+  const sameFolderOtherRun = queue.request(
+    inFolder(2, ['/Users/ada/Desktop/b.png'], '00000000-0000-4000-8000-0000000000bb'),
+    live(),
+  );
+  const outside = queue.request(inFolder(3, ['/Users/ada/Documents/c.png']), live());
+
+  const rule = rules.save(inFolder(1, ['/Users/ada/Desktop/a.png']))!;
+  const { ruleAllows } = await import('../../packages/contracts/src/index');
+  queue.respond(inFolder(1, []).callId, 'approved', pending => ruleAllows(rule, pending));
+  assert.equal(await first, 'approved');
+  assert.equal(await sameFolderOtherRun, 'approved');
+  assert.equal(queue.current?.callId, inFolder(3, []).callId);
+  queue.respond(inFolder(3, []).callId, 'denied');
+  assert.equal(await outside, 'denied');
+
+  // A new session reads the saved rule; an action without a scope is never saved.
+  const later = new ApprovalRules(repositories);
+  assert.equal(later.allows(inFolder(4, ['/Users/ada/Desktop/Shots/d.png'])), true);
+  assert.equal(later.save(request(5, 'notes.delete')), null);
+  later.remove(rule.id);
+  assert.equal(later.allows(inFolder(6, ['/Users/ada/Desktop/e.png'])), false);
+  assert.deepEqual(repositories.approvalRules.list(), []);
+});

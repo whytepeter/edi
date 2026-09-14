@@ -35,7 +35,9 @@ try {
   expect(permissions.active).toBeNull();
   expect(permissions.permissions.map(item => item.id).sort()).toEqual([
     'accessibility',
+    'calendar',
     'microphone',
+    'reminders',
     'screen-recording',
   ]);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));

@@ -35,6 +35,7 @@ import {
   deleteWorkspaceItem,
   ediSetupCapabilities,
   fileCapabilities,
+  macCapabilities,
   notesCapabilities,
   readLibraryNote,
   toArtifactContent,
@@ -43,7 +44,10 @@ import {
   type EdiPreferences,
   type EdiSetupSnapshot,
   type WorkspaceDependencies,
+  type FileDependencies,
 } from '@edi/capabilities';
+import { macDependencies } from './platform/mac-actions';
+import { ApprovalRules } from './agent/approval-rules';
 import {
   artifactExport,
   artifactPreview,
@@ -360,6 +364,14 @@ async function start() {
           name: 'Rename, move, create folders and move files to the Trash in allowed folders',
           asksFirst: true,
         },
+        {
+          name: 'Open apps, links in the browser and files in allowed folders; show files in Finder',
+          asksFirst: true,
+        },
+        {
+          name: 'Read and add Reminders and Calendar events (Settings → Privacy & Permissions)',
+          asksFirst: true,
+        },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
           name: 'Change its character, size, pin, voice and whether replies are spoken',
@@ -379,7 +391,6 @@ async function start() {
       notYetAvailable: [
         'Installing skills',
         'Connecting apps or MCP servers',
-        'Background tasks, reminders and watches',
         'Clicking or typing in other apps',
         'Opening, reading or using logged-in websites in a browser',
         'Changing the keyboard shortcut',
@@ -452,6 +463,17 @@ async function start() {
   refreshReaderModel();
   const openRouter = new OpenRouterCredentials();
   const openRouterAccount = new OpenRouterAccount();
+  const fileDeps: FileDependencies = {
+    home: app.getPath('home'),
+    roots: () => fileAccess.roots(),
+    workspace: workspaceFolder,
+    trash: path => shell.trashItem(path),
+    accessResult: (root, allowed) => fileAccess.record(root, allowed),
+    ...(process.platform === 'darwin'
+      ? { documentText: path => documentText(path) ?? Promise.resolve(null) }
+      : {}),
+  };
+  const macTools = macCapabilities(macDependencies(fileDeps));
   // Edi's tools. Background tasks get the same ones except starting tasks and controlling Edi.
   const toolCapabilities = [
     ...notesCapabilities({
@@ -460,16 +482,9 @@ async function start() {
       shown: artifact => showArtifact(artifact),
     }),
     ...workspaceCapabilities(workspaceDeps),
-    ...fileCapabilities({
-      home: app.getPath('home'),
-      roots: () => fileAccess.roots(),
-      workspace: workspaceFolder,
-      trash: path => shell.trashItem(path),
-      accessResult: (root, allowed) => fileAccess.record(root, allowed),
-      ...(process.platform === 'darwin'
-        ? { documentText: path => documentText(path) ?? Promise.resolve(null) }
-        : {}),
-    }),
+    ...fileCapabilities(fileDeps),
+    // Background tasks may use Reminders and Calendar; opening things is for the person present.
+    ...macTools.filter(tool => !tool.id.startsWith('mac.')),
     ...webCapabilities({
       // A link the person typed is read on their behalf; robots.txt applies to the model's picks.
       suppliedByUser: url => {
@@ -694,7 +709,9 @@ async function start() {
       },
     }),
   ];
+  const approvalRules = new ApprovalRules(repositories);
   const tasks = new TaskService({
+    rules: approvalRules,
     credentials: openRouter,
     repositories,
     capabilities: toolCapabilities,
@@ -737,6 +754,7 @@ async function start() {
     },
   });
   agent = new AgentService({
+    rules: approvalRules,
     readerModel: () => {
       refreshReaderModel();
       return readerModel;
@@ -745,7 +763,12 @@ async function start() {
       settings.current.shareDesktopContext ? captureDesktopContext() : null,
     credentials: openRouter,
     repositories,
-    capabilities: [...toolCapabilities, ...taskTools, ...ediTools],
+    capabilities: [
+      ...toolCapabilities,
+      ...macTools.filter(tool => tool.id.startsWith('mac.')),
+      ...taskTools,
+      ...ediTools,
+    ],
     threadArtifacts: runIds => {
       const byRun = new Map<string, ArtifactSummary[]>();
       for (const call of repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { runIds })) {
@@ -1136,6 +1159,14 @@ async function start() {
     'files.move': 'Moving files',
     'files.create_folder': 'Making folders',
     'files.trash': 'Moving to the Trash',
+    'mac.open_app': 'Opening the app',
+    'mac.open_url': 'Opening the link',
+    'mac.open_file': 'Opening the file',
+    'mac.reveal': 'Showing it in Finder',
+    'reminders.list': 'Checking your reminders',
+    'reminders.create': 'Adding reminders',
+    'calendar.events': 'Checking your calendar',
+    'calendar.create': 'Adding the event',
     'edi.open_page': 'Opening that',
     'edi.change_preferences': 'Adjusting myself',
     'edi.inspect_setup': 'Checking my settings',
@@ -1210,6 +1241,7 @@ async function start() {
   // Queued tasks start once the windows exist; work that was running when Edi quit is marked.
   tasks.resume();
   scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
+  approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
   scheduler.start();
   // A Mac waking from sleep checks for anything that came due meanwhile.
   powerMonitor.on('resume', () => scheduler.tick());
@@ -1279,6 +1311,7 @@ async function start() {
       agent,
       tasks,
       scheduler,
+      approvalRules,
       placement,
       petDrag,
       character,
@@ -1343,6 +1376,7 @@ async function start() {
     conversations: query => agent.conversations(query),
     tasks: () => tasks.list(),
     schedules: () => scheduler.list(),
+    approvalRules: () => approvalRules.list(),
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),

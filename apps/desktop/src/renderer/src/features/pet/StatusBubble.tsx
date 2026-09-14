@@ -1,9 +1,10 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import type {
-  ApprovalRequest,
-  ArtifactSummary,
-  BubbleSide,
-  StatusBubbleState,
+import {
+  alwaysAllowLabel,
+  type ApprovalRequest,
+  type ArtifactSummary,
+  type BubbleSide,
+  type StatusBubbleState,
 } from '@edi/contracts';
 import { ArtifactPreview } from '../../components/artifacts/Artifact';
 import {
@@ -182,7 +183,7 @@ export function StatusBubble({
                   disabled={!armed || sending}
                   onClick={() => void respond('approve-always')}
                 >
-                  Always allow in this chat
+                  {alwaysAllowLabel(approval, true)}
                 </button>
                 <button type="button" disabled={sending} onClick={() => void showDetails()}>
                   Details

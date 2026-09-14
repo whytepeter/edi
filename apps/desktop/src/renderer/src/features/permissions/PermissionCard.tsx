@@ -27,6 +27,20 @@ const copy: Record<
     settings: 'Open Accessibility Settings',
     privacy: 'Edi reads these only when you ask something, and never controls other apps.',
   },
+  reminders: {
+    title: 'Let Edi use Reminders',
+    body: 'Edi needs Reminders to check or add reminders for you.',
+    allow: 'Allow Reminders',
+    settings: 'Open Reminders Settings',
+    privacy: 'Edi reads reminders only when you ask, and asks before adding any.',
+  },
+  calendar: {
+    title: 'Let Edi use your Calendar',
+    body: 'Edi needs Calendar to check your schedule or add events for you.',
+    allow: 'Allow Calendar',
+    settings: 'Open Calendar Settings',
+    privacy: 'Edi reads events only when you ask, and asks before adding any.',
+  },
 };
 
 /** One state-driven card for every OS permission Edi supports. */

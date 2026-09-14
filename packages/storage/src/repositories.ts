@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  approvalRuleSchema,
   runStatusSchema,
   toolCallStatusSchema,
   scheduleNotifySchema,
@@ -8,6 +9,7 @@ import {
   usageKindSchema,
   usageProviderSchema,
   type Activity,
+  type ApprovalRule,
   type UsageEntry,
   type UsagePeriod,
   type UsageSummary,
@@ -469,6 +471,49 @@ const scheduleColumns = `id, title, prompt, when_json AS "when", notify, budget_
   last_result AS lastResult`;
 
 /** Schedules and watches. A row whose rule no longer parses is skipped, never run. */
+/** Saved "Always allow" choices, newest first. */
+export class ApprovalRuleRepository {
+  constructor(private readonly db: Database) {}
+
+  list(): ApprovalRule[] {
+    return this.db
+      .prepare(
+        `SELECT id, capability_id AS capabilityId, capability_title AS capabilityTitle, kind, value,
+                label, created_at AS createdAt
+         FROM approval_rules ORDER BY created_at DESC, rowid DESC LIMIT 500`,
+      )
+      .all()
+      .flatMap(row => {
+        const parsed = approvalRuleSchema.safeParse({ ...(row as object) });
+        return parsed.success ? [parsed.data] : [];
+      });
+  }
+
+  /** Adds a rule, or keeps the existing one for the same action and scope. */
+  add(rule: ApprovalRule) {
+    const valid = approvalRuleSchema.parse(rule);
+    this.db
+      .prepare(
+        `INSERT INTO approval_rules (id, capability_id, capability_title, kind, value, label, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (capability_id, kind, value) DO NOTHING`,
+      )
+      .run(
+        valid.id,
+        valid.capabilityId,
+        valid.capabilityTitle,
+        valid.kind,
+        valid.value,
+        valid.label,
+        valid.createdAt,
+      );
+  }
+
+  remove(id: string) {
+    return this.db.prepare(`DELETE FROM approval_rules WHERE id = ?`).run(id).changes > 0;
+  }
+}
+
 export class ScheduleRepository {
   constructor(private readonly db: Database) {}
 
@@ -894,6 +939,7 @@ export interface Repositories {
   conversations: ConversationRepository;
   tasks: TaskRepository;
   schedules: ScheduleRepository;
+  approvalRules: ApprovalRuleRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -914,6 +960,7 @@ export function createRepositories(db: Database): Repositories {
     conversations: new ConversationRepository(db),
     tasks: new TaskRepository(db),
     schedules: new ScheduleRepository(db),
+    approvalRules: new ApprovalRuleRepository(db),
 
     activity(limit) {
       const runs = db

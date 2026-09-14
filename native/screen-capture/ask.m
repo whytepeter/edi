@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <EventKit/EventKit.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
 #import <PDFKit/PDFKit.h>
@@ -276,6 +277,195 @@ int edi_document_text(const char *path, int max_pages, char *dest, int capacity)
       while (length > 0 && (bytes[length] & 0xC0) == 0x80) length--;
     memcpy(dest, bytes, length);
     return (int)length;
+  }
+}
+
+/*
+ * Reminders and Calendar through EventKit. Every call blocks (koffi async runs it off the main
+ * thread), takes and returns JSON, and uses a fresh store so access granted a moment ago applies.
+ * entity: 0 events, 1 reminders. Status: 0 not determined, 1 restricted, 2 denied, 3 full access,
+ * 4 write only.
+ */
+static EKEntityType edi_entity(int entity) { return entity == 1 ? EKEntityTypeReminder : EKEntityTypeEvent; }
+
+int edi_eventkit_status(int entity) {
+  return (int)[EKEventStore authorizationStatusForEntityType:edi_entity(entity)];
+}
+
+bool edi_eventkit_request(int entity) {
+  EKEventStore *store = [EKEventStore new];
+  dispatch_semaphore_t done = dispatch_semaphore_create(0);
+  __block BOOL granted = NO;
+  void (^finish)(BOOL, NSError *) = ^(BOOL ok, NSError *error) {
+    granted = ok;
+    dispatch_semaphore_signal(done);
+  };
+  if (@available(macOS 14.0, *)) {
+    if (entity == 1) [store requestFullAccessToRemindersWithCompletion:finish];
+    else [store requestFullAccessToEventsWithCompletion:finish];
+  } else {
+    [store requestAccessToEntityType:edi_entity(entity) completion:finish];
+  }
+  // The person may take a while to answer the prompt.
+  dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_SEC));
+  return granted;
+}
+
+static NSString *edi_string(id value, NSUInteger max) {
+  if (![value isKindOfClass:NSString.class]) return @"";
+  NSString *text = value;
+  return text.length > max ? [text substringToIndex:max] : text;
+}
+
+static EKCalendar *edi_calendar_named(EKEventStore *store, EKEntityType type, NSString *name) {
+  if (name.length == 0) return nil;
+  for (EKCalendar *calendar in [store calendarsForEntityType:type])
+    if ([calendar.title compare:name options:NSCaseInsensitiveSearch] == NSOrderedSame) return calendar;
+  return nil;
+}
+
+static NSNumber *edi_ms(NSDate *date) { return date ? @((long long)(date.timeIntervalSince1970 * 1000)) : (id)NSNull.null; }
+static NSDate *edi_date(id value) {
+  return [value isKindOfClass:NSNumber.class] ? [NSDate dateWithTimeIntervalSince1970:[value doubleValue] / 1000.0] : nil;
+}
+
+static id edi_eventkit_do(NSDictionary *request) {
+  NSString *op = edi_string(request[@"op"], 40);
+  EKEventStore *store = [EKEventStore new];
+  NSCalendar *gregorian = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+
+  if ([op isEqualToString:@"reminders.list"]) {
+    NSString *include = edi_string(request[@"include"], 20);
+    EKCalendar *only = edi_calendar_named(store, EKEntityTypeReminder, edi_string(request[@"list"], 200));
+    if (edi_string(request[@"list"], 200).length && !only) return @{@"error" : @"There is no reminders list with that name."};
+    NSArray *calendars = only ? @[ only ] : nil;
+    NSPredicate *predicate =
+        [include isEqualToString:@"completed"] ? [store predicateForCompletedRemindersWithCompletionDateStarting:nil ending:nil calendars:calendars]
+        : [include isEqualToString:@"all"]     ? [store predicateForRemindersInCalendars:calendars]
+                                               : [store predicateForIncompleteRemindersWithDueDateStarting:nil ending:nil calendars:calendars];
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    __block NSArray<EKReminder *> *found = @[];
+    [store fetchRemindersMatchingPredicate:predicate
+                                completion:^(NSArray<EKReminder *> *reminders) {
+                                  found = reminders ?: @[];
+                                  dispatch_semaphore_signal(done);
+                                }];
+    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC));
+    NSInteger limit = MAX(1, MIN(200, [request[@"limit"] integerValue] ?: 50));
+    NSArray *sorted = [found sortedArrayUsingComparator:^NSComparisonResult(EKReminder *a, EKReminder *b) {
+      NSDate *x = a.dueDateComponents ? [gregorian dateFromComponents:a.dueDateComponents] : NSDate.distantFuture;
+      NSDate *y = b.dueDateComponents ? [gregorian dateFromComponents:b.dueDateComponents] : NSDate.distantFuture;
+      return [x compare:y];
+    }];
+    NSMutableArray *items = [NSMutableArray array];
+    for (EKReminder *reminder in sorted) {
+      if ((NSInteger)items.count >= limit) break;
+      NSDateComponents *due = reminder.dueDateComponents;
+      [items addObject:@{
+        @"title" : edi_string(reminder.title, 300),
+        @"due" : due ? edi_ms([gregorian dateFromComponents:due]) : NSNull.null,
+        @"dueHasTime" : @(due && due.hour != NSDateComponentUndefined),
+        @"notes" : edi_string(reminder.notes, 1000),
+        @"list" : edi_string(reminder.calendar.title, 200),
+        @"completed" : @(reminder.completed),
+      }];
+    }
+    return items;
+  }
+
+  if ([op isEqualToString:@"reminders.create"]) {
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSDictionary *item in ([request[@"items"] isKindOfClass:NSArray.class] ? request[@"items"] : @[])) {
+      if (![item isKindOfClass:NSDictionary.class]) continue;
+      NSString *title = edi_string(item[@"title"], 300);
+      EKCalendar *calendar = edi_calendar_named(store, EKEntityTypeReminder, edi_string(item[@"list"], 200));
+      if (edi_string(item[@"list"], 200).length && !calendar) {
+        [results addObject:@{@"title" : title, @"list" : @"", @"error" : @"No list with that name."}];
+        continue;
+      }
+      EKReminder *reminder = [EKReminder reminderWithEventStore:store];
+      reminder.title = title;
+      reminder.notes = edi_string(item[@"notes"], 2000);
+      reminder.calendar = calendar ?: store.defaultCalendarForNewReminders;
+      NSDate *due = edi_date(item[@"due"]);
+      if (due) {
+        const BOOL timed = [item[@"dueHasTime"] boolValue];
+        NSCalendarUnit units = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay |
+                               (timed ? NSCalendarUnitHour | NSCalendarUnitMinute : 0);
+        NSDateComponents *parts = [gregorian components:units fromDate:due];
+        parts.timeZone = NSTimeZone.localTimeZone;
+        reminder.dueDateComponents = parts;
+        if (timed) [reminder addAlarm:[EKAlarm alarmWithAbsoluteDate:due]];
+      }
+      NSError *error = nil;
+      if (!reminder.calendar || ![store saveReminder:reminder commit:NO error:&error])
+        [results addObject:@{@"title" : title, @"list" : @"", @"error" : error.localizedDescription ?: @"Could not save."}];
+      else
+        [results addObject:@{@"title" : title, @"list" : edi_string(reminder.calendar.title, 200)}];
+    }
+    NSError *error = nil;
+    if (![store commit:&error]) return @{@"error" : error.localizedDescription ?: @"Could not save reminders."};
+    return results;
+  }
+
+  if ([op isEqualToString:@"events.list"]) {
+    NSDate *from = edi_date(request[@"from"]);
+    NSDate *to = edi_date(request[@"to"]);
+    if (!from || !to) return @{@"error" : @"Missing dates."};
+    EKCalendar *only = edi_calendar_named(store, EKEntityTypeEvent, edi_string(request[@"calendar"], 200));
+    if (edi_string(request[@"calendar"], 200).length && !only) return @{@"error" : @"There is no calendar with that name."};
+    NSPredicate *predicate = [store predicateForEventsWithStartDate:from endDate:to calendars:only ? @[ only ] : nil];
+    NSArray *events = [[store eventsMatchingPredicate:predicate] sortedArrayUsingSelector:@selector(compareStartDateWithEvent:)];
+    NSMutableArray *items = [NSMutableArray array];
+    for (EKEvent *event in events) {
+      if (items.count >= 200) break;
+      [items addObject:@{
+        @"title" : edi_string(event.title, 300),
+        @"start" : edi_ms(event.startDate),
+        @"end" : edi_ms(event.endDate),
+        @"allDay" : @(event.allDay),
+        @"location" : edi_string(event.location, 300),
+        @"calendar" : edi_string(event.calendar.title, 200),
+        @"notes" : edi_string(event.notes, 1000),
+      }];
+    }
+    return items;
+  }
+
+  if ([op isEqualToString:@"events.create"]) {
+    NSDate *start = edi_date(request[@"start"]);
+    NSDate *end = edi_date(request[@"end"]);
+    if (!start || !end) return @{@"error" : @"Missing dates."};
+    EKCalendar *calendar = edi_calendar_named(store, EKEntityTypeEvent, edi_string(request[@"calendar"], 200));
+    if (edi_string(request[@"calendar"], 200).length && !calendar) return @{@"error" : @"There is no calendar with that name."};
+    EKEvent *event = [EKEvent eventWithEventStore:store];
+    event.title = edi_string(request[@"title"], 300);
+    event.location = edi_string(request[@"location"], 300);
+    event.notes = edi_string(request[@"notes"], 2000);
+    event.allDay = [request[@"allDay"] boolValue];
+    event.startDate = start;
+    // An all-day event's end is inclusive: the last moment of its final day.
+    event.endDate = event.allDay ? [end dateByAddingTimeInterval:-1] : end;
+    event.calendar = calendar ?: store.defaultCalendarForNewEvents;
+    NSError *error = nil;
+    if (!event.calendar || ![store saveEvent:event span:EKSpanThisEvent commit:YES error:&error])
+      return @{@"error" : error.localizedDescription ?: @"Could not save the event."};
+    return @{@"calendar" : edi_string(event.calendar.title, 200)};
+  }
+  return @{@"error" : @"Unknown request."};
+}
+
+/** Returns bytes of JSON written, or -1 when the request is not valid JSON or does not fit. */
+int edi_eventkit_run(const char *json, char *dest, int capacity) {
+  if (!json || !dest || capacity <= 0) return -1;
+  @autoreleasepool {
+    NSData *input = [NSData dataWithBytes:json length:strlen(json)];
+    NSDictionary *request = [NSJSONSerialization JSONObjectWithData:input options:0 error:nil];
+    if (![request isKindOfClass:NSDictionary.class]) return -1;
+    NSData *output = [NSJSONSerialization dataWithJSONObject:@{@"result" : edi_eventkit_do(request)} options:0 error:nil];
+    if (!output || (int)output.length > capacity) return -1;
+    memcpy(dest, output.bytes, output.length);
+    return (int)output.length;
   }
 }
 

@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 xcrun clang -dynamiclib -O2 -fobjc-arc -mmacosx-version-min=13.0 \
   -framework AppKit -framework ApplicationServices -framework Foundation -framework CoreGraphics -framework ImageIO \
-  -framework ScreenCaptureKit -framework Vision -framework PDFKit \
+  -framework ScreenCaptureKit -framework Vision -framework PDFKit -framework EventKit \
   ask.m -o build/libedi_screen_ask.dylib.next
 # Replace by rename, never in place: a running Edi keeps the old file mapped, and writing over
 # it invalidates its code signature and kills the app.

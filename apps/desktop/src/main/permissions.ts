@@ -73,6 +73,12 @@ interface ScreenAskLibrary extends KoffiLib {
     ): void;
   } | null;
   accessibilityTrusted: ((prompt: boolean) => boolean) | null;
+  /** Absent in an older helper; Reminders and Calendar are then unavailable. */
+  eventKit: {
+    status: (entity: number) => number;
+    request: { async(...args: unknown[]): void };
+    run: { async(...args: unknown[]): void };
+  } | null;
   /** Absent in an older helper; PDFs and images are then not readable. */
   documentText: {
     async(
@@ -145,6 +151,23 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
           return loaded.func('edi_accessibility_trusted', 'bool', ['bool']) as NonNullable<
             ScreenAskLibrary['accessibilityTrusted']
           >;
+        } catch {
+          return null;
+        }
+      })(),
+      eventKit: (() => {
+        try {
+          return {
+            status: loaded.func('edi_eventkit_status', 'int', ['int']) as (
+              entity: number,
+            ) => number,
+            request: loaded.func('edi_eventkit_request', 'bool', ['int']) as unknown as {
+              async(...args: unknown[]): void;
+            },
+            run: loaded.func('edi_eventkit_run', 'int', ['str', 'void *', 'int']) as unknown as {
+              async(...args: unknown[]): void;
+            },
+          };
         } catch {
           return null;
         }
@@ -337,7 +360,6 @@ export function macAccessibilityTrusted(prompt = false): boolean | 'unavailable'
   }
 }
 
-/** Raw JSON describing the front window that is not Edi's, or null. Runs off the main thread. */
 /** Text of a PDF (up to 50 pages, scans recognized) or an image; null when unavailable. */
 export function documentText(path: string): Promise<string | null> | undefined {
   const lib = loadBoundScreenAsk();
@@ -354,6 +376,33 @@ export function documentText(path: string): Promise<string | null> | undefined {
   });
 }
 
+/** EventKit for Reminders and Calendar; entity 0 is events, 1 reminders. Null without the helper. */
+export function eventKit() {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.eventKit) return null;
+  const { status, request, run } = lib.eventKit;
+  const call = <T>(fn: { async(...args: unknown[]): void }, ...args: unknown[]) =>
+    new Promise<T>((resolve, reject) =>
+      fn.async(...args, (error: unknown, value: T) => (error ? reject(error) : resolve(value))),
+    );
+  return {
+    status: (entity: 0 | 1) => status(entity),
+    request: (entity: 0 | 1) => call<boolean>(request, entity),
+    async run(request: object): Promise<unknown> {
+      const buffer = Buffer.alloc(4 * 1024 * 1024);
+      const written = await call<number>(run, JSON.stringify(request), buffer, buffer.length);
+      if (written < 0) throw new Error('Edi couldn’t read that from EventKit.');
+      const { result } = JSON.parse(buffer.subarray(0, written).toString('utf8')) as {
+        result: unknown;
+      };
+      if (result && typeof result === 'object' && 'error' in result)
+        throw new Error(String((result as { error: unknown }).error));
+      return result;
+    },
+  };
+}
+
+/** Raw JSON describing the front window that is not Edi's, or null. Runs off the main thread. */
 export function frontWindowContextJson(excludePid: number): Promise<string | null> {
   const lib = loadBoundScreenAsk();
   if (!lib?.frontContext) return Promise.resolve(null);

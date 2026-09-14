@@ -306,7 +306,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
@@ -434,7 +434,7 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
   db.exec(
-    'DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
   );
   db.exec('PRAGMA user_version = 4');
@@ -607,4 +607,30 @@ test('schedules: due ones earliest first, disabled and broken rules never due, r
   repos.schedules.remove(uuid(201));
   assert.equal(repos.tasks.get(uuid(205))?.scheduleId, null);
   assert.throws(() => repos.schedules.remove(uuid(201)), /no longer exists/);
+});
+
+test('approval rules: saved once per action and scope, newest first, removable', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const rule = (n: number, value: string, at: number) => ({
+    id: uuid(300 + n),
+    capabilityId: 'files.move',
+    capabilityTitle: 'Move files',
+    kind: 'folder' as const,
+    value,
+    label: value.replace('/Users/ada', '~'),
+    createdAt: at,
+  });
+  repos.approvalRules.add(rule(1, '/Users/ada/Desktop', 10));
+  repos.approvalRules.add(rule(2, '/Users/ada/Downloads', 20));
+  repos.approvalRules.add(rule(3, '/Users/ada/Desktop', 30));
+  assert.deepEqual(
+    repos.approvalRules.list().map(entry => [entry.id, entry.label]),
+    [
+      [uuid(302), '~/Downloads'],
+      [uuid(301), '~/Desktop'],
+    ],
+  );
+  assert.equal(repos.approvalRules.remove(uuid(301)), true);
+  assert.equal(repos.approvalRules.remove(uuid(301)), false);
+  assert.equal(repos.approvalRules.list().length, 1);
 });

@@ -1,7 +1,13 @@
 import { z } from 'zod';
 
 /** Add new OS permissions here; the transport and card remain unchanged. */
-export const permissionIdSchema = z.enum(['microphone', 'screen-recording', 'accessibility']);
+export const permissionIdSchema = z.enum([
+  'microphone',
+  'screen-recording',
+  'accessibility',
+  'reminders',
+  'calendar',
+]);
 export type PermissionId = z.infer<typeof permissionIdSchema>;
 export const permissionIds = permissionIdSchema.options;
 

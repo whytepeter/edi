@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 /** Dev host is Edi.app. Stock Electron.app stays untouched so macOS does not ask as Cursor or Electron. */
 const usage = 'Edi listens while you hold it down, so it can answer what you ask out loud.';
 const screenUsage = 'Edi looks at your screen when you ask, so it can answer what you see.';
+const remindersUsage = 'Edi checks and adds reminders when you ask.';
+const calendarUsage = 'Edi checks your schedule and adds events when you ask.';
 const bundleId = 'com.fewerlabs.edi.dev';
 
 if (process.platform !== 'darwin') process.exit(0);
@@ -51,6 +53,11 @@ if (!existsSync(host) || stamped !== electronVersion) {
 const needed = {
   NSMicrophoneUsageDescription: usage,
   NSScreenCaptureUsageDescription: screenUsage,
+  // Without these, macOS ends the app when EventKit asks for access.
+  NSRemindersFullAccessUsageDescription: remindersUsage,
+  NSRemindersUsageDescription: remindersUsage,
+  NSCalendarsFullAccessUsageDescription: calendarUsage,
+  NSCalendarsUsageDescription: calendarUsage,
   CFBundleIdentifier: bundleId,
   CFBundleName: 'Edi',
   CFBundleDisplayName: 'Edi',
@@ -62,9 +69,18 @@ if (ready && !cloned) process.exit(0);
 for (const [key, value] of Object.entries(needed)) {
   plutil(['-replace', key, '-string', value, plist]);
 }
-execFileSync('codesign', ['--force', '--sign', '-', '--entitlements', entitlements, host], {
-  stdio: 'inherit',
-});
+// The dev host is signed ad hoc without the hardened runtime, so entitlements are optional here.
+execFileSync(
+  'codesign',
+  [
+    '--force',
+    '--sign',
+    '-',
+    ...(existsSync(entitlements) ? ['--entitlements', entitlements] : []),
+    host,
+  ],
+  { stdio: 'inherit' },
+);
 const lsregister =
   '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 try {

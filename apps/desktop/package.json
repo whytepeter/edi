@@ -55,7 +55,11 @@
       ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Edi listens while you hold it down, so it can answer what you ask out loud.",
-        "NSScreenCaptureUsageDescription": "Edi looks at your screen when you ask, so it can answer what you see."
+        "NSScreenCaptureUsageDescription": "Edi looks at your screen when you ask, so it can answer what you see.",
+        "NSRemindersFullAccessUsageDescription": "Edi checks and adds reminders when you ask.",
+        "NSRemindersUsageDescription": "Edi checks and adds reminders when you ask.",
+        "NSCalendarsFullAccessUsageDescription": "Edi checks your schedule and adds events when you ask.",
+        "NSCalendarsUsageDescription": "Edi checks your schedule and adds events when you ask."
       }
     },
     "extraResources": [

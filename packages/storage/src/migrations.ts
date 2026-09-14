@@ -217,6 +217,22 @@ export const migrations: readonly { version: number; sql: string }[] = [
       ALTER TABLE tasks ADD COLUMN schedule_id TEXT REFERENCES schedules (id) ON DELETE SET NULL;
     `,
   },
+  {
+    // Saved "Always allow" choices: one action within a folder, on a site, for an app, or any.
+    version: 9,
+    sql: `
+      CREATE TABLE approval_rules (
+        id               TEXT PRIMARY KEY,
+        capability_id    TEXT    NOT NULL,
+        capability_title TEXT    NOT NULL,
+        kind             TEXT    NOT NULL CHECK (kind IN ('folder', 'site', 'app', 'any')),
+        value            TEXT    NOT NULL,
+        label            TEXT    NOT NULL,
+        created_at       INTEGER NOT NULL,
+        UNIQUE (capability_id, kind, value)
+      );
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

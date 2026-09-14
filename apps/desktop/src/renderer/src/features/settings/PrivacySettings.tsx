@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import type {
-  FileAccess,
-  FileAccessAction,
-  FolderAccessStatus,
-  PermissionId,
-  PermissionSnapshot,
-  PermissionStatus,
-  WorkspaceView,
+import {
+  describeRule,
+  type ApprovalRule,
+  type FileAccess,
+  type FileAccessAction,
+  type FolderAccessStatus,
+  type PermissionId,
+  type PermissionSnapshot,
+  type PermissionStatus,
+  type WorkspaceView,
 } from '@edi/contracts';
 import { Button, type IconName, GroupedList, GroupedRow, Switch } from '../../components/ui';
 import './settings.css';
@@ -23,6 +25,23 @@ const permissionCopy: Record<PermissionId, { title: string; detail: string; icon
     detail: 'Selected text and the open document, when you ask',
     icon: 'sliders',
   },
+  reminders: {
+    title: 'Reminders',
+    detail: 'To check and add reminders when you ask',
+    icon: 'check',
+  },
+  calendar: {
+    title: 'Calendar',
+    detail: 'To check your schedule and add events when you ask',
+    icon: 'calendar',
+  },
+};
+
+const ruleIcon: Record<ApprovalRule['kind'], IconName> = {
+  folder: 'folder',
+  site: 'arrow-up-right',
+  app: 'window',
+  any: 'check',
 };
 
 const statusLabel: Record<PermissionStatus, string> = {
@@ -55,6 +74,29 @@ export function PrivacySettings({
 }) {
   const [error, setError] = useState('');
   const [files, setFiles] = useState<FileAccess | null>(null);
+  const [rules, setRules] = useState<ApprovalRule[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void window.edi
+      ?.approvalRules()
+      .then(list => alive && setRules(list))
+      .catch(() => {});
+    const stop = window.edi?.onApprovalRules(setRules);
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []);
+
+  async function removeRule(id: string) {
+    setError('');
+    try {
+      await window.edi?.command({ type: 'remove-approval-rule', id });
+    } catch {
+      setError('Couldn’t remove that. Try again.');
+    }
+  }
 
   const loadFiles = useCallback(() => {
     void window.edi
@@ -210,6 +252,29 @@ export function PrivacySettings({
           />
         </GroupedList>
       )}
+
+      <GroupedList
+        title="Always allowed"
+        footer={
+          rules.length
+            ? 'Edi does these without asking. Remove one to be asked again.'
+            : 'When you choose “Always allow” for a folder, a site, an app, or adding reminders and events, it shows here.'
+        }
+      >
+        {rules.map(rule => (
+          <GroupedRow
+            key={rule.id}
+            icon={ruleIcon[rule.kind]}
+            title={rule.capabilityTitle}
+            detail={describeRule(rule)}
+            control={
+              <Button size="small" onClick={() => void removeRule(rule.id)}>
+                Remove
+              </Button>
+            }
+          />
+        ))}
+      </GroupedList>
 
       <GroupedList title="What leaves this Mac">
         <li>

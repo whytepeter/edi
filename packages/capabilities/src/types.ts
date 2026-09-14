@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { ApprovalPreview, ToolCallStatus } from '@edi/contracts';
+import type { ApprovalPreview, ApprovalScope, ToolCallStatus } from '@edi/contracts';
 
 /** read: no approval. write: changes something outside Edi and always needs review. */
 export type Effect = 'read' | 'write';
@@ -12,6 +12,8 @@ export interface CallContext {
 /** An action whose exact effect is fixed before review. Approval binds to this plan. */
 export interface PreparedAction {
   preview: ApprovalPreview;
+  /** Where "Always allow" may apply beyond this conversation; absent means this chat only. */
+  scope?: ApprovalScope;
   execute(signal: AbortSignal): Promise<ActionResult>;
 }
 

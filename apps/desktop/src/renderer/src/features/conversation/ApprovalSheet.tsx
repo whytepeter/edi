@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import type { ApprovalRequest } from '@edi/contracts';
+import { alwaysAllowLabel, type ApprovalRequest } from '@edi/contracts';
 import { Button } from '../../components/ui';
 import './approval.css';
 
@@ -98,7 +98,7 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
           disabled={!armed || sending}
           onClick={() => void respond('approve-always')}
         >
-          Always allow “{approval.capability.title}” in this chat
+          {alwaysAllowLabel(approval)}
         </button>
       </div>
     </div>

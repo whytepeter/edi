@@ -45,6 +45,25 @@ export const toolStepSchema = z
   .strict();
 export type ToolStep = z.infer<typeof toolStepSchema>;
 
+/**
+ * Where an "Always allow" for this action would apply, so it can outlive the conversation:
+ * a folder (every path the action touches is inside it), a site (every address is on it),
+ * an app, or `any` for additive actions such as adding a reminder. Actions without a scope
+ * can only be allowed for the current conversation.
+ */
+export const approvalScopeSchema = z
+  .object({
+    kind: z.enum(['folder', 'site', 'app', 'any']),
+    /** A real folder path, a host name, or an app bundle path; empty for `any`. */
+    value: z.string().max(1024),
+    /** How people see it: “~/Desktop”, “github.com”, “Safari”. */
+    label: z.string().max(200),
+    /** Every folder path, host or app this call touches; a rule must cover all of them. */
+    covers: z.array(z.string().max(1024)).max(100),
+  })
+  .strict();
+export type ApprovalScope = z.infer<typeof approvalScopeSchema>;
+
 /** Bound to one call in one run; a response for any other call is rejected. */
 export const approvalRequestSchema = z
   .object({
@@ -52,6 +71,7 @@ export const approvalRequestSchema = z
     runId: z.string().uuid(),
     capability: z.object({ id: z.string().max(80), title: z.string().max(120) }).strict(),
     preview: approvalPreviewSchema,
+    scope: approvalScopeSchema.optional(),
   })
   .strict();
 export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
@@ -76,3 +96,66 @@ export const activityRunSchema = z
 export type ActivityRun = z.infer<typeof activityRunSchema>;
 export const activitySchema = z.array(activityRunSchema).max(50);
 export type Activity = z.infer<typeof activitySchema>;
+
+/** A saved "Always allow", listed and removable in Settings → Privacy. */
+export const approvalRuleSchema = z
+  .object({
+    id: z.string().uuid(),
+    capabilityId: z.string().min(1).max(80),
+    capabilityTitle: z.string().min(1).max(120),
+    kind: approvalScopeSchema.shape.kind,
+    value: z.string().max(1024),
+    label: z.string().max(200),
+    createdAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ApprovalRule = z.infer<typeof approvalRuleSchema>;
+export const approvalRulesSchema = z.array(approvalRuleSchema).max(500);
+
+const inside = (path: string, folder: string) =>
+  path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`);
+const onSite = (host: string, site: string) => host === site || host.endsWith(`.${site}`);
+
+/** Whether a saved rule allows this request: same action, and it covers everything touched. */
+export function ruleAllows(rule: ApprovalRule, request: ApprovalRequest) {
+  const scope = request.scope;
+  if (!scope || rule.capabilityId !== request.capability.id || rule.kind !== scope.kind)
+    return false;
+  if (rule.kind === 'any') return true;
+  if (!scope.covers.length) return false;
+  return scope.covers.every(item =>
+    rule.kind === 'folder'
+      ? inside(item, rule.value)
+      : rule.kind === 'site'
+        ? onSite(item.toLowerCase(), rule.value.toLowerCase())
+        : item === rule.value,
+  );
+}
+
+/** The "Always allow" button: where it applies, so people know what they are agreeing to. */
+export function alwaysAllowLabel(request: ApprovalRequest, compact = false) {
+  const scope = request.scope;
+  const what = `“${request.capability.title}”`;
+  if (!scope) return compact ? 'Always allow in this chat' : `Always allow ${what} in this chat`;
+  const where =
+    scope.kind === 'folder'
+      ? `in ${scope.label}`
+      : scope.kind === 'site'
+        ? `on ${scope.label}`
+        : scope.kind === 'app'
+          ? `for ${scope.label}`
+          : '';
+  if (compact) return where ? `Always allow ${where}` : 'Always allow';
+  return where ? `Always allow ${what} ${where}` : `Always allow ${what}`;
+}
+
+/** How a saved rule reads in Settings. */
+export function describeRule(rule: ApprovalRule) {
+  return rule.kind === 'folder'
+    ? `In ${rule.label}`
+    : rule.kind === 'site'
+      ? `On ${rule.label}`
+      : rule.kind === 'app'
+        ? `For ${rule.label}`
+        : 'Anywhere';
+}

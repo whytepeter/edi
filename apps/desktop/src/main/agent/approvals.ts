@@ -48,18 +48,26 @@ export class ApprovalQueue implements ApprovalGate {
     });
   }
 
-  /** `alsoQueued` approves waiting reviews of the same kind in the same run too. */
-  respond(callId: string, decision: Decision, alsoQueued = false) {
+  /**
+   * `alsoQueued` approves waiting reviews too: `true` for the same kind in the same run, or a
+   * test for each waiting review (a saved rule that covers it).
+   */
+  respond(
+    callId: string,
+    decision: Decision,
+    alsoQueued: boolean | ((request: ApprovalRequest) => boolean) = false,
+  ) {
     const head = this.entries[0];
     if (!head || head.request.callId !== callId)
       throw new Error('That approval is no longer pending.');
     this.entries.shift();
     head.settle(decision);
     if (alsoQueued && decision === 'approved') {
-      const same = this.entries.filter(
-        entry =>
-          entry.request.runId === head.request.runId &&
-          entry.request.capability.id === head.request.capability.id,
+      const same = this.entries.filter(entry =>
+        typeof alsoQueued === 'function'
+          ? alsoQueued(entry.request)
+          : entry.request.runId === head.request.runId &&
+            entry.request.capability.id === head.request.capability.id,
       );
       for (const entry of same) {
         this.entries.splice(this.entries.indexOf(entry), 1);

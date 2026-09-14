@@ -9,6 +9,7 @@ import type {
 import type { AgentService } from '../agent/agent-service';
 import type { TaskService } from '../agent/task-service';
 import type { Scheduler } from '../agent/scheduler';
+import type { ApprovalRules } from '../agent/approval-rules';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
@@ -26,6 +27,7 @@ interface CommandDependencies {
   agent: AgentService;
   tasks: TaskService;
   scheduler: Scheduler;
+  approvalRules: ApprovalRules;
   placement: WindowPlacement;
   petDrag: PetDrag;
   character: CharacterActions;
@@ -64,6 +66,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     agent,
     tasks,
     scheduler,
+    approvalRules,
     placement,
     petDrag,
     character,
@@ -282,6 +285,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ id, enabled }) => scheduler.setEnabled(id, enabled),
     },
     'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
+    'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
     'set-task-budget': {
       from: fromWorkspace,
       handle: ({ budgetUsd }) => settings.update({ taskBudgetUsd: budgetUsd }),

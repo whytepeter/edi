@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { lstat, mkdir, open, readdir, realpath, rename, stat } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { ApprovalScope } from '@edi/contracts';
 import { z } from 'zod';
 import { defineCapability } from '../types';
 
@@ -517,6 +518,18 @@ export function fileCapabilities(deps: FileDependencies) {
     const parents = [...new Set(paths.map(path => dirname(path)))];
     return parents.length === 1 ? home(parents[0]!) : null;
   };
+  /** "Always allow" for these changes applies to the deepest folder holding all of them. */
+  const folderScope = (paths: string[]): ApprovalScope => {
+    const parts = paths.map(path => dirname(path).split(sep));
+    const shared: string[] = [];
+    for (let index = 0; parts.every(list => index < list.length); index++) {
+      const part = parts[0]![index]!;
+      if (!parts.every(list => list[index] === part)) break;
+      shared.push(part);
+    }
+    const value = shared.join(sep) || sep;
+    return { kind: 'folder', value, label: home(value), covers: [...new Set(paths)] };
+  };
   /** Runs each item, stopping at none: reports what changed and what didn't. */
   async function each<T>(
     items: T[],
@@ -581,6 +594,9 @@ export function fileCapabilities(deps: FileDependencies) {
       const count = planned.length;
       const first = planned[0]!;
       return {
+        scope: folderScope(
+          planned.flatMap(({ source, destination }) => [source.path, destination.path]),
+        ),
         preview: {
           title: renaming ? 'Rename' : 'Move',
           action: renaming ? 'Rename' : 'Move',
@@ -658,6 +674,7 @@ export function fileCapabilities(deps: FileDependencies) {
       const targets = await Promise.all(paths.map(path => writable(deps, path)));
       const into = common(targets.map(target => target.path));
       return {
+        scope: folderScope(targets.map(target => target.path)),
         preview: {
           title: targets.length === 1 ? 'Create a folder' : 'Create folders',
           action: targets.length === 1 ? 'Create Folder' : 'Create Folders',
@@ -709,6 +726,7 @@ export function fileCapabilities(deps: FileDependencies) {
       const into = common(targets.map(target => target.path));
       const first = targets[0]!;
       return {
+        scope: folderScope(targets.map(target => target.path)),
         preview: {
           title: 'Move to Trash',
           action: 'Move to Trash',

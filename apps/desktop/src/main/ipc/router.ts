@@ -15,6 +15,7 @@ import {
   type ConversationSummary,
   type Task,
   type Schedule,
+  type ApprovalRule,
   type UsageSummary,
   type AgentState,
   type Command,
@@ -54,6 +55,7 @@ interface IpcDependencies {
   conversations(query: string): ConversationSummary[];
   tasks(): Task[];
   schedules(): Schedule[];
+  approvalRules(): ApprovalRule[];
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
   fileAccess(): FileAccess;
@@ -77,6 +79,7 @@ export function registerIpc({
   conversations,
   tasks,
   schedules,
+  approvalRules,
   artifact,
   permissions,
   fileAccess,
@@ -127,6 +130,10 @@ export function registerIpc({
   ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
     authorize(callerOf(event), ['workspace']);
     return cloudVoices(cloudProviderSchema.parse(provider));
+  });
+  ipcMain.handle('edi:approval-rules:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return approvalRules();
   });
   ipcMain.handle('edi:schedules:get', event => {
     authorize(callerOf(event), ['workspace']);
