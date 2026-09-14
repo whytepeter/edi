@@ -1,0 +1,50 @@
+/* A Library row: the whole row opens the item; Delete sits at the trailing edge beside it. */
+.library-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.library-row > .ds-group-row {
+  padding-right: 48px;
+}
+.library-delete.ds-icon-button {
+  position: absolute;
+  right: 8px;
+  color: var(--label-tertiary);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+/* Shown on hover and for keyboard focus, so rows stay calm while scanning. */
+.library-row:hover .library-delete,
+.library-delete:focus-visible {
+  opacity: 1;
+}
+.library-delete.ds-icon-button:hover {
+  color: #c2452d;
+}
+@media (hover: none) {
+  .library-delete.ds-icon-button {
+    opacity: 1;
+  }
+}
+
+.library-confirm {
+  display: grid;
+  gap: var(--space-2);
+  padding: 10px var(--space-3);
+  background: var(--fill);
+}
+.library-confirm-text {
+  font: var(--text-callout);
+  color: var(--label);
+}
+.library-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+@media (prefers-color-scheme: dark) {
+  .library-delete.ds-icon-button:hover {
+    color: #f2a283;
+  }
+}

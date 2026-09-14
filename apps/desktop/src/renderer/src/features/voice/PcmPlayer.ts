@@ -7,6 +7,8 @@ export class PcmPlayer {
   private started = false;
   private sources = new Set<AudioBufferSourceNode>();
   private gaps = 0;
+  /** Context time at which the most recently accepted chunk starts playing. */
+  private lastStart = 0;
 
   constructor(
     private readonly context: AudioContext,
@@ -79,6 +81,7 @@ export class PcmPlayer {
       throw error;
     }
     this.sources.add(source);
+    this.lastStart = when;
     this.tail = when + duration;
     this.started = true;
     if (late) this.gaps += 1;
@@ -102,6 +105,15 @@ export class PcmPlayer {
     this.sources.clear();
     this.tail = 0;
     this.started = false;
+  }
+
+  /** Seconds from now until the last accepted chunk starts, and until queued audio ends. */
+  timing() {
+    const now = this.context.currentTime;
+    return {
+      untilLastStart: Math.max(0, this.lastStart - now),
+      untilEnd: Math.max(0, this.tail - now),
+    };
   }
 
   snapshot() {

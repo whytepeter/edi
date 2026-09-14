@@ -7,6 +7,84 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Files outside Edi's workspace. Edi can search (Spotlight, with a bounded name search as fallback), list and read
+  files in Desktop, Documents, Downloads and folders you add, or everywhere in your home folder with Full Disk
+  Access. Text, code, CSV/JSON and Word/RTF/HTML documents are read; PDFs are not yet. Renaming, moving, creating
+  folders and moving to the Trash always show a review first. Settings → Privacy & Permissions has a Files & Folders
+  section with each folder's status, Allow, Add a folder… and a Full Disk Access link. Edi's workspace and ~/Library
+  cannot be changed by these tools, and symlinks cannot reach outside allowed folders.
+- Character packages. A character is `character.json` plus `art.svg`, zipped as `.edichar`. Edi and Mochi
+  now ship as packages in `packages/characters` and pass the same check as installed ones. Appearance is a
+  character library: add a package (choose it or drop it on the page), see it in every mood before
+  installing, and remove ones you added. Packages hold data only. Every SVG is parsed strictly and rebuilt
+  from an allowlist of drawing elements and checked attribute values, so scripts, styles, images, links,
+  animation, text and external references never survive, and ids are scoped per copy. Installed packages
+  are checked again on every launch. Creators get `pnpm character check` and `pnpm character pack`, a
+  starter template and a guide in `docs/characters`.
+- Expressions in layers: what Edi is doing (listening, thinking, speaking…), a mood (happy, sad, surprised,
+  confused, sleepy, love, annoyed) and cues timed to the voice (laugh, chuckle, sigh, gasp, groan, sniff).
+  Art parts (eyes, brows, mouth, cheeks, extras) offer named variants, and Edi picks the closest one each
+  part has, falling back to `default`, so a new mood needs no per-character code. Moods come with body
+  motion and floating effects (hearts, z's, a question mark, a surprise burst, an anger mark). Replies
+  open with a `[MOOD:…]` tag the face shows and the text and voice hide; failures look briefly sad, and a
+  long quiet spell makes the companion sleepy until you interact. Edi and Mochi have faces for every mood.
+
+- Settings → Usage: what Edi spent on OpenRouter today, over 7 or 30 days, with a daily chart, answers vs
+  reading web pages, cost and tokens per model (with the share read from the prompt cache), characters sent to
+  Cartesia and ElevenLabs, and the OpenRouter key's own spend and limit. Every model call records tokens and the
+  cost OpenRouter reports (no prompts, pages or spoken text are stored). Anthropic models now use prompt caching,
+  so the repeated instructions, history and screenshots across a run's steps are billed at a tenth of the price.
+- Page reader for web fetch: Edi researches on its own (search, read result pages, follow links) and passes a
+  question with each page. A separate cheap model with no tools (the newest Gemini Flash Lite in OpenRouter's
+  catalog, else the fast pick or the chosen model) reads the page and Edi receives only its answer and the page's links, so raw
+  page text and instructions hidden in it never reach the model that can use Edi's tools. If the reader fails,
+  a shorter slice of the page is returned. Up to 10 steps per answer.
+- Cloud voices: Cartesia (Sonic 3.6) and ElevenLabs (Flash v2.5) with separate keys, checked with the provider
+  before they are saved and encrypted with the keychain. Settings → Voice explains each provider, links to where
+  keys are made, and lists only the voices on your account (created, cloned or saved there, never the public
+  library) with previews and a prompt to add one when there are none. Adding a key pre-selects your first
+  voice but never switches providers by itself. Only the words Edi speaks are sent; a failed cloud reply falls
+  back to a local voice.
+- Edi's new look: a soft-shaded chibi with a faded buzz cut, winged liner and lashes, feathered brows, glossy
+  full lips, rosy cheeks, ears and gold hoops. She rests her chin on her hand while thinking.
+- Laughs and chuckles in time with the voice: an expressive reply splits at `[laugh]` or `[chuckle]` so that
+  sound starts its own utterance, and a cue scheduled against the audio clock closes Edi's eyes into smiles,
+  opens her smile with the voice's loudness and bounces her for as long as the laugh lasts. A tag at the end of
+  a clip plays just before its audio ends. Voice previews do the same.
+- Name your companion in Appearance. Until you do, it goes by its character's name (Edi, Mochi); your name
+  applies to every character and is used in its prompt, bubbles, menus, voice samples and card copy. The app,
+  its windows and the Documents › Edi folder keep the Edi name. It can also rename itself when you ask.
+- Calm Chatterbox delivery (default), Liquid Glass toolbar and section menu, a happy nod when asked to do something,
+  and short progress lines in the bubble (only for real work, such as "Searching the web") when Conversations
+  is not open.
+
+- Web fetch (`web.fetch`): Edi can read a public page from a link you gave, search results or a page it
+  already read. Following Anthropic's web fetch tool, Claude Code's WebFetch and the MCP fetch server: the
+  worker only allows URLs already seen (no composed URLs, so pages cannot exfiltrate data), at most 10 reads
+  per answer; http upgrades to https; addresses are checked at connect time for every hop (private, loopback,
+  link-local, metadata and IPv4-in-IPv6 refused); same-site redirects only, other sites are reported; robots.txt
+  respected for model-chosen links; 2 MB / 20 s bounds; HTML to readable text with 40k-character parts and a
+  15-minute cache; page text is marked untrusted.
+
+- Web search: the model can search the public web through OpenRouter's server tool (Codex) and cite sources.
+  Source links in replies are clickable and open in the default browser (http/https only, validated in main);
+  spoken replies say the link text, never the address. Edi's self-knowledge lists web search and says
+  logged-in browsing is not available.
+- Kokoro 82M (MLX) is the default speech model, and Chatterbox Turbo now runs on MLX (4-bit). Measured on the M2
+  Pro: Kokoro starts in ~0.15–0.3 s at ~10× real time; Chatterbox streams first audio in ~0.5 s at ~3× real
+  time (PyTorch was 1.3–1.9× slower than real time). Pocket stays available.
+- Settings → Voice: choose the speech model, then its voice (27 Kokoro voices, female/male), with a Preview
+  button that plays a sample through Edi's speaker. Each model remembers its voice; Edi can change both.
+
+- Edi manages its workspace: `workspace.search` (notes and generated content, by title and text), `workspace.read`,
+  `workspace.update` (replace generated content in place, reviewed first) and `workspace.delete` (move a note or
+  generated item to the Trash, reviewed first). Generated content now has its own `artifacts` record (migration 3
+  copies existing shown content, keeping each call id so conversation cards still open it).
+- Library Delete: a trash button on each row with an inline confirmation; the file goes to the macOS Trash and
+  the item leaves Library, the conversation and any open artifact window.
+- A kind-aware bubble preview beside Edi: kind, title, a glimpse (checklist items, table rows, text, or a
+  "try it" window for interactive pages) and an Open capsule.
+
 - Interactive pages: `workspace.show` accepts `html` for calculators, simulations, interactive charts or UI
   previews that documents, checklists and tables cannot express. Main serves each page from Edi's history over a
   private `edi-artifact://` scheme with a sandboxing CSP: opaque origin, inline scripts and styles only, no
@@ -99,6 +177,13 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- The agent reported a cloud voice by its id (and fell back on earlier conversation, e.g. "Heart") instead of
+  its name; cloud voice names now come from the account, and the live setup outranks earlier messages.
+
+- Edi looked like it was speaking before any audio existed. The speaking state now starts with the first
+  synthesized samples. Measured on the M2 Pro: warm Chatterbox Turbo runs 1.3–1.9× slower than real time, with a
+  ~1.5 s fixed cost per clip. The first clip is the fewest sentences that reach four words (or a clause break for a
+  long sentence), and the worker no longer re-splits clips.
 - Chatterbox paused mid-sentence: the speaker queued only 3 s, so the next sentence started generating too late.
   The speech queue is now 30 s, and the first clip ends at a sentence or clause break instead of after three words.
 
@@ -117,6 +202,9 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Removed
 
+- Pocket TTS and the PyTorch Chatterbox environment. Kokoro is the default local voice and stands in while
+  Chatterbox Turbo (MLX) loads and when a cloud voice fails; a saved Pocket choice moves to Kokoro. The ~5 GB of
+  Pocket and PyTorch Chatterbox environments and models were moved to the Trash.
 - The Cloud and Sprout characters (saved choices move to Edi).
 - The Mira character.
 - Thought dots and listening rings on the character, and hand flapping and body bobbing while speaking.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { characterMoodSchema, type CharacterMood } from './character/expressions';
 
 /**
  * On-screen presentation: a reply may end with tags in screenshot
@@ -225,11 +226,30 @@ export function resolvePresentation(
   return { display: shot.display, actions };
 }
 
+/**
+ * A reply opens with how Edi feels about it, e.g. `[MOOD:happy]`. The face shows it; the text
+ * and the voice never do. Unknown moods are ignored.
+ */
+const moodTag = /\[MOOD:\s*([a-z]+)\s*\]\s*/gi;
+
+/** The mood a reply declares first, if any. */
+export function replyMood(reply: string): CharacterMood | null {
+  for (const match of reply.matchAll(moodTag)) {
+    const mood = characterMoodSchema.safeParse((match[1] ?? '').toLowerCase());
+    if (mood.success) return mood.data;
+  }
+  return null;
+}
+
 /** Hide complete tags and an unfinished trailing tag while tokens are arriving. */
 export function presentationText(reply: string): string {
   return reply
+    .replace(moodTag, '')
     .replace(tag, '')
-    .replace(/\[(?:P(?:O(?:I(?:N(?:T)?)?)?)?|D(?:R(?:A(?:W)?)?)?)(?::[^\]]*)?$/i, '')
+    .replace(
+      /\[(?:P(?:O(?:I(?:N(?:T)?)?)?)?|D(?:R(?:A(?:W)?)?)?|M(?:O(?:O(?:D)?)?)?)(?::[^\]]*)?$/i,
+      '',
+    )
     .trimEnd();
 }
 

@@ -30,6 +30,7 @@ export function SettingsView({ agent, system, permissions, onOpen }: SettingsVie
           value={system ? (system.voice.available ? system.voice.name : 'Unavailable') : ''}
           onOpen={() => onOpen('settings.voice')}
         />
+        <GroupedRow icon="chart" title="Usage" onOpen={() => onOpen('settings.usage')} />
         <GroupedRow
           icon="keyboard"
           title="Keyboard"

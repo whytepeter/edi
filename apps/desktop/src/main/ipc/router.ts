@@ -5,6 +5,13 @@ import {
   type Artifact,
   type ArtifactRef,
   artifactRefSchema,
+  cloudProviderSchema,
+  usagePeriodSchema,
+  fileAccessActionSchema,
+  type CloudProviderId,
+  type CloudVoiceOption,
+  type UsagePeriod,
+  type UsageSummary,
   type AgentState,
   type Command,
   type LibraryItem,
@@ -12,6 +19,10 @@ import {
   type Settings,
   type SystemInfo,
   type PermissionSnapshot,
+  type FileAccess,
+  type FileAccessAction,
+  type CharacterDescriptor,
+  type CharacterInspection,
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
@@ -34,8 +45,15 @@ interface IpcDependencies {
   library(): LibraryItem[];
   system(): SystemInfo;
   models(): Promise<ModelOption[]>;
+  cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
+  usage(days: UsagePeriod): Promise<UsageSummary>;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
+  fileAccess(): FileAccess;
+  fileAccessAction(action: FileAccessAction): Promise<FileAccess>;
+  characters(): CharacterDescriptor[];
+  pickCharacterPackage(): Promise<CharacterInspection | null>;
+  inspectCharacterFile(path: string): Promise<CharacterInspection>;
 }
 
 export function registerIpc({
@@ -47,8 +65,15 @@ export function registerIpc({
   library,
   system,
   models,
+  cloudVoices,
+  usage,
   artifact,
   permissions,
+  fileAccess,
+  fileAccessAction,
+  characters,
+  pickCharacterPackage,
+  inspectCharacterFile,
 }: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
     // Subframes never inherit their window's privileges.
@@ -89,6 +114,22 @@ export function registerIpc({
     authorize(callerOf(event), ['workspace']);
     return models();
   });
+  ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return cloudVoices(cloudProviderSchema.parse(provider));
+  });
+  ipcMain.handle('edi:usage:get', (event, days: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return usage(usagePeriodSchema.parse(days));
+  });
+  ipcMain.handle('edi:file-access:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return fileAccess();
+  });
+  ipcMain.handle('edi:file-access:act', (event, action: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return fileAccessAction(fileAccessActionSchema.parse(action));
+  });
   ipcMain.handle('edi:permissions:get', event => {
     authorize(callerOf(event), ['workspace']);
     return permissions();
@@ -96,6 +137,19 @@ export function registerIpc({
   ipcMain.handle('edi:bubble-approval:get', event => {
     authorize(callerOf(event), ['bubble']);
     return agentState().approval;
+  });
+  ipcMain.handle('edi:characters:get', event => {
+    authorize(callerOf(event), ['workspace', 'pet', 'artifact']);
+    return characters();
+  });
+  ipcMain.handle('edi:characters:pick', event => {
+    authorize(callerOf(event), ['workspace']);
+    return pickCharacterPackage();
+  });
+  ipcMain.handle('edi:characters:inspect-file', (event, path: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    if (typeof path !== 'string' || path.length > 4096) throw new Error('Invalid file');
+    return inspectCharacterFile(path);
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

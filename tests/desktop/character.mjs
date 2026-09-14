@@ -38,7 +38,7 @@ try {
     }, label);
   await expect(pet.getByRole('button', { name: 'Edi', exact: true })).toBeAttached();
   // A plain click on the character no longer starts listening.
-  const petBody = await pet.locator('[data-part="body"]').boundingBox();
+  const petBody = await pet.locator('.pet-hit').boundingBox();
   await pet.mouse.click(petBody.x + petBody.width / 2, petBody.y + petBody.height / 2);
   await pet.waitForTimeout(600);
   expect(app.windows().some(page => page.url().includes('surface=voice-status'))).toBe(false);
@@ -101,7 +101,7 @@ try {
     .poll(() => app.windows().some(page => page.url().includes('surface=character-menu')))
     .toBe(false);
   // Hold the real pointer on the painted body; release must not create a second bubble.
-  const body = pet.locator('[data-part="body"]');
+  const body = pet.locator('.pet-hit');
   const box = await body.boundingBox();
   await pet.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await pet.mouse.down();

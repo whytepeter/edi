@@ -112,9 +112,9 @@ The destination list is `workspaceViewSchema` in `@edi/contracts`: `conversation
 `settings.privacy`, and `settings.activity`. Main validates the destination and asks the workspace shell
 to navigate. Do not let model text become a URL, filesystem path, or arbitrary renderer route.
 
-Personality is stable across models, voices, and skins. Semantic moods start with neutral, curious, thinking, happy,
-excited, confused, concerned, playful, and proud. Agent or domain state selects the mood; the active skin maps it to
-its own pose/animation, and the selected speech provider maps it to supported vocal controls. Unsupported expression
+Personality is stable across models, voices, and skins. Semantic moods are neutral, happy, sad, surprised,
+confused, sleepy, love and annoyed (see `docs/CHARACTER.md`). The reply selects the mood; the active character maps
+it to its own variants and motion, and the selected speech provider maps it to supported vocal controls. Unsupported expression
 falls back to clear neutral speech without changing Edi's personality.
 
 ## 6. Extensions: one manager, distinct capabilities
@@ -225,7 +225,7 @@ Keep the skin contract renderer-neutral. Initially accept curated SVG assets; ad
 
 Preload and validate before applying, then switch body and hands together. Preserve screen position and active conversation. If a hand is drawing, complete or cancel that presentation gesture at a safe boundary before swapping; do not restart the agent or tool action. Recalculate hit regions and anchors for the new geometry. Reduced-motion mode uses a brief fade or immediate replacement. Persist selected skin ID/version in settings, release unused assets, and restore the bundled default if the selected pack is missing, invalid, or removed.
 
-Keep the picker under `features/settings/appearance/`, loaders/adapters under `presentation/skins/`, schemas under `packages/contracts/`, and built-in assets under `resources/skins/`. Downloaded packs use the existing extension store and lifecycle. There is no separate skin service or avatar agent.
+**Status (2026-09-14):** built as character packages (`character.json` + sanitized `art.svg`, zipped as `.edichar`) with parts and variants instead of per-pack pose adapters. Edi and Mochi ship as packages in `packages/characters`; schemas and the sanitizer live in `packages/contracts/src/character`, the library in `apps/desktop/src/main/characters`, and rendering in `components/character`. Install from file works today; a hosted library is later. There is no separate skin service or avatar agent. Details: `docs/CHARACTER.md`.
 
 ## 11. Voice selection and lifecycle
 
@@ -242,7 +242,6 @@ Use a female voice by default; the final bundled voice asset still needs listeni
 Transcription, reasoning, and speech synthesis remain independent. Push-to-talk first; text remains available.
 Support four explicit speech paths:
 
-- **Pocket TTS:** default lightweight local provider.
 - **Chatterbox Turbo:** more expressive local provider.
 - **Cartesia:** optional low-latency cloud provider.
 - **ElevenLabs:** optional premium cloud provider.
@@ -265,7 +264,7 @@ Measure the actual runtime on the minimum Mac: cold start, warm first audio, sus
 
 Use bounded spoken-segment/audio queues tagged with run IDs. Stop halts playback and discards stale output immediately, independently of cancelling inference. Load local models during active use and release after an idle timeout. Provide model download progress, hash/version checks, free-space checks, and removal controls.
 
-Default to no raw microphone retention. Local speech does not make hosted reasoning local: settings must show whether transcripts/screenshots leave the device. Cloning a Qwen-generated voice into Pocket is an experiment, not a dependency; it cannot be assumed to transfer emotional control.
+Default to no raw microphone retention. Local speech does not make hosted reasoning local: settings must show whether transcripts/screenshots leave the device.
 
 ## 12. Contracts, persistence, and recovery
 

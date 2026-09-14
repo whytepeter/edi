@@ -11,6 +11,7 @@ import {
   emptyAgentState,
   groundPresentation,
   parsePresentation,
+  modelIdSchema,
   resolvePresentation,
   type AgentState,
   type ApprovalRequest,
@@ -46,6 +47,10 @@ interface AgentServiceOptions {
   point?: (target: PointTarget) => void;
   /** Live, non-secret Edi configuration for identity and setup questions. */
   selfContext?: () => string;
+  /** The companion's current name (the person's choice, or its character's). */
+  assistantName?: () => string;
+  /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
+  readerModel?: () => string | null;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
   threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
 }
@@ -179,15 +184,18 @@ export class AgentService {
       screens: screenshots.length,
       startedAt: Date.now(),
     });
+    const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model: credentials.model,
+      name: this.options.assistantName?.() ?? 'Edi',
       prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
       spoken: options.spoken ?? false,
       expressiveVoice: options.expressiveVoice ?? false,
       selfContext: this.options.selfContext?.() ?? '',
+      ...(readerModel ? { readerModel } : {}),
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {
@@ -267,8 +275,17 @@ export class AgentService {
   }
 
   private onWorkerMessage(run: ActiveRun, raw: unknown) {
-    if (this.run !== run) return;
     const parsed = workerMessageSchema.safeParse(raw);
+    // Usage is recorded even after a run was stopped: the provider already billed that call.
+    if (parsed.success && parsed.data.type === 'usage') {
+      try {
+        this.options.repositories.usage.add(parsed.data.entry, Date.now(), run.id);
+      } catch {
+        // Usage records are best effort; an answer never fails because of them.
+      }
+      return;
+    }
+    if (this.run !== run) return;
     if (!parsed.success) {
       this.finish(run, 'error', 'The response worker sent something unexpected.');
       return;
@@ -279,7 +296,9 @@ export class AgentService {
         this.finish(run, 'error', 'Response reached the display limit. Ask for a shorter answer.');
         return;
       }
-      this.update({ ...this.state, text: this.state.text + message.text });
+      this.update({ ...this.state, text: this.state.text + message.text, activity: null });
+    } else if (message.type === 'activity') {
+      this.update({ ...this.state, activity: message.activity });
     } else if (message.type === 'tool-call') {
       void this.invokeTool(run, message.id, message.name, message.input);
     } else if (message.type === 'done') {
@@ -289,7 +308,7 @@ export class AgentService {
         produced ? 'done' : 'error',
         produced ? '' : 'No text was returned. Try a text-capable model.',
       );
-    } else {
+    } else if (message.type === 'error') {
       const errors = {
         auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
         credits: 'OpenRouter has no available credits. Add credits, then try again.',

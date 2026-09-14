@@ -3,10 +3,9 @@ import type {
   ApprovalRequest,
   ArtifactSummary,
   BubbleSide,
-  SkinId,
   StatusBubbleState,
 } from '@edi/contracts';
-import { ArtifactCard } from '../../components/artifacts/Artifact';
+import { ArtifactPreview } from '../../components/artifacts/Artifact';
 import {
   Button,
   ListeningBars,
@@ -14,19 +13,17 @@ import {
   SpeechBubble,
   ThinkingDots,
 } from '../../components/ui';
-import { accentFor } from '../../lib/bridge';
 import './pet.css';
 
-const announcement: Record<
-  Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>,
-  string
-> = {
+const announcement = (
+  name: string,
+): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>, string> => ({
   unavailable: 'voice coming soon',
-  thinking: 'Edi is thinking',
+  thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.
   listening: 'I’m listening',
-  speaking: 'Edi is speaking',
-};
+  speaking: `${name} is speaking`,
+});
 
 interface ApprovalBubbleBridge {
   approval(): Promise<ApprovalRequest | null>;
@@ -34,6 +31,7 @@ interface ApprovalBubbleBridge {
   respond(callId: string, decision: 'approve' | 'deny'): Promise<void>;
   showContent(): Promise<void>;
   openArtifact(callId: string): Promise<void>;
+  subscribeText(callback: (text: string) => void): () => void;
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
@@ -42,17 +40,26 @@ const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleB
 export function StatusBubble({
   state,
   side,
-  skin,
+  accent,
+  name,
   text: notice,
   artifact,
 }: {
   state: StatusBubbleState;
   side: BubbleSide;
-  skin: SkinId;
+  /** The character's accent color, from the URL. */
+  accent: string;
+  name: string;
   text: string;
   artifact: ArtifactSummary | null;
 }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  // Thinking starts with any progress from the URL; updates arrive in place.
+  const [progress, setProgress] = useState(state === 'thinking' ? notice : '');
+  useEffect(() => {
+    if (state !== 'thinking') return;
+    return approvalBridge()?.subscribeText(setProgress);
+  }, [state]);
   const [armed, setArmed] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -102,10 +109,10 @@ export function StatusBubble({
         data-accent
         data-side={side}
         data-state={state}
-        style={{ '--accent': accentFor(skin) } as CSSProperties}
+        style={{ '--accent': accent } as CSSProperties}
       >
         {artifact ? (
-          <ArtifactCard
+          <ArtifactPreview
             artifact={artifact}
             onOpen={() =>
               void approvalBridge()
@@ -116,23 +123,30 @@ export function StatusBubble({
         ) : null}
       </div>
     );
-  const staticText = state === 'notice' ? notice : state === 'approval' ? '' : announcement[state];
+  const staticText =
+    state === 'notice' ? notice : state === 'approval' ? '' : announcement(name)[state];
   return (
     <div
       className="status-bubble-surface"
       data-accent
       data-side={side}
       data-state={state}
-      style={{ '--accent': accentFor(skin) } as CSSProperties}
+      style={{ '--accent': accent } as CSSProperties}
     >
       <SpeechBubble side={side} className={state === 'approval' ? 'approval-bubble' : ''}>
         {state === 'thinking' && <ThinkingDots />}
+        {state === 'thinking' && progress && (
+          // Keyed so each new line arrives with the same soft motion.
+          <span key={progress} className="bubble-progress" role="status">
+            {progress}
+          </span>
+        )}
         {state === 'listening' && <ListeningBars />}
         {state === 'speaking' && <SpeakingBars />}
         {state === 'approval' ? (
           approval ? (
             <section className="bubble-approval" aria-labelledby="bubble-approval-title">
-              <p className="ds-eyebrow">Edi needs your OK</p>
+              <p className="ds-eyebrow">{name} needs your OK</p>
               <h2 id="bubble-approval-title">{approval.preview.title}</h2>
               <p>{approval.preview.summary}</p>
               {approval.preview.fields.slice(0, 2).map(field => (

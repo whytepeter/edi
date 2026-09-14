@@ -3,6 +3,7 @@ import type { Activity, ActivityRun } from '@edi/contracts';
 import { Icon } from '../../components/ui';
 import { StepList } from '../../components/StepList';
 import './activity.css';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 const runLabel: Record<ActivityRun['status'], string> = {
   running: 'In progress',
@@ -23,6 +24,7 @@ function when(timestamp: number) {
 
 /** Recent runs and every action Edi took or was refused, from local history. */
 export function ActivityView({ refreshKey }: { refreshKey: string }) {
+  const assistant = useAssistantName();
   // Outside Electron there is no history to load.
   const [activity, setActivity] = useState<Activity | null>(() => (window.edi ? null : []));
   const [error, setError] = useState('');
@@ -42,9 +44,9 @@ export function ActivityView({ refreshKey }: { refreshKey: string }) {
     <section>
       {activity && activity.length > 0 && (
         <header className="view-header">
-          <h1 className="ds-large-title">What Edi has done.</h1>
+          <h1 className="ds-large-title">What {assistant} has done.</h1>
           <p className="ds-body ds-secondary">
-            Every request, and each action Edi took or you refused.
+            Every request, and each action {assistant} took or you refused.
           </p>
         </header>
       )}
@@ -60,7 +62,7 @@ export function ActivityView({ refreshKey }: { refreshKey: string }) {
           </span>
           <h1 className="ds-title">A quiet beginning.</h1>
           <p className="ds-body ds-secondary">
-            When Edi starts helping, actions and approvals will appear here.
+            When {assistant} starts helping, actions and approvals will appear here.
           </p>
         </div>
       )}

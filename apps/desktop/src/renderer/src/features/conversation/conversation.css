@@ -71,6 +71,19 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+/* Source links in replies open in the default browser. */
+.reply-link {
+  color: var(--accent-strong);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in oklab, currentColor 40%, transparent);
+  cursor: pointer;
+}
+.reply-link:hover {
+  text-decoration-color: currentColor;
+}
 .agent-caret {
   display: inline-block;
   width: 2px;

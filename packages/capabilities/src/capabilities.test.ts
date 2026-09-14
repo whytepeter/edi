@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -13,7 +13,9 @@ import {
   workspaceCapabilities,
   writeWorkspaceArtifact,
   type ApprovalGate,
+  type ArtifactStore,
   type Capability,
+  type WorkspaceArtifact,
   type ListedNote,
   type NoteStore,
   type ToolCallRecorder,
@@ -65,6 +67,26 @@ const noteId = '00000000-0000-4000-8000-000000000020';
 
 function emptyStore(): NoteStore {
   return { add() {}, get: () => undefined, list: () => [], update() {}, remove() {} };
+}
+
+function memoryArtifacts(): ArtifactStore & { records: WorkspaceArtifact[] } {
+  const records: WorkspaceArtifact[] = [];
+  return {
+    records,
+    add: record => void records.unshift(record),
+    get: id => records.find(record => record.id === id),
+    list: limit => [...records].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit),
+    update(change) {
+      const current = records.find(record => record.id === change.id);
+      if (!current) throw new Error('missing');
+      Object.assign(current, change);
+    },
+    remove(id) {
+      const index = records.findIndex(record => record.id === id);
+      if (index < 0) throw new Error('missing');
+      records.splice(index, 1);
+    },
+  };
 }
 
 function memoryStore(seed: ListedNote[] = []): NoteStore & { records: ListedNote[] } {
@@ -354,11 +376,16 @@ test('notes.show displays a note without returning its text to the model', async
 test('workspace.show validates content by kind and is exposed as a plain object schema', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-workspace-'));
   const shown: { kind: string; title: string }[] = [];
+  const artifacts = memoryArtifacts();
   const [show] = workspaceCapabilities({
     directory: () => folder,
     shown: artifact => {
       shown.push(artifact);
     },
+    artifacts,
+    notes: { store: emptyStore(), directory: () => join(folder, 'Notes') },
+    trash: async () => {},
+    now: () => 5,
   });
   const context = { callId: '00000000-0000-4000-8000-000000000021', runId: run };
   const list = await show.prepare(
@@ -381,12 +408,144 @@ test('workspace.show validates content by kind and is exposed as a plain object 
     shown.map(({ kind, title }) => ({ kind, title })),
     [{ kind: 'checklist', title: 'Packing' }],
   );
+  // Recorded in the workspace under the showing call's id, so the conversation card still opens it.
+  assert.deepEqual(artifacts.records[0], {
+    id: context.callId,
+    kind: 'checklist',
+    title: 'Packing',
+    content: { kind: 'checklist', title: 'Packing', items: [{ text: 'Passport', done: false }] },
+    path: join('Artifacts', 'Checklists', 'packing.md'),
+    bytes: Buffer.byteLength('# Packing\n\n- [ ] Passport\n'),
+    createdAt: 5,
+    updatedAt: 5,
+  });
   assert.throws(() => show.prepare({ kind: 'table', title: 'Empty' }, context), /needs columns/);
   const broker = new CapabilityBroker([show], {
     approvals: gate('never'),
     recorder: recorder().sink,
   });
   assert.equal((broker.manifest()[0]!.inputSchema as { type: string }).type, 'object');
+});
+
+test('Edi searches, reads, updates and trashes workspace items, confined to its folder', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-manage-'));
+  const notesFolder = join(folder, 'Notes');
+  await mkdir(notesFolder, { recursive: true });
+  const notePath = join(notesFolder, 'palette.md');
+  await writeFile(notePath, '# Palette\n\nWarm clay and sage for Mochi.\n');
+  const notes = memoryStore([{ id: noteId, title: 'Palette', path: notePath, createdAt: 1 }]);
+  const artifacts = memoryArtifacts();
+  const trashed: string[] = [];
+  const shown: { id: string; title: string }[] = [];
+  let clock = 10;
+  const deps = {
+    directory: () => folder,
+    shown: (artifact: { id: string; title: string }) => void shown.push(artifact),
+    artifacts,
+    notes: { store: notes, directory: () => notesFolder },
+    trash: async (path: string) => {
+      trashed.push(path);
+      await rm(path);
+    },
+    now: () => clock++,
+  };
+  const [show, search, read, update, remove] = workspaceCapabilities(deps);
+  const listId = '00000000-0000-4000-8000-000000000031';
+  await (
+    await show.prepare(
+      { kind: 'checklist', title: 'Packing', items: [{ text: 'Passport', done: false }] },
+      { callId: listId, runId: run },
+    )
+  ).execute(live());
+
+  const found = async (query?: string, kind?: 'note') =>
+    (
+      (await (await search.prepare({ query, kind }, { callId: run, runId: run })).execute(live()))
+        .output as { results: { id: string; kind: string; snippet: string }[] }
+    ).results;
+  assert.deepEqual(
+    (await found()).map(item => item.id),
+    [listId, noteId],
+  );
+  assert.deepEqual(
+    (await found('sage mochi')).map(item => item.id),
+    [noteId],
+  );
+  assert.match((await found('sage'))[0]!.snippet, /Warm clay and sage/);
+  assert.deepEqual(
+    (await found('passport')).map(item => item.kind),
+    ['checklist'],
+  );
+  assert.deepEqual(
+    (await found(undefined, 'note')).map(item => item.id),
+    [noteId],
+  );
+  assert.deepEqual(await found('nothing like this'), []);
+
+  const readOut = async (id: string) =>
+    (await (await read.prepare({ id }, { callId: run, runId: run })).execute(live())).output;
+  assert.deepEqual(await readOut(listId), {
+    id: listId,
+    kind: 'checklist',
+    title: 'Packing',
+    text: '# Packing\n\n- [ ] Passport\n',
+  });
+  assert.equal(
+    ((await readOut(noteId)) as { text: string }).text,
+    '# Palette\n\nWarm clay and sage for Mochi.\n',
+  );
+
+  // Update keeps the place and kind, replaces the file, and reopens the content.
+  const context = { callId: run, runId: run };
+  assert.throws(
+    () => update.prepare({ id: noteId, kind: 'document', title: 'x', markdown: 'y' }, context),
+    /notes\.edit/,
+  );
+  assert.throws(
+    () => update.prepare({ id: listId, kind: 'document', title: 'x', markdown: 'y' }, context),
+    /Keep the kind/,
+  );
+  const edit = await update.prepare(
+    {
+      id: listId,
+      kind: 'checklist',
+      title: 'Packing',
+      items: [
+        { text: 'Passport', done: true },
+        { text: 'Charger', done: false },
+      ],
+    },
+    context,
+  );
+  assert.equal(edit.preview.action, 'Update');
+  await edit.execute(live());
+  const listPath = join(folder, 'Artifacts', 'Checklists', 'packing.md');
+  assert.equal(await readFile(listPath, 'utf8'), '# Packing\n\n- [x] Passport\n- [ ] Charger\n');
+  assert.deepEqual(await readdir(join(folder, 'Artifacts', 'Checklists')), ['packing.md']);
+  assert.equal(shown.at(-1)?.id, listId);
+
+  // Delete moves files to the Trash, for generated items and notes alike, and forgets them.
+  const trashList = await remove.prepare({ id: listId }, context);
+  assert.equal(trashList.preview.action, 'Move to Trash');
+  await trashList.execute(live());
+  await (await remove.prepare({ id: noteId }, context)).execute(live());
+  assert.deepEqual(trashed, [listPath, notePath]);
+  assert.equal(artifacts.records.length, 0);
+  assert.equal(notes.records.length, 0);
+  assert.throws(() => remove.prepare({ id: listId }, context), /nothing in its workspace/);
+
+  // A record pointing outside Documents/Edi/Artifacts is refused, never trashed.
+  artifacts.add({
+    id: listId,
+    kind: 'document',
+    title: 'Escape',
+    content: { kind: 'document', title: 'Escape', markdown: 'x' },
+    path: '../../.ssh/id_rsa',
+    bytes: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  assert.throws(() => remove.prepare({ id: listId }, context), /outside the Edi workspace/);
 });
 
 test('workspace artifacts use semantic file formats and never overwrite a generated file', async () => {

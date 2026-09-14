@@ -1,9 +1,16 @@
 import { z } from 'zod';
-import { petScaleSchema, skinSchema, voiceModelSchema, workspaceViewSchema } from '@edi/contracts';
+import {
+  assistantNameSchema,
+  petScaleSchema,
+  skinSchema,
+  voiceModelSchema,
+  workspaceViewSchema,
+} from '@edi/contracts';
 import { defineCapability } from '../types';
 
 export interface EdiSetupSnapshot {
-  identity: { name: 'Edi'; version: string };
+  /** `name` is what the person calls their companion; `app` is the product. */
+  identity: { name: string; customName: boolean; app: 'Edi'; version: string };
   /** Where the person is in Edi right now. */
   location: { page: string; cardOpen: boolean; pinned: boolean };
   current: {
@@ -12,6 +19,8 @@ export interface EdiSetupSnapshot {
     voice: {
       id: string;
       name: string;
+      /** The voice within the model, e.g. Heart for Kokoro. */
+      speakingVoice: { id: string; name: string };
       available: boolean;
       expressions: boolean;
       status: string;
@@ -42,6 +51,8 @@ export interface EdiSetupSnapshot {
     available: boolean;
     expressions: boolean;
     detail: string;
+    /** Cloud providers list the person's account voices; gender and accent may be unknown. */
+    voices: { id: string; name: string; accent: string | null; gender: string | null }[];
   }[];
   /** Things Edi can do right now, and whether each asks the person first. */
   abilities: { name: string; asksFirst: boolean }[];
@@ -52,13 +63,24 @@ export interface EdiSetupSnapshot {
 /** Edi's own reversible preferences. Secrets and connections are deliberately absent. */
 export const ediPreferencesSchema = z
   .object({
+    name: assistantNameSchema
+      .nullable()
+      .optional()
+      .describe(
+        'Your name, only when the user asks to call you something else; null returns to the character’s own name',
+      ),
     character: skinSchema.optional().describe('Character id from availableCharacters'),
     size: petScaleSchema
       .optional()
       .describe('Desktop size: 0.6 (small) to 1.6 (large); 1 is default'),
     pinned: z.boolean().optional().describe('Keep the card open when another app is focused'),
     speakReplies: z.boolean().optional().describe('Read spoken answers aloud'),
-    voice: voiceModelSchema.optional().describe('Voice id from availableVoices'),
+    voice: voiceModelSchema.optional().describe('Speech model id from availableVoices'),
+    speakingVoice: z
+      .string()
+      .max(40)
+      .optional()
+      .describe('Voice id within that model, from availableVoices[].voices'),
   })
   .strict()
   .refine(patch => Object.keys(patch).length > 0, 'Change at least one preference.');
@@ -74,6 +96,7 @@ const pageNames: Record<z.infer<typeof workspaceViewSchema>, string> = {
   settings: 'Settings',
   'settings.ai': 'Settings → AI',
   'settings.voice': 'Settings → Voice',
+  'settings.usage': 'Settings → Usage',
   'settings.keyboard': 'Settings → Keyboard',
   'settings.privacy': 'Settings → Privacy & Permissions',
   'settings.activity': 'Settings → Activity',
@@ -145,7 +168,7 @@ export function ediSetupCapabilities(deps: {
     id: 'edi.change_preferences',
     title: 'Change Edi’s preferences',
     description:
-      'Change Edi’s own reversible preferences: character, desktop size, pin, whether spoken ' +
+      'Change Edi’s own reversible preferences: your name, character, desktop size, pin, whether spoken ' +
       'answers are read aloud, and voice. Only use values listed by edi_inspect_setup. It cannot ' +
       'change the AI key, permissions or connections; send the user to that page instead.',
     effect: 'read',
@@ -154,7 +177,7 @@ export function ediSetupCapabilities(deps: {
     prepare(patch) {
       const fields = Object.entries(patch).map(([label, value]) => ({
         label,
-        value: String(value),
+        value: value === null ? 'character’s own name' : String(value),
       }));
       return {
         preview: {

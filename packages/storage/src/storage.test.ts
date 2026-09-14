@@ -277,3 +277,97 @@ test('shown content is found by run or id, and moved notes keep working', () => 
   // A sibling folder that merely shares the prefix is untouched.
   assert.equal(repos.notes.get(uuid(6))?.path, '/Users/x/Documents/Edi Notes Old/b.md');
 });
+
+test('migration 3 records existing shown content as workspace artifacts under the call id', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  repos.runs.start(run(uuid(1), 100));
+  const shown = (id: number, input: unknown, output: unknown, status = 'succeeded' as const) => {
+    repos.toolCalls.create({
+      id: uuid(id),
+      runId: uuid(1),
+      capability: 'workspace.show',
+      title: 'Show content',
+      effect: 'read',
+      input,
+      status: 'running',
+      at: id,
+    });
+    repos.toolCalls.finish(uuid(id), status, 'Showed', output, id + 1);
+  };
+  shown(
+    20,
+    { kind: 'table', title: 'Costs', columns: ['A'], rows: [['1']] },
+    { shown: true, path: 'Artifacts/Tables/costs.csv', bytes: 4 },
+  );
+  shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
+  // Replay the migration on a database that predates it.
+  db.exec('DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;');
+  migrate(db);
+  assert.deepEqual(repos.artifacts.list(10), [
+    {
+      id: uuid(20),
+      kind: 'table',
+      title: 'Costs',
+      content: { kind: 'table', title: 'Costs', columns: ['A'], rows: [['1']] },
+      path: 'Artifacts/Tables/costs.csv',
+      bytes: 4,
+      createdAt: 20,
+      updatedAt: 21,
+    },
+  ]);
+  repos.artifacts.update({ id: uuid(20), title: 'Costs Q3', content: {}, bytes: 9, updatedAt: 30 });
+  assert.equal(repos.artifacts.get(uuid(20))?.title, 'Costs Q3');
+  repos.artifacts.remove(uuid(20));
+  assert.equal(repos.artifacts.get(uuid(20)), undefined);
+  assert.throws(() => repos.artifacts.remove(uuid(20)), /no longer/);
+});
+
+test('usage totals by kind, model and local day; voice counts characters apart from model cost', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const now = new Date(2026, 8, 14, 15, 0).getTime();
+  const earlier = new Date(2026, 8, 12, 9, 0).getTime();
+  const tooOld = new Date(2026, 8, 1, 9, 0).getTime();
+  const call = (kind: 'answer' | 'page-reader', model: string, costUsd: number | null) => ({
+    kind,
+    provider: 'openrouter' as const,
+    model,
+    inputTokens: 1000,
+    outputTokens: 100,
+    cachedTokens: kind === 'answer' ? 800 : 0,
+    costUsd,
+    characters: 0,
+  });
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 0.01), now - 60_000, uuid(1));
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 0.02), now - 30_000, uuid(1));
+  repos.usage.add(call('page-reader', 'google/gemini-3.5-flash-lite', null), now, uuid(1));
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 0.5), earlier, uuid(2));
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 9), tooOld, uuid(3));
+  repos.usage.add(
+    { ...call('answer', 'sonic-3.6', null), kind: 'voice', provider: 'cartesia', characters: 42 },
+    now,
+  );
+
+  const today = repos.usage.summary(1, now);
+  assert.equal(today.answers, 1);
+  assert.equal(today.total.calls, 3);
+  assert.equal(today.total.unpricedCalls, 1);
+  assert.ok(Math.abs(today.total.costUsd - 0.03) < 1e-9);
+  assert.deepEqual(
+    today.byKind.map(entry => [entry.kind, entry.calls, entry.cachedTokens]),
+    [
+      ['answer', 2, 1600],
+      ['page-reader', 1, 0],
+    ],
+  );
+  assert.deepEqual(today.voice, [{ provider: 'cartesia', replies: 1, characters: 42 }]);
+  assert.equal(today.daily.length, 1);
+
+  const week = repos.usage.summary(7, now);
+  assert.equal(week.answers, 2);
+  assert.equal(week.daily.length, 7);
+  assert.equal(week.daily.at(-1)?.day, '2026-09-14');
+  assert.ok(Math.abs(week.daily.find(day => day.day === '2026-09-12')!.costUsd - 0.5) < 1e-9);
+  assert.equal(week.byModel[0]?.model, 'anthropic/claude-sonnet-5');
+  assert.throws(() => repos.usage.add({ ...call('answer', 'x', -1) }, now));
+});

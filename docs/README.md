@@ -1,20 +1,28 @@
-# Product documents
+# Edi documents
 
-The product plan lives in the parent workspace; architecture and roadmap live here:
+The product plan lives in the parent workspace ([EDI-PRODUCT-PLAN.md](../../EDI-PRODUCT-PLAN.md)). Changes are
+recorded in [CHANGELOG.md](../CHANGELOG.md).
 
-- [Product plan](../../EDI-PRODUCT-PLAN.md)
-- [Architecture](ARCHITECTURE.md)
-- [Roadmap](ROADMAP.md)
+## Plan
 
-Current milestone: **0 — desktop and audio foundations**. The shell, bundled avatars, OpenRouter text, local hold-to-talk pipeline, SQLite history, reviewed note writes, screen context, and presentation overlay are implemented at foundation level. Cloud voice, hands-free conversation, full rich content, and external installations remain upcoming work.
+- [Roadmap](ROADMAP.md): milestones, acceptance gates and progress.
+- [Architecture](ARCHITECTURE.md): the intended design and its reasoning.
 
-See [foundation validation](FOUNDATION-VALIDATION.md) for evidence and the remaining milestone-0 checks.
+## How the code works
 
-See [engineering conventions](ENGINEERING.md) for module boundaries, state ownership, commenting, and verification expectations.
+- [Codebase guide](CODEBASE.md): directory map, subsystems, data flow, where to make changes. Start here.
+- [Engineering conventions](ENGINEERING.md): boundaries, state ownership, commenting and verification.
+- [Permissions](PERMISSIONS.md): just-in-time OS permissions and screen-context privacy.
+- [Audio runtime](AUDIO-RUNTIME.md): capture, playback, cancellation and measurements.
+- [Presentation](PRESENTATION.md): the pointer, drawing and alignment with what is on screen.
+- [Characters](CHARACTER.md): expressions, moods, motion and character packages.
 
-See the [codebase guide](CODEBASE.md) for the current directory map, subsystem entry points, lifecycle, data
-flow, and where to make common changes.
+## For character creators
 
-See [permission architecture](PERMISSIONS.md) for the just-in-time permission registry and privacy-first screen-context policy.
+- [Making an Edi character](characters/README.md), with a [starter template](characters/template).
 
-See [audio runtime](AUDIO-RUNTIME.md) for the isolated playback module, cancellation contract, measured checks, and remaining integration work.
+## Evidence and checks
+
+- [Milestone 0 validation](FOUNDATION-VALIDATION.md): what was verified and what is still open.
+- [Resource budget](RESOURCE-BUDGET.md): CPU, memory and launch measurements on one Mac.
+- [Manual macOS checks](MANUAL-CHECKS.md): checks that need a person at the Mac.

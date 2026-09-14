@@ -1,0 +1,59 @@
+{
+  "format": 1,
+  "id": "mochi",
+  "name": "Mochi",
+  "version": "2.0.0",
+  "description": "Soft, cheerful, and a little bouncy.",
+  "author": {
+    "name": "Fewer Labs"
+  },
+  "license": "All rights reserved",
+  "colors": {
+    "accent": "#71493d",
+    "outline": "#71493d",
+    "skin": "#fbf2e8"
+  },
+  "geometry": {
+    "version": 1,
+    "viewBox": {
+      "x": 0,
+      "y": 0,
+      "width": 160,
+      "height": 170
+    },
+    "paintedBounds": {
+      "x": 13,
+      "y": 16,
+      "width": 136,
+      "height": 143
+    },
+    "bodyPath": "M80 38C108 38 127 60 131 87C134 104 143 114 139 126C135 136 122 139 111 141C97 146 63 146 49 141C38 139 25 136 21 126C17 114 26 104 29 87C33 60 52 38 80 38Z",
+    "anchors": {
+      "workspace": {
+        "x": 31,
+        "y": 40
+      },
+      "leftHand": {
+        "x": 30,
+        "y": 99
+      },
+      "rightHand": {
+        "x": 132,
+        "y": 112
+      },
+      "speechRight": {
+        "x": 122,
+        "y": 54
+      },
+      "speechLeft": {
+        "x": 40,
+        "y": 54
+      }
+    }
+  },
+  "motion": {
+    "intensity": 1.15,
+    "blink": true
+  },
+  "effects": true
+}

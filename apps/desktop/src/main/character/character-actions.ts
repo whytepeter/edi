@@ -3,34 +3,39 @@ import {
   mapSkinPoint,
   placeContextMenu,
   placeSpeechBubble,
-  skinGeometry,
   type ApprovalRequest,
   type ArtifactSummary,
   type BubbleSide,
   type CharacterExpression,
-  type SkinId,
+  type CharacterManifest,
   type StatusBubbleState,
 } from '@edi/contracts';
 import {
   characterMenuSize,
   floatingMargin,
   statusBubbleSize,
+  thinkingBubbleSize,
   type StatusBubbleOptions,
 } from '../windows/factory';
 
 interface CharacterActionsOptions {
   pet: BrowserWindow;
   card: BrowserWindow;
-  skin: () => SkinId;
+  /** The current character: its geometry places bubbles, its accent colors them. */
+  character: () => CharacterManifest;
+  /** The companion's current name, for menus and bubbles. */
+  name: () => string;
   /** Start real capture; false means the local voice runtime is unavailable. */
   startVoice: (mode: 'conversation' | 'push-to-talk') => boolean;
   showContent: () => void;
   openSettings: () => void;
   stopWork: () => void;
   createBubble: (options: StatusBubbleOptions) => BrowserWindow;
-  createMenu: () => BrowserWindow;
+  createMenu: (name: string) => BrowserWindow;
   /** Narrow main-to-renderer state channel; artwork remains renderer-owned. */
   showExpression: (expression: CharacterExpression) => void;
+  /** The person did something with the character; a sleepy companion wakes up. */
+  noteActivity: () => void;
   quit: () => void;
 }
 
@@ -39,6 +44,9 @@ type MenuAction = 'content' | 'settings' | 'sleep' | 'quit' | 'dismiss';
 /** One entry point for character clicks, menu actions and the global shortcut. */
 export class CharacterActions {
   private bubble?: { window: BrowserWindow; state: StatusBubbleState; side: BubbleSide };
+  /** The thinking bubble's current progress line. */
+  private bubbleText?: string;
+  private ackTimer?: ReturnType<typeof setTimeout>;
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
   private dismiss?: ReturnType<typeof setTimeout>;
@@ -54,6 +62,7 @@ export class CharacterActions {
   }
 
   requestListening = (mode: 'conversation' | 'push-to-talk' = 'conversation') => {
+    this.options.noteActivity();
     this.hideMenu();
     this.mode = mode;
     this.options.stopWork();
@@ -61,17 +70,48 @@ export class CharacterActions {
     if (!this.options.startVoice(mode)) this.showStatus('unavailable', 5000);
   };
 
-  /** Mirror text work with dots, but keep the conversation itself in the card. */
-  setThinking = (thinking: boolean) => {
-    if (
-      thinking &&
-      this.bubble?.state !== 'thinking' &&
-      this.bubble?.state !== 'approval' &&
-      this.bubble?.state !== 'speaking'
-    )
-      this.showStatus('thinking');
-    else if (!thinking && this.bubble?.state === 'thinking') this.hideBubble();
+  /**
+   * Mirror work with dots, plus a short progress line when the person is not watching the
+   * conversation ("Searching the web"). The line updates in place; the bubble never flickers.
+   */
+  setThinking = (thinking: boolean, text?: string) => {
+    if (!thinking) {
+      clearTimeout(this.ackTimer);
+      if (this.bubble?.state === 'thinking') this.hideBubble();
+      return;
+    }
+    const busy = this.bubble?.state;
+    if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
+    this.showThinking(text);
   };
+
+  /**
+   * Warm, brief acknowledgement when Edi is asked to do something: a small happy nod with the
+   * thinking dots, which then settle into thinking. No filler words in the bubble.
+   */
+  acknowledge = () => {
+    const busy = this.bubble?.state;
+    if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
+    this.showThinking();
+    this.setExpression('happy');
+    clearTimeout(this.ackTimer);
+    this.ackTimer = setTimeout(() => {
+      if (this.bubble?.state === 'thinking') this.setExpression('thinking');
+    }, 900);
+  };
+
+  private showThinking(text?: string) {
+    const bubble = this.bubble;
+    if (bubble?.state !== 'thinking' || bubble.window.isDestroyed()) {
+      this.showStatus('thinking', undefined, text);
+      this.bubbleText = text;
+      return;
+    }
+    if (this.bubbleText === text) return;
+    this.bubbleText = text;
+    bubble.window.setBounds(this.bubblePlacement(thinkingBubbleSize(text), bubble.side).bounds);
+    if (this.bubbleReady) bubble.window.webContents.send('edi:bubble-text', text ?? '');
+  }
 
   /** Voice session feedback: live listening, thinking, speaking, a notice, or nothing. */
   showVoiceStatus = (
@@ -135,13 +175,15 @@ export class CharacterActions {
   ) {
     this.hideBubble(false);
     this.setExpression(this.expressionFor(state));
-    const { bounds, side } = this.bubblePlacement(statusBubbleSize[state]);
+    const size = state === 'thinking' ? thinkingBubbleSize(text) : statusBubbleSize[state];
+    const { bounds, side } = this.bubblePlacement(size);
     const window = this.options.createBubble({
       state,
       side,
       text,
       artifact,
-      skin: this.options.skin(),
+      accent: this.options.character().colors.accent,
+      name: this.options.name(),
     });
     this.bubble = { window, state, side };
     this.bubbleReady = false;
@@ -176,7 +218,7 @@ export class CharacterActions {
 
   private bubblePlacement(size: { width: number; height: number }, side?: BubbleSide) {
     const pet = this.options.pet.getBounds();
-    const geometry = skinGeometry[this.options.skin()];
+    const geometry = this.options.character().geometry;
     return placeSpeechBubble(
       {
         right: mapSkinPoint(geometry, geometry.anchors.speechRight, pet),
@@ -193,7 +235,10 @@ export class CharacterActions {
   private followPet = () => {
     const bubble = this.bubble;
     if (!bubble || bubble.window.isDestroyed()) return;
-    const size = statusBubbleSize[bubble.state];
+    const size =
+      bubble.state === 'thinking'
+        ? thinkingBubbleSize(this.bubbleText)
+        : statusBubbleSize[bubble.state];
     bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
   };
 
@@ -222,6 +267,7 @@ export class CharacterActions {
     this.bubbleReady = false;
     this.bubble?.window.destroy();
     this.bubble = undefined;
+    this.bubbleText = undefined;
     if (resetExpression && !this.approval) this.setExpression('idle');
   }
 
@@ -243,6 +289,7 @@ export class CharacterActions {
   }
 
   showContent = () => {
+    this.options.noteActivity();
     this.options.showContent();
     // Let an approval bubble's IPC reply complete before destroying its sender.
     const bubble = this.bubble?.window;
@@ -252,14 +299,15 @@ export class CharacterActions {
   };
 
   menuItems(): MenuItemConstructorOptions[] {
+    const name = this.options.name();
     return [
       { label: 'Listen', click: () => this.requestListening() },
-      { label: 'Open Edi', click: () => this.showContent() },
+      { label: `Open ${name}`, click: () => this.showContent() },
       { label: 'Settings…', accelerator: 'CommandOrControl+,', click: this.options.openSettings },
       { label: 'Stop', click: this.stop },
       { type: 'separator' },
-      { label: 'Sleep Edi', click: this.sleep },
-      { label: 'Quit Edi', click: this.options.quit },
+      { label: `Sleep ${name}`, click: this.sleep },
+      { label: `Quit ${name}`, click: this.options.quit },
     ];
   }
 
@@ -302,7 +350,7 @@ export class CharacterActions {
       point.y >= pet.y &&
       point.y <= pet.y + pet.height;
     const origin = onPet ? point : { x: pet.x + pet.width * 0.8, y: pet.y + pet.height * 0.35 };
-    const menu = this.options.createMenu();
+    const menu = this.options.createMenu(this.options.name());
     this.menu = menu;
     menu.setBounds(
       placeContextMenu(

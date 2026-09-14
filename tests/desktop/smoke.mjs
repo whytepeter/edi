@@ -27,8 +27,8 @@ async function checkGeometry(pet, skin) {
       bodyHit: hits(80, 90),
       marginHit: hits(3, 3),
       shadowHit: hits(80, 153),
-      left: svg.querySelector('[data-part="left-hand"]').getAttribute('transform'),
-      right: svg.querySelector('[data-part="right-hand"]').getAttribute('transform'),
+      left: svg.querySelector('[data-hand="left"]').getAttribute('transform'),
+      right: svg.querySelector('[data-hand="right"]').getAttribute('transform'),
     };
   });
   expect(result.bodyHit).toBe(true);
@@ -36,12 +36,16 @@ async function checkGeometry(pet, skin) {
   expect(result.shadowHit).toBe(false);
   expect(result.left).toBe('translate(30 99)');
   expect(result.right).toBe('translate(132 112)');
-  expect(result.box.x - 2).toBeGreaterThanOrEqual(8);
-  const expectedTop = { mochi: 17, edi: 22 }[skin];
-  expect(result.box.y - 2).toBeGreaterThanOrEqual(expectedTop);
-  expect(result.box.right + 2).toBeLessThanOrEqual(154);
-  const expectedBottom = { mochi: 148, edi: 149 }[skin];
-  expect(result.box.bottom + 2).toBeLessThanOrEqual(expectedBottom);
+  // Everything painted, shadows included, stays inside the 160×170 artboard. Edi's hoops reach
+  // the sides and her shadow sits near the bottom edge.
+  const expected = {
+    mochi: { left: 8, top: 14, right: 154, bottom: 161 },
+    edi: { left: 1, top: 20, right: 159, bottom: 170 },
+  }[skin];
+  expect(result.box.x - 2).toBeGreaterThanOrEqual(expected.left);
+  expect(result.box.y - 2).toBeGreaterThanOrEqual(expected.top);
+  expect(result.box.right + 2).toBeLessThanOrEqual(expected.right);
+  expect(result.box.bottom + 2).toBeLessThanOrEqual(expected.bottom);
 }
 async function launch() {
   instance = await electron.launch({
@@ -126,8 +130,9 @@ try {
   expect(petCannotChangeSettings).toBe(true);
   await workspace.getByRole('button', { name: /choose a section/ }).click();
   await workspace.getByRole('menuitem', { name: /Appearance/ }).click();
-  // Only Edi and Mochi are offered; retired characters are gone.
+  // Only Edi and Mochi ship; retired characters are gone. Installing more starts from Add.
   await expect(workspace.getByRole('button', { name: /avatar option/ })).toHaveCount(2);
+  await expect(workspace.getByRole('button', { name: /^Add/ })).toBeVisible();
   await workspace.getByRole('button', { name: 'Mochi avatar option' }).click();
   await workspace.getByRole('button', { name: 'Use Mochi' }).click();
   await expect(pet.getByRole('img', { name: /^Mochi avatar/ })).toBeVisible();
@@ -231,8 +236,15 @@ try {
   await workspace.getByRole('button', { name: /choose a section/ }).click();
   await workspace.getByRole('menuitem', { name: /Settings/ }).click();
   await workspace.getByRole('button', { name: /^Voice/ }).click();
-  await expect(workspace.getByRole('radio', { name: /Jane · Pocket/ })).toBeVisible();
-  await expect(workspace.getByRole('radio', { name: /Chatterbox Turbo/ })).toBeVisible();
+  // Speech model first (voices are offline in tests, so each shows as not installed).
+  for (const model of [/^Kokoro/, /^Chatterbox Turbo/])
+    await expect(workspace.getByRole('radio', { name: model })).toBeVisible();
+  // A cloud voice opens its key panel in place and closes again on a second tap.
+  const cartesia = workspace.getByRole('radio', { name: /^Cartesia/ });
+  await cartesia.click();
+  await expect(workspace.getByLabel('Cartesia API key')).toHaveAttribute('type', 'password');
+  await cartesia.click();
+  await expect(workspace.getByLabel('Cartesia API key')).toHaveCount(0);
   const speakReplies = workspace.getByRole('switch', { name: 'Speak replies' });
   await expect(speakReplies).toHaveAttribute('aria-checked', 'true');
   await speakReplies.click();

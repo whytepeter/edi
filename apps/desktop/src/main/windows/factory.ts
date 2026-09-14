@@ -6,11 +6,10 @@ import {
   clampWindow,
   mapSkinPoint,
   petWindowSize,
-  skinGeometry,
   type BubbleSide,
   type ArtifactRef,
   type ArtifactSummary,
-  type SkinId,
+  type CharacterGeometry,
   type StatusBubbleState,
 } from '@edi/contracts';
 
@@ -39,9 +38,15 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
   speaking: withTail(76, 36),
   notice: withTail(232, 52),
   approval: withTail(324, 204),
-  artifact: withTail(300, 120),
+  artifact: withTail(292, 108),
 };
 export const characterMenuSize = { width: 184, height: 134 } as const;
+
+/** The thinking bubble grows to fit a short progress line ("Searching the web"). */
+export function thinkingBubbleSize(text?: string) {
+  if (!text) return statusBubbleSize.thinking;
+  return withTail(Math.round(Math.min(280, Math.max(112, 72 + text.length * 7.6))), 36);
+}
 
 /** Real desktop blur (CSS backdrop-filter cannot see behind a window). */
 const nativeGlass = (material: 'menu' | 'popover'): Partial<BrowserWindowConstructorOptions> => ({
@@ -88,6 +93,10 @@ export function createWorkspaceWindow() {
     title: 'Edi',
     // Real glass like the artifact window: the window is the card, macOS blurs the desktop.
     ...nativeGlass('popover'),
+    // Drag any edge to resize; the stretchable glass mask keeps its corners.
+    resizable: true,
+    minWidth: cardSize.compact.width,
+    minHeight: 420,
     webPreferences: withBridge,
   });
   win.once('show', () => shapeGlassWindow(win, glassWindowRadius));
@@ -144,10 +153,9 @@ export function createPetWindow(saved: { x: number; y: number } | null, petScale
  * Resize Edi around the point where the card attaches, so the card (and the slider in it)
  * stays still while Edi grows or shrinks. Only a display edge can force a move.
  */
-export function resizePetWindow(pet: BrowserWindow, petScale: number, skin: SkinId) {
+export function resizePetWindow(pet: BrowserWindow, petScale: number, geometry: CharacterGeometry) {
   const old = pet.getBounds();
   const size = petWindowSize(petScale);
-  const geometry = skinGeometry[skin];
   const anchor = mapSkinPoint(geometry, geometry.anchors.workspace, old);
   const local = mapSkinPoint(geometry, geometry.anchors.workspace, { x: 0, y: 0, ...size });
   const next = { ...size, x: Math.round(anchor.x - local.x), y: Math.round(anchor.y - local.y) };
@@ -158,7 +166,10 @@ export function resizePetWindow(pet: BrowserWindow, petScale: number, skin: Skin
 export interface StatusBubbleOptions {
   state: StatusBubbleState;
   side: BubbleSide;
-  skin: SkinId;
+  /** The character's accent color; validated again by the renderer. */
+  accent: string;
+  /** The companion's name; validated again by the renderer. */
+  name: string;
   /** Only for `notice`; validated again by the renderer. */
   text?: string;
   /** Only for `artifact`: the compact preview. */
@@ -168,7 +179,8 @@ export interface StatusBubbleOptions {
 export function createStatusBubbleWindow({
   state,
   side,
-  skin,
+  accent,
+  name,
   text,
   artifact,
 }: StatusBubbleOptions) {
@@ -183,18 +195,27 @@ export function createStatusBubbleWindow({
     // The preload exposes only approval response and content-reveal actions.
     webPreferences: { ...isolated, preload: join(__dirname, '../preload/bubble.js') },
   });
-  // Shape once the window is on screen and its glass view has its final size.
-  win.once('show', () => shapeGlassBubble(win, side, 18, bubbleTail));
+  // Shape once the window is on screen and its glass view has its final size. The mask is drawn
+  // for one size, so redraw it whenever the bubble resizes (status text grows or shrinks it);
+  // otherwise macOS stretches the old mask and the corners and tail distort.
+  const shape = () => {
+    if (!win.isDestroyed()) shapeGlassBubble(win, side, 18, bubbleTail);
+  };
+  win.once('show', shape);
+  win.on('resize', () => {
+    if (win.isVisible()) shape();
+  });
   return loadSurface(win, 'voice-status', {
     state,
     side,
-    skin,
+    accent,
+    name,
     ...(text ? { text } : {}),
     ...(artifact ? { artifact: JSON.stringify(artifact) } : {}),
   });
 }
 
-export function createCharacterMenuWindow() {
+export function createCharacterMenuWindow(name: string) {
   const win = new BrowserWindow({
     ...floating,
     ...characterMenuSize,
@@ -202,7 +223,7 @@ export function createCharacterMenuWindow() {
     skipTaskbar: true,
     webPreferences: withBridge,
   });
-  return loadSurface(win, 'character-menu');
+  return loadSurface(win, 'character-menu', { name });
 }
 
 /**

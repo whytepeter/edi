@@ -12,6 +12,7 @@ export class ArtifactWindow {
   private win: BrowserWindow | null = null;
   private placedByUser = false;
   private placing = false;
+  private showing: ArtifactRef | null = null;
 
   constructor(
     private readonly bounds: () => { card: Bounds; pet: Bounds },
@@ -34,6 +35,7 @@ export class ArtifactWindow {
 
   open(ref: ArtifactRef) {
     this.placedByUser = false;
+    this.showing = ref;
     const existing = this.window;
     if (existing) {
       existing.webContents.send('edi:open-artifact', ref);
@@ -79,5 +81,11 @@ export class ArtifactWindow {
 
   close() {
     this.window?.close();
+  }
+
+  /** After something is deleted, a window still showing it closes. */
+  closeIfShowing(id: string) {
+    const ref = this.showing;
+    if (ref && ('callId' in ref ? ref.callId : ref.noteId) === id) this.close();
   }
 }

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { handPaths, handTip, skins, type PresentationAction, type SkinId } from '@edi/contracts';
-import { accentFor } from '../../lib/bridge';
+import { handPaths, handTip, type PresentationAction } from '@edi/contracts';
 import './pointer.css';
 
 type Point = { x: number; y: number };
@@ -96,11 +95,15 @@ function focusOf(action: PresentationAction): Point {
 export function PointerSurface({
   from,
   actions,
-  skin,
+  accent,
+  hand,
 }: {
   from: Point;
   actions: PresentationAction[];
-  skin: SkinId;
+  /** The character's colors, passed by main in the URL. */
+  accent: string;
+  outline: string;
+  hand: string;
 }) {
   const pointer = useRef<HTMLDivElement>(null);
   const ink = useRef<SVGSVGElement>(null);
@@ -179,8 +182,8 @@ export function PointerSurface({
       data-accent
       style={
         {
-          '--accent': accentFor(skin),
-          '--hand-fill': skins.find(item => item.id === skin)!.fill,
+          '--accent': accent,
+          '--hand-fill': hand,
         } as CSSProperties
       }
     >

@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron';
-import { handTip, localizeActions, mapSkinPoint, skinGeometry, type SkinId } from '@edi/contracts';
+import { handTip, localizeActions, mapSkinPoint, type CharacterManifest } from '@edi/contracts';
 import type { PointTarget } from '../agent/agent-service';
 
 type Display = PointTarget['display'];
@@ -9,7 +9,8 @@ const POINTER_MS = 8000;
 
 interface PointerOptions {
   pet: BrowserWindow;
-  skin: () => SkinId;
+  /** The current character: where its hand is, and the pointer's colors. */
+  character: () => CharacterManifest;
   create: (display: Display, params: Record<string, string>) => BrowserWindow;
 }
 
@@ -26,7 +27,7 @@ export class PointerOverlay {
   show(target: PointTarget) {
     this.dismiss();
     const { display } = target;
-    const geometry = skinGeometry[this.options.skin()];
+    const { geometry, colors } = this.options.character();
     const anchor = geometry.anchors.rightHand;
     const hand = mapSkinPoint(
       geometry,
@@ -47,7 +48,9 @@ export class PointerOverlay {
       fromX: start.x,
       fromY: start.y,
       actions: JSON.stringify(localizeActions(target.actions, display)),
-      skin: this.options.skin(),
+      accent: colors.accent,
+      outline: colors.outline,
+      hand: colors.skin,
     });
     this.window = win;
     win.once('ready-to-show', () => {

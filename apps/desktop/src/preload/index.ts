@@ -1,16 +1,25 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
   activitySchema,
   artifactRefSchema,
+  cloudProviderSchema,
+  cloudVoiceListSchema,
   artifactSchema,
   agentStateSchema,
   characterExpressionSchema,
+  characterInspectionSchema,
+  characterListSchema,
+  characterMoodSchema,
   commandSchema,
   librarySchema,
   modelCatalogSchema,
   settingsSchema,
   systemInfoSchema,
   permissionSnapshotSchema,
+  fileAccessActionSchema,
+  fileAccessSchema,
+  usagePeriodSchema,
+  usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
   type DesktopBridge,
@@ -39,6 +48,11 @@ const bridge: DesktopBridge = {
     ),
   permissions: async () =>
     permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
+  fileAccess: async () => fileAccessSchema.parse(await ipcRenderer.invoke('edi:file-access:get')),
+  fileAccessAction: async action =>
+    fileAccessSchema.parse(
+      await ipcRenderer.invoke('edi:file-access:act', fileAccessActionSchema.parse(action)),
+    ),
   onPermissions: callback => {
     const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
       const parsed = permissionSnapshotSchema.safeParse(status);
@@ -52,6 +66,14 @@ const bridge: DesktopBridge = {
   library: async () => librarySchema.parse(await ipcRenderer.invoke('edi:library:get')),
   system: async () => systemInfoSchema.parse(await ipcRenderer.invoke('edi:system:get')),
   models: async () => modelCatalogSchema.parse(await ipcRenderer.invoke('edi:models:get')),
+  cloudVoices: async provider =>
+    cloudVoiceListSchema.parse(
+      await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),
+    ),
+  usage: async days =>
+    usageSummarySchema.parse(
+      await ipcRenderer.invoke('edi:usage:get', usagePeriodSchema.parse(days)),
+    ),
   onAgent: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = agentStateSchema.safeParse(value);
@@ -88,5 +110,29 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('edi:character-expression', listener);
     return () => ipcRenderer.removeListener('edi:character-expression', listener);
   },
+  onCharacterMood: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = characterMoodSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:character-mood', listener);
+    return () => ipcRenderer.removeListener('edi:character-mood', listener);
+  },
+  characters: async () => characterListSchema.parse(await ipcRenderer.invoke('edi:characters:get')),
+  onCharacters: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = characterListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:characters', listener);
+    return () => ipcRenderer.removeListener('edi:characters', listener);
+  },
+  pickCharacterPackage: async () =>
+    characterInspectionSchema.nullable().parse(await ipcRenderer.invoke('edi:characters:pick')),
+  // The renderer never sees file paths; only this preload turns a dropped File into one.
+  inspectCharacterFile: async file =>
+    characterInspectionSchema.parse(
+      await ipcRenderer.invoke('edi:characters:inspect-file', webUtils.getPathForFile(file)),
+    ),
 };
 contextBridge.exposeInMainWorld('edi', bridge);
