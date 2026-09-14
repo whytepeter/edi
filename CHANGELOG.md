@@ -7,6 +7,13 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Background tasks. Hand Edi longer work from Tasks or by asking in a conversation ("do this in the background");
+  it keeps running while you do other things, up to two at a time with the rest queued. Each task has its own
+  steps, reviews (with "Always allow" for that task), result text and anything it saved to Library, and a quiet
+  bubble says when one finishes. Every task has a spending cap: the default is set in Settings → Usage ($0.25–$5),
+  each task can have its own when started, and a task that reaches its cap pauses before its next step until you
+  allow more or stop it. Tasks run for up to 25 steps and 15 minutes of work, and a restart marks unfinished tasks
+  as interrupted instead of re-running them.
 - Search across conversations. Every question and answer is in a full-text index (SQLite FTS5, accent- and
   prefix-insensitive, kept in step by triggers, so deleted conversations drop out). Edi's workspace search now also
   returns matching conversations with an excerpt and takes date ranges ("last week"), and All conversations has a

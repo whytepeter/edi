@@ -172,6 +172,30 @@ export const migrations: readonly { version: number; sql: string }[] = [
       INSERT INTO runs_search (runs_search) VALUES ('rebuild');
     `,
   },
+  {
+    // Background tasks. Their runs carry task_id instead of a conversation; deleting a task
+    // removes its runs, steps and search entries.
+    version: 7,
+    sql: `
+      CREATE TABLE tasks (
+        id              TEXT PRIMARY KEY,
+        title           TEXT    NOT NULL,
+        prompt          TEXT    NOT NULL,
+        status          TEXT    NOT NULL CHECK (status IN ('queued', 'running', 'waiting',
+                          'limited', 'done', 'failed', 'cancelled', 'interrupted')),
+        conversation_id TEXT    REFERENCES threads (id) ON DELETE SET NULL,
+        budget_usd      REAL    NOT NULL CHECK (budget_usd > 0),
+        result          TEXT    NOT NULL DEFAULT '',
+        error           TEXT    NOT NULL DEFAULT '',
+        created_at      INTEGER NOT NULL,
+        started_at      INTEGER,
+        finished_at     INTEGER
+      );
+      CREATE INDEX tasks_created ON tasks (created_at DESC);
+      ALTER TABLE runs ADD COLUMN task_id TEXT REFERENCES tasks (id) ON DELETE CASCADE;
+      CREATE INDEX runs_task ON runs (task_id);
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ToolCallStatus, ToolStep } from '@edi/contracts';
-import { Icon } from '../../components/ui';
+import { Icon } from './ui';
+import './action-trail.css';
 
 const statusWord: Record<ToolCallStatus, string> = {
   'awaiting-approval': 'Waiting for you',

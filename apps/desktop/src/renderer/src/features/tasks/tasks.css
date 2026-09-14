@@ -1,0 +1,202 @@
+.tasks-view {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: 4px 16px 24px;
+}
+.task-composer {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: 16px;
+}
+.task-composer textarea {
+  resize: none;
+  min-height: 52px;
+}
+.task-composer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.task-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.task-cap input {
+  width: 64px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: var(--fill);
+  color: var(--label);
+  font: var(--text-footnote);
+  font-variant-numeric: tabular-nums;
+}
+.task-cap input[aria-invalid] {
+  box-shadow: inset 0 0 0 1px #c2502e;
+}
+.task-composer-hint {
+  margin: 0;
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+}
+.task-composer-hint button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  cursor: pointer;
+}
+.task-group {
+  display: grid;
+  gap: var(--space-2);
+}
+.task-group .ds-group-title {
+  margin: 0 0 2px;
+}
+.task-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--fill);
+}
+.task-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.task-card-title {
+  min-width: 0;
+  font: var(--text-headline);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.task-status {
+  flex: none;
+  font: var(--text-caption);
+  font-weight: 600;
+  color: var(--label-tertiary);
+}
+.task-status[data-status='running'],
+.task-status[data-status='waiting'],
+.task-status[data-status='limited'] {
+  color: var(--accent-strong);
+}
+.task-status[data-status='done'] {
+  color: #3f9a63;
+}
+.task-status[data-status='failed'],
+.task-status[data-status='interrupted'] {
+  color: #c2502e;
+}
+.task-progress {
+  margin: 0;
+  overflow: hidden;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.task-spend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.task-spend-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-pressed);
+  overflow: hidden;
+}
+.task-spend-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-fill);
+}
+.task-card[data-status='limited'] .task-spend-bar i {
+  background: #c27a1a;
+}
+.task-approval {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: 12px;
+  background: var(--content-base);
+}
+.task-approval p {
+  margin: 0;
+  font: var(--text-callout);
+  color: var(--label);
+}
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.task-result-text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font: var(--text-callout);
+  color: var(--label);
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  user-select: text;
+}
+.task-result[data-expanded] .task-result-text {
+  -webkit-line-clamp: unset;
+}
+.task-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: var(--text-footnote);
+  cursor: pointer;
+}
+.task-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.task-card-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+.task-card-foot:empty {
+  display: none;
+}
+.task-card-foot .ds-button {
+  gap: 6px;
+}
+.task-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.task-error {
+  margin: 0;
+  font: var(--text-footnote);
+  color: #c2502e;
+}
+.task-card .action-trail {
+  width: 100%;
+}

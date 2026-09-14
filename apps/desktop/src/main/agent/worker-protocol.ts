@@ -44,6 +44,10 @@ export const workerInputSchema = z
       .max(4),
     /** The question was spoken and the reply will be read aloud. */
     spoken: z.boolean(),
+    /** A background task works on its own for longer; chat answers the person in front of it. */
+    mode: z.enum(['chat', 'task']).default('chat'),
+    /** Model steps allowed in this run. */
+    maxSteps: z.number().int().min(1).max(40).default(10),
     /** Selected speech engine supports Chatterbox paralinguistic expression tags. */
     expressiveVoice: z.boolean().default(false),
     /** What the person had in front of them when they asked; data from other apps. */

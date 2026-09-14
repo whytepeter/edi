@@ -89,6 +89,7 @@ export type EdiPreferences = z.infer<typeof ediPreferencesSchema>;
 const pageNames: Record<z.infer<typeof workspaceViewSchema>, string> = {
   home: 'Home',
   conversations: 'Conversations',
+  tasks: 'Tasks',
   library: 'Library',
   skills: 'Skills',
   connectors: 'Connectors',

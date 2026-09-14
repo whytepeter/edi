@@ -228,6 +228,8 @@ export class AgentService {
       history: repositories.runs.recentExchanges(HISTORY_TURNS, conversationId),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
       spoken: options.spoken ?? false,
+      mode: 'chat',
+      maxSteps: 10,
       expressiveVoice: options.expressiveVoice ?? false,
       selfContext: this.options.selfContext?.() ?? '',
       desktopContext,
@@ -601,7 +603,7 @@ function idle(): AgentState {
 }
 
 /** A one-shot timer whose remaining time survives pause/resume. */
-class PausableTimer {
+export class PausableTimer {
   private timer?: ReturnType<typeof setTimeout>;
   private startedAt = 0;
 
@@ -623,6 +625,8 @@ class PausableTimer {
     if (this.timer) return;
     this.startedAt = Date.now();
     this.timer = setTimeout(this.onExpire, Math.max(0, this.remaining));
+    // A deadline alone never keeps the process alive (tests, and Edi quitting mid-task).
+    this.timer.unref?.();
   }
 
   clear() {

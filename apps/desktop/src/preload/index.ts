@@ -20,6 +20,7 @@ import {
   fileAccessSchema,
   usagePeriodSchema,
   conversationListSchema,
+  taskListSchema,
   usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
@@ -54,6 +55,15 @@ const bridge: DesktopBridge = {
     fileAccessSchema.parse(
       await ipcRenderer.invoke('edi:file-access:act', fileAccessActionSchema.parse(action)),
     ),
+  tasks: async () => taskListSchema.parse(await ipcRenderer.invoke('edi:tasks:get')),
+  onTasks: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = taskListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:tasks', listener);
+    return () => ipcRenderer.removeListener('edi:tasks', listener);
+  },
   onPermissions: callback => {
     const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
       const parsed = permissionSnapshotSchema.safeParse(status);

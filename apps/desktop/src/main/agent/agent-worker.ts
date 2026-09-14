@@ -23,9 +23,8 @@ const controller = new AbortController();
 const pendingTools = new Map<string, (outcome: ToolOutcome) => void>();
 const send = (message: WorkerMessage) => parentPort?.postMessage(message);
 
-// Run policy: a bounded tool loop (room to search, read a few pages and answer). Main owns the
-// wall-clock deadline and approvals.
-const MAX_STEPS = 10;
+// Run policy: a bounded tool loop (room to search, read a few pages and answer; more for a
+// background task). Main owns the wall-clock deadline, approvals and spending.
 const provider = createOpenRouter({ apiKey: input.apiKey });
 /**
  * Every call asks OpenRouter to report its cost. Anthropic models also cache the repeated
@@ -127,6 +126,15 @@ const SELF = [
 ].join(' ');
 
 // Pointing tags; main strips them and moves Edi's pointer.
+// A background task: the person is doing something else and reads the result later.
+const TASK = [
+  'This is a background task: the user is doing something else and will read the result later.',
+  'Work on your own and do not ask the user questions; make sensible choices and say which you',
+  'made. Keep going until the task is done or clearly cannot be done. When the result is more than',
+  'a few sentences, save it with workspace_show (usually a document, with sources linked). End',
+  'with a short summary of what you found or did and anything that needs the user.',
+].join(' ');
+
 // What the person has open, gathered locally when they asked.
 const CONTEXT = [
   'The latest message may include <context> describing what the user has in front of them: the',
@@ -431,13 +439,14 @@ async function run() {
         input.selfContext ? `Current Edi setup (trusted runtime data): ${input.selfContext}` : '',
         input.screenshots.length ? POINTING : '',
         input.spoken ? SPOKEN : '',
+        input.mode === 'task' ? TASK : '',
         input.spoken && input.expressiveVoice ? EXPRESSIVE : '',
       ]
         .filter(Boolean)
         .join(' '),
       messages: conversation(),
       tools,
-      stopWhen: stepCountIs(MAX_STEPS),
+      stopWhen: stepCountIs(input.maxSteps),
       // Shown content arrives as tool arguments, so a report or an interactive page needs room;
       // providers bill generated tokens, not this ceiling.
       maxOutputTokens: 16_000,

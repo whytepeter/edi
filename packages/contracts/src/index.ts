@@ -36,6 +36,7 @@ import {
 } from './permissions';
 import { petScaleSchema } from './skin-geometry';
 import type { UsagePeriod, UsageSummary } from './usage';
+import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -45,6 +46,7 @@ import {
 } from './artifacts';
 export * from './artifacts';
 export * from './usage';
+export * from './tasks';
 export {
   placeArtifact,
   placeCard,
@@ -222,6 +224,8 @@ export const settingsSchema = z.preprocess(
     petPosition: screenPointSchema.nullable().default(null),
     /** When false, a spoken question is answered in the conversation without speech. */
     speakReplies: z.boolean().default(true),
+    /** What a background task may spend unless the person sets another cap for it. */
+    taskBudgetUsd: taskBudgetSchema.catch(defaultTaskBudgetUsd).default(defaultTaskBudgetUsd),
     /** Send the app, window, page and selection in front with each question. */
     shareDesktopContext: z.boolean().default(true),
     /** Speech engine used for spoken replies. */
@@ -240,6 +244,7 @@ export const defaultSettings: Settings = {
   petPosition: null,
   speakReplies: true,
   shareDesktopContext: true,
+  taskBudgetUsd: defaultTaskBudgetUsd,
   voiceModel: 'kokoro',
   voices: {
     kokoro: 'af_heart',
@@ -262,6 +267,7 @@ export function assistantName(settings: Pick<Settings, 'name'>, characterName: s
 export const workspaceSections = [
   'home',
   'conversations',
+  'tasks',
   'library',
   'skills',
   'connectors',
@@ -376,6 +382,23 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ask-agent'), prompt: z.string().trim().min(1).max(8000) }).strict(),
   z.object({ type: z.literal('stop-agent') }).strict(),
   z.object({ type: z.literal('new-conversation') }).strict(),
+  z
+    .object({
+      type: z.literal('start-task'),
+      prompt: z.string().trim().min(1).max(8000),
+      budgetUsd: taskBudgetSchema.optional(),
+    })
+    .strict(),
+  z.object({ type: z.literal('stop-task'), id: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('delete-task'), id: z.string().uuid() }).strict(),
+  z
+    .object({
+      type: z.literal('raise-task-budget'),
+      id: z.string().uuid(),
+      addUsd: taskBudgetSchema,
+    })
+    .strict(),
+  z.object({ type: z.literal('set-task-budget'), budgetUsd: taskBudgetSchema }).strict(),
   z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
   z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
   z
@@ -488,6 +511,9 @@ export interface DesktopBridge {
   system(): Promise<SystemInfo>;
   /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
   models(): Promise<ModelOption[]>;
+  /** Background tasks, active first then most recent. */
+  tasks(): Promise<Task[]>;
+  onTasks(callback: (tasks: Task[]) => void): () => void;
   /** Saved conversations, most recently active first. */
   conversations(query?: string): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */

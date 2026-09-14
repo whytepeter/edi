@@ -7,6 +7,7 @@ import type {
   WorkspaceView,
 } from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
+import type { TaskService } from '../agent/task-service';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
@@ -22,6 +23,7 @@ interface CommandDependencies {
   pet: BrowserWindow;
   settings: SettingsStore;
   agent: AgentService;
+  tasks: TaskService;
   placement: WindowPlacement;
   petDrag: PetDrag;
   character: CharacterActions;
@@ -58,6 +60,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     pet,
     settings,
     agent,
+    tasks,
     placement,
     petDrag,
     character,
@@ -238,7 +241,31 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'respond-approval': {
       from: ['workspace', 'bubble'],
-      handle: ({ callId, decision }) => agent.respondToApproval(callId, decision),
+      // The conversation's review first; otherwise it belongs to a background task.
+      handle: ({ callId, decision }) =>
+        agent.state.approval?.callId === callId
+          ? agent.respondToApproval(callId, decision)
+          : tasks.respondToApproval(callId, decision),
+    },
+    'start-task': {
+      from: fromWorkspace,
+      handle: ({ prompt, budgetUsd }) => {
+        tasks.start({
+          prompt,
+          budgetUsd: budgetUsd ?? settings.current.taskBudgetUsd,
+          conversationId: null,
+        });
+      },
+    },
+    'stop-task': { from: fromWorkspace, handle: ({ id }) => tasks.stop(id) },
+    'delete-task': { from: fromWorkspace, handle: ({ id }) => tasks.remove(id) },
+    'raise-task-budget': {
+      from: fromWorkspace,
+      handle: ({ id, addUsd }) => tasks.raiseBudget(id, addUsd),
+    },
+    'set-task-budget': {
+      from: fromWorkspace,
+      handle: ({ budgetUsd }) => settings.update({ taskBudgetUsd: budgetUsd }),
     },
   };
 }

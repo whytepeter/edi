@@ -110,13 +110,22 @@ export class RunRepository {
     screens: number;
     startedAt: number;
     threadId?: string | null;
+    taskId?: string | null;
   }) {
     this.db
       .prepare(
-        `INSERT INTO runs (id, prompt, model, status, screens, started_at, thread_id)
-         VALUES (?, ?, ?, 'running', ?, ?, ?)`,
+        `INSERT INTO runs (id, prompt, model, status, screens, started_at, thread_id, task_id)
+         VALUES (?, ?, ?, 'running', ?, ?, ?, ?)`,
       )
-      .run(run.id, run.prompt, run.model, run.screens, run.startedAt, run.threadId ?? null);
+      .run(
+        run.id,
+        run.prompt,
+        run.model,
+        run.screens,
+        run.startedAt,
+        run.threadId ?? null,
+        run.taskId ?? null,
+      );
   }
 
   /**
@@ -286,6 +295,151 @@ export class ConversationRepository {
   remove(id: string) {
     const result = this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
     if (Number(result.changes) === 0) throw new Error('That conversation no longer exists.');
+  }
+}
+
+const taskRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  prompt: z.string(),
+  status: z.enum([
+    'queued',
+    'running',
+    'waiting',
+    'limited',
+    'done',
+    'failed',
+    'cancelled',
+    'interrupted',
+  ]),
+  conversationId: z.string().nullable(),
+  budgetUsd: z.number(),
+  result: z.string(),
+  error: z.string(),
+  createdAt: z.number(),
+  startedAt: z.number().nullable(),
+  finishedAt: z.number().nullable(),
+  spentUsd: z.number(),
+});
+export type TaskRecord = z.infer<typeof taskRow>;
+const taskColumns = `t.id, t.title, t.prompt, t.status, t.conversation_id AS conversationId,
+  t.budget_usd AS budgetUsd, t.result, t.error, t.created_at AS createdAt,
+  t.started_at AS startedAt, t.finished_at AS finishedAt,
+  COALESCE((SELECT SUM(u.cost_usd) FROM usage u JOIN runs r ON r.id = u.run_id
+            WHERE r.task_id = t.id), 0) AS spentUsd`;
+
+/** Background tasks; what a task spent is the sum of its runs' reported costs. */
+export class TaskRepository {
+  constructor(private readonly db: Database) {}
+
+  create(task: {
+    id: string;
+    title: string;
+    prompt: string;
+    budgetUsd: number;
+    conversationId: string | null;
+    at: number;
+  }) {
+    this.db
+      .prepare(
+        `INSERT INTO tasks (id, title, prompt, status, conversation_id, budget_usd, created_at)
+         VALUES (?, ?, ?, 'queued', ?, ?, ?)`,
+      )
+      .run(
+        task.id,
+        task.title.slice(0, 120),
+        task.prompt,
+        task.conversationId,
+        task.budgetUsd,
+        task.at,
+      );
+  }
+
+  get(id: string): TaskRecord | undefined {
+    const row = this.db.prepare(`SELECT ${taskColumns} FROM tasks t WHERE t.id = ?`).get(id);
+    return row ? taskRow.parse(row) : undefined;
+  }
+
+  /** Unfinished first (oldest first, the order they run in), then the rest newest first. */
+  list(limit: number): TaskRecord[] {
+    return this.db
+      .prepare(
+        `SELECT ${taskColumns} FROM tasks t
+         ORDER BY t.status IN ('queued', 'running', 'waiting', 'limited') DESC,
+                  CASE WHEN t.status IN ('queued', 'running', 'waiting', 'limited')
+                       THEN t.created_at ELSE -t.created_at END
+         LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => taskRow.parse(row));
+  }
+
+  update(
+    id: string,
+    change: {
+      status?: TaskRecord['status'];
+      result?: string;
+      error?: string;
+      startedAt?: number;
+      finishedAt?: number;
+      budgetUsd?: number;
+    },
+  ) {
+    const fields: string[] = [];
+    const values: (string | number)[] = [];
+    const set = (column: string, value: string | number | undefined) => {
+      if (value === undefined) return;
+      fields.push(`${column} = ?`);
+      values.push(value);
+    };
+    set('status', change.status);
+    set('result', change.result?.slice(0, 32000));
+    set('error', change.error?.slice(0, 400));
+    set('started_at', change.startedAt);
+    set('finished_at', change.finishedAt);
+    set('budget_usd', change.budgetUsd);
+    if (!fields.length) return;
+    this.db.prepare(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
+  /** The task's runs, oldest first. */
+  runIds(id: string): string[] {
+    return this.db
+      .prepare(`SELECT id FROM runs WHERE task_id = ? ORDER BY started_at`)
+      .all(id)
+      .map(row => String((row as { id: unknown }).id));
+  }
+
+  /** Every step of the task's runs, in order. */
+  steps(id: string): ToolStep[] {
+    return this.db
+      .prepare(
+        `SELECT c.id AS callId, c.capability, c.title, c.status, c.summary
+         FROM tool_calls c JOIN runs r ON r.id = c.run_id
+         WHERE r.task_id = ? ORDER BY c.created_at`,
+      )
+      .all(id)
+      .map(row => {
+        const step = stepRow.omit({ runId: true }).parse(row);
+        return { ...step, summary: step.summary.slice(0, 400) };
+      });
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM tasks WHERE id = ?`).run(id);
+    if (Number(result.changes) === 0) throw new Error('That task no longer exists.');
+  }
+
+  /** At startup: work that was under way when Edi quit is interrupted, never resumed blindly. */
+  recover(at: number) {
+    return Number(
+      this.db
+        .prepare(
+          `UPDATE tasks SET status = 'interrupted', finished_at = ?
+           WHERE status IN ('running', 'waiting', 'limited')`,
+        )
+        .run(at).changes,
+    );
   }
 }
 
@@ -616,6 +770,7 @@ export interface Repositories {
   artifacts: ArtifactRepository;
   usage: UsageRepository;
   conversations: ConversationRepository;
+  tasks: TaskRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -634,6 +789,7 @@ export function createRepositories(db: Database): Repositories {
     artifacts: new ArtifactRepository(db),
     usage: new UsageRepository(db),
     conversations: new ConversationRepository(db),
+    tasks: new TaskRepository(db),
 
     activity(limit) {
       const runs = db

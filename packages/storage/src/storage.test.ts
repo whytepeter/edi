@@ -306,7 +306,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
@@ -434,7 +434,7 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
   db.exec(
-    'DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
   );
   db.exec('PRAGMA user_version = 4');
@@ -484,4 +484,53 @@ test('conversation search matches words by prefix across turns, stays in step an
 
   repos.conversations.remove('palette');
   assert.deepEqual(repos.conversations.search('umber', { limit: 5 }), []);
+});
+
+test('tasks: queue order, spending from their runs, recovery and deletion with their runs', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const task = (n: number, at: number) =>
+    repos.tasks.create({
+      id: uuid(100 + n),
+      title: `Task ${n}`,
+      prompt: `Do thing ${n}`,
+      budgetUsd: 0.5,
+      conversationId: null,
+      at,
+    });
+  task(1, 10);
+  task(2, 20);
+  task(3, 30);
+  repos.tasks.update(uuid(101), { status: 'done', finishedAt: 40, result: 'All set.' });
+  repos.tasks.update(uuid(103), { status: 'running', startedAt: 31 });
+  repos.runs.start({ ...run(uuid(1), 31), taskId: uuid(103) });
+  const cost = (costUsd: number) => ({
+    kind: 'answer' as const,
+    provider: 'openrouter' as const,
+    model: 'test/model',
+    inputTokens: 1,
+    outputTokens: 1,
+    cachedTokens: 0,
+    costUsd,
+    characters: 0,
+  });
+  repos.usage.add(cost(0.12), 32, uuid(1));
+  repos.usage.add(cost(0.03), 33, uuid(1));
+  assert.deepEqual(
+    repos.tasks.list(10).map(entry => [entry.title, entry.status]),
+    [
+      ['Task 2', 'queued'],
+      ['Task 3', 'running'],
+      ['Task 1', 'done'],
+    ],
+  );
+  assert.ok(Math.abs(repos.tasks.get(uuid(103))!.spentUsd - 0.15) < 1e-9);
+  // Task runs stay out of conversations.
+  assert.deepEqual(repos.conversations.list(10), []);
+
+  assert.equal(repos.tasks.recover(50), 1);
+  assert.equal(repos.tasks.get(uuid(103))?.status, 'interrupted');
+  assert.equal(repos.tasks.get(uuid(102))?.status, 'queued');
+  repos.tasks.remove(uuid(103));
+  assert.equal(repos.activity(10).length, 0);
+  assert.throws(() => repos.tasks.remove(uuid(103)), /no longer exists/);
 });

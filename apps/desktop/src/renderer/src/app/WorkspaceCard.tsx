@@ -21,6 +21,7 @@ import { SettingsView } from '../features/settings/SettingsView';
 import { AiSettings } from '../features/settings/AiSettings';
 import { VoiceSettings } from '../features/settings/VoiceSettings';
 import { UsageSettings } from '../features/settings/UsageSettings';
+import { TasksView } from '../features/tasks/TasksView';
 import { KeyboardSettings } from '../features/settings/KeyboardSettings';
 import { PrivacySettings } from '../features/settings/PrivacySettings';
 import { AboutSettings } from '../features/settings/AboutSettings';
@@ -196,6 +197,13 @@ export function WorkspaceCard() {
               {view === 'conversations' && (
                 <AgentPanel onSetUp={() => navigate('settings.ai')} onOpenArtifact={openArtifact} />
               )}
+              {view === 'tasks' && (
+                <TasksView
+                  defaultBudgetUsd={settings.taskBudgetUsd}
+                  onOpenArtifact={openArtifact}
+                  onOpenUsage={() => navigate('settings.usage')}
+                />
+              )}
               {view === 'library' && <LibraryView refreshKey={refreshKey} onOpen={openArtifact} />}
               {view === 'skills' && <SkillsView />}
               {view === 'connectors' && <ConnectorsView />}
@@ -245,7 +253,13 @@ export function WorkspaceCard() {
                   onOpen={navigate}
                 />
               )}
-              {view === 'settings.usage' && <UsageSettings refreshKey={refreshKey} />}
+              {view === 'settings.usage' && (
+                <UsageSettings
+                  refreshKey={refreshKey}
+                  taskBudgetUsd={settings.taskBudgetUsd}
+                  onTaskBudget={budgetUsd => void send({ type: 'set-task-budget', budgetUsd })}
+                />
+              )}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}
               {view === 'settings.about' && <AboutSettings system={system} />}
             </div>

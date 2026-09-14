@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { presentationText, type ArtifactRef, type ConversationSummary } from '@edi/contracts';
-import { ReplyText } from './ReplyText';
+import { ReplyText } from '../../components/ReplyText';
 import { Button, EmptyState, Icon, IconButton, ThinkingDots } from '../../components/ui';
 import { ConversationList } from './ConversationList';
 import type { Command } from '../../lib/bridge';
 import { useAgentState } from '../../hooks/useAgentState';
-import { ActionTrail } from './ActionTrail';
+import { ActionTrail } from '../../components/ActionTrail';
 import { ArtifactCard } from '../../components/artifacts/Artifact';
 import './conversation.css';
 import { useAssistantName } from '../../hooks/useAssistantName';

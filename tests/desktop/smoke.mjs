@@ -248,6 +248,18 @@ try {
   await workspace.getByRole('button', { name: /^Activity/ }).click();
   await expect(workspace.getByRole('heading', { name: 'A quiet beginning.' })).toBeVisible();
   await workspace.getByRole('button', { name: 'Back to Privacy & Permissions' }).click();
+  // Tasks: an empty list explains itself, and a task can't start without words or a valid cap.
+  await workspace.evaluate(() => window.edi.command({ type: 'show-workspace', view: 'tasks' }));
+  await expect(workspace.getByRole('heading', { name: 'Hand Edi longer work.' })).toBeVisible();
+  const startTask = workspace.getByRole('button', { name: 'Start task' });
+  await expect(startTask).toBeDisabled();
+  await workspace
+    .getByPlaceholder('What should Edi work on in the background?')
+    .fill('Plan my week');
+  await expect(startTask).toBeEnabled();
+  await workspace.getByLabel('Spending cap in dollars').fill('99');
+  await expect(startTask).toBeDisabled();
+  expect(await workspace.evaluate(() => window.edi.tasks())).toEqual([]);
   // Edi's own navigation reaches nested pages through the closed destination list.
   await workspace.evaluate(() =>
     window.edi.command({ type: 'show-workspace', view: 'settings.keyboard' }),

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   app,
   BrowserWindow,
@@ -28,6 +29,7 @@ function recordMicrophoneStatus(phase: string) {
 }
 recordMicrophoneStatus('boot');
 import {
+  defineCapability,
   deleteWorkspaceItem,
   ediSetupCapabilities,
   fileCapabilities,
@@ -43,6 +45,7 @@ import {
 import {
   artifactExport,
   artifactPreview,
+  taskBudgetSchema,
   assistantName,
   isCloudVoiceModel,
   voiceCatalog,
@@ -74,6 +77,7 @@ import { speakable, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { FileAccessManager } from './platform/file-access';
+import { TaskService } from './agent/task-service';
 import { captureDesktopContext } from './context/desktop-context';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
@@ -357,6 +361,10 @@ async function start() {
           asksFirst: false,
         },
         { name: 'Close its card or go to sleep', asksFirst: false },
+        {
+          name: 'Run longer work as background tasks with a spending cap, and report how they are going',
+          asksFirst: true,
+        },
         { name: 'Point at and draw on the screen', asksFirst: false },
       ],
       notYetAvailable: [
@@ -435,6 +443,143 @@ async function start() {
   refreshReaderModel();
   const openRouter = new OpenRouterCredentials();
   const openRouterAccount = new OpenRouterAccount();
+  // Edi's tools. Background tasks get the same ones except starting tasks and controlling Edi.
+  const toolCapabilities = [
+    ...notesCapabilities({
+      directory: notesFolder,
+      store: repositories.notes,
+      shown: artifact => showArtifact(artifact),
+    }),
+    ...workspaceCapabilities(workspaceDeps),
+    ...fileCapabilities({
+      home: app.getPath('home'),
+      roots: () => fileAccess.roots(),
+      workspace: workspaceFolder,
+      trash: path => shell.trashItem(path),
+      accessResult: (root, allowed) => fileAccess.record(root, allowed),
+    }),
+    ...webCapabilities({
+      // A link the person typed is read on their behalf; robots.txt applies to the model's picks.
+      suppliedByUser: url => {
+        const target = url.replace(/^http:/, 'https:').replace(/#.*$/, '');
+        return agent.state.messages.some(
+          message =>
+            message.role === 'user' &&
+            message.text.replace(/http:\/\//g, 'https://').includes(target),
+        );
+      },
+    }),
+  ];
+  const ediTools = [
+    ...ediSetupCapabilities({
+      snapshot: setupSnapshot,
+      open: page => openSetup(page),
+      change: patch => applyPreferences(patch),
+      window: action => windowAction(action),
+    }),
+  ];
+  const taskTools = [
+    defineCapability({
+      id: 'tasks.start',
+      title: 'Start a background task',
+      description:
+        'Hand longer work to a background task that keeps running while the user does other ' +
+        'things: research across many pages, comparing options, organizing lots of files, ' +
+        'drafting a report. Use it when the user asks for something to happen in the background ' +
+        'or while they work, or when the work clearly needs many steps. Give a short title and ' +
+        'complete instructions (the task cannot ask questions). Pass budgetUsd only when the user ' +
+        'named an amount; otherwise their default cap applies. Then tell the user it is running ' +
+        'and that they can follow it in Tasks.',
+      effect: 'write',
+      timeoutMs: 5_000,
+      input: z
+        .object({
+          title: z.string().trim().min(1).max(80).describe('A short name for the task'),
+          instructions: z
+            .string()
+            .trim()
+            .min(1)
+            .max(8000)
+            .describe('Everything the task needs to know, written as a request'),
+          budgetUsd: taskBudgetSchema
+            .optional()
+            .describe('Spending cap in US dollars, only if the user named one'),
+        })
+        .strict(),
+      prepare({ title, instructions, budgetUsd }) {
+        const budget = budgetUsd ?? settings.current.taskBudgetUsd;
+        return {
+          preview: {
+            title: 'Start a background task',
+            action: 'Start Task',
+            summary: `Work on “${title}” in the background, spending up to $${budget.toFixed(2)}.`,
+            fields: [{ label: 'Spending cap', value: `$${budget.toFixed(2)}` }],
+            body: instructions.slice(0, 4000),
+          },
+          async execute() {
+            const task = tasks.start({
+              prompt: instructions,
+              title,
+              budgetUsd: budget,
+              conversationId: agent.state.conversationId,
+            });
+            return {
+              summary: `Started “${task.title}” in the background (up to $${budget.toFixed(2)}).`,
+              output: { taskId: task.id, status: task.status },
+            };
+          },
+        };
+      },
+    }),
+    defineCapability({
+      id: 'tasks.list',
+      title: 'Check background tasks',
+      description:
+        'See background tasks: status, progress, spending, and the results of finished ones. Use ' +
+        'it when the user asks how a task is going or what it found.',
+      effect: 'read',
+      timeoutMs: 5_000,
+      input: z.object({}).strict(),
+      prepare() {
+        return {
+          preview: { title: 'Check tasks', action: 'Check', summary: 'Check tasks.', fields: [] },
+          async execute() {
+            const list = tasks.list(10).map(task => ({
+              title: task.title,
+              status: task.status,
+              progress: task.progress,
+              spent: `$${task.spentUsd.toFixed(2)} of $${task.budgetUsd.toFixed(2)}`,
+              result: task.result.slice(0, 2000),
+              error: task.error,
+            }));
+            return {
+              summary: list.length === 1 ? '1 task.' : `${list.length} tasks.`,
+              output: { tasks: list },
+            };
+          },
+        };
+      },
+    }),
+  ];
+  const tasks = new TaskService({
+    credentials: openRouter,
+    repositories,
+    capabilities: toolCapabilities,
+    selfContext: () => JSON.stringify(setupSnapshot()),
+    assistantName: () => companion(),
+    readerModel: () => readerModel,
+    finished: task => {
+      if (cardOpen()) return;
+      character.showVoiceStatus({
+        notice:
+          task.status === 'done'
+            ? `Finished: ${task.title}`
+            : task.status === 'failed'
+              ? `Couldn’t finish: ${task.title}`
+              : `Stopped: ${task.title}`,
+      });
+    },
+  });
   agent = new AgentService({
     readerModel: () => {
       refreshReaderModel();
@@ -444,38 +589,7 @@ async function start() {
       settings.current.shareDesktopContext ? captureDesktopContext() : null,
     credentials: openRouter,
     repositories,
-    capabilities: [
-      ...notesCapabilities({
-        directory: notesFolder,
-        store: repositories.notes,
-        shown: artifact => showArtifact(artifact),
-      }),
-      ...workspaceCapabilities(workspaceDeps),
-      ...fileCapabilities({
-        home: app.getPath('home'),
-        roots: () => fileAccess.roots(),
-        workspace: workspaceFolder,
-        trash: path => shell.trashItem(path),
-        accessResult: (root, allowed) => fileAccess.record(root, allowed),
-      }),
-      ...webCapabilities({
-        // A link the person typed is read on their behalf; robots.txt applies to the model's picks.
-        suppliedByUser: url => {
-          const target = url.replace(/^http:/, 'https:').replace(/#.*$/, '');
-          return agent.state.messages.some(
-            message =>
-              message.role === 'user' &&
-              message.text.replace(/http:\/\//g, 'https://').includes(target),
-          );
-        },
-      }),
-      ...ediSetupCapabilities({
-        snapshot: setupSnapshot,
-        open: page => openSetup(page),
-        change: patch => applyPreferences(patch),
-        window: action => windowAction(action),
-      }),
-    ],
+    capabilities: [...toolCapabilities, ...taskTools, ...ediTools],
     threadArtifacts: runIds => {
       const byRun = new Map<string, ArtifactSummary[]>();
       for (const call of repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { runIds })) {
@@ -782,6 +896,8 @@ async function start() {
     if (!result.canceled && result.filePath) await writeFile(result.filePath, file);
   };
   showArtifact = artifact => {
+    // A background task's content goes quietly to Library and its task, not onto the screen.
+    if (tasks.owns(artifact.id)) return;
     agent.addArtifact(artifact);
     if (agent.runningSpoken && !cardOpen()) character.showArtifact(artifact);
     else openArtifact({ callId: artifact.id });
@@ -851,6 +967,8 @@ async function start() {
     'notes.delete': 'Removing the note',
     'notes.show': 'Opening your note',
     'web.fetch': 'Reading a page',
+    'tasks.start': 'Starting a background task',
+    'tasks.list': 'Checking your tasks',
     'files.search': 'Searching your files',
     'files.list': 'Looking in a folder',
     'files.read': 'Reading a file',
@@ -873,7 +991,7 @@ async function start() {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     // One place to decide: the card's own review while it is open, the bubble otherwise.
-    character.showApproval(cardOpen() ? null : state.approval);
+    character.showApproval(cardOpen() ? null : (state.approval ?? tasks.currentApproval));
     const running = state.status === 'running' && !state.approval;
     // A new request gets a warm nod; progress follows unless the person is already watching
     // the conversation, where the steps are shown in full.
@@ -915,7 +1033,14 @@ async function start() {
     workspace.hide();
   });
   workspace.on('blur', hideOnBlur);
-  const approvalSurface = () => character.showApproval(cardOpen() ? null : agent.state.approval);
+  const approvalSurface = () =>
+    character.showApproval(cardOpen() ? null : (agent.state.approval ?? tasks.currentApproval));
+  tasks.onChange(list => {
+    broadcast([workspace], 'edi:tasks', list);
+    if (!agent.state.approval) approvalSurface();
+  });
+  // Queued tasks start once the windows exist; work that was running when Edi quit is marked.
+  tasks.resume();
   workspace.on('show', approvalSurface);
   workspace.on('hide', approvalSurface);
 
@@ -980,6 +1105,7 @@ async function start() {
       pet,
       settings,
       agent,
+      tasks,
       placement,
       petDrag,
       character,
@@ -1042,6 +1168,7 @@ async function start() {
     },
     models: () => modelCatalog.list(),
     conversations: query => agent.conversations(query),
+    tasks: () => tasks.list(),
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),
@@ -1109,6 +1236,7 @@ async function start() {
     agent.stop();
   });
   app.on('will-quit', () => {
+    tasks.dispose();
     chatterbox?.dispose();
     kokoro?.dispose();
     database.close();
