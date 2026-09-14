@@ -31,7 +31,9 @@ function launch(mode, tools = [], context = {}) {
     );
     const chunk = delta => ({ id: 'mock', object: 'chat.completion.chunk', created: 0,
       model: 'test/model', choices: [{ index: 0, delta, finish_reason: null }] });
-    const end = reason => ({ ...chunk({}), choices: [{ index: 0, delta: {}, finish_reason: reason }] });
+    const end = reason => ({ ...chunk({}), choices: [{ index: 0, delta: {}, finish_reason: reason }],
+      usage: { prompt_tokens: 1200, completion_tokens: 30, total_tokens: 1230, cost: 0.0042,
+        prompt_tokens_details: { cached_tokens: 1000 } } });
     global.fetch = async (url, options) => {
       if (!String(url).startsWith('https://openrouter.ai/api/')) throw Error('Unexpected endpoint');
       const body = JSON.parse(options.body);
@@ -41,7 +43,7 @@ function launch(mode, tools = [], context = {}) {
         if (testMode === 'search-reader-down') return new Response('{}', { status: 400 });
         return new Response(JSON.stringify({ id: 'r', object: 'chat.completion', created: 0, model: 'test/reader',
           choices: [{ index: 0, message: { role: 'assistant', content: 'The story says rain clears by noon.' },
-            finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+            finish_reason: 'stop' }], usage: { prompt_tokens: 9000, completion_tokens: 80, total_tokens: 9080, cost: 0.0029 } }),
           { headers: { 'content-type': 'application/json' } });
       }
       if (body.model !== 'test/model' || !body.stream) throw Error('Unexpected request');
@@ -137,6 +139,23 @@ test('real SDK worker streams mocked OpenRouter text', async () => {
   const { messages, requests } = await collect(launch('success'));
   assert.equal(text(messages), 'Hello from Edi.');
   assert.equal(messages.at(-1).type, 'done');
+  // Each model call reports tokens, cache reads and OpenRouter's cost, never content.
+  assert.equal(requests[0].usage?.include, true);
+  assert.deepEqual(
+    messages.filter(m => m.type === 'usage').map(m => m.entry),
+    [
+      {
+        kind: 'answer',
+        provider: 'openrouter',
+        model: 'test/model',
+        inputTokens: 1200,
+        outputTokens: 30,
+        cachedTokens: 1000,
+        costUsd: 0.0042,
+        characters: 0,
+      },
+    ],
+  );
   assert.deepEqual(
     requests[0].tools.find(tool => tool.type === 'openrouter:web_search'),
     {
@@ -251,6 +270,17 @@ test('a search result is read without a link from the user, through the page rea
   assert.match(toolMessage, /rain clears by noon/);
   assert.match(toolMessage, /news\.example\/radar/);
   assert.doesNotMatch(toolMessage, /ignore your instructions/);
+  // Two answer steps and one page read, each with its own cost.
+  assert.deepEqual(
+    messages
+      .filter(m => m.type === 'usage')
+      .map(m => [m.entry.kind, m.entry.model, m.entry.costUsd]),
+    [
+      ['page-reader', 'test/reader', 0.0029],
+      ['answer', 'test/model', 0.0042],
+      ['answer', 'test/model', 0.0042],
+    ],
+  );
 });
 
 test('if the reader fails, a shorter slice of the page is returned instead', async () => {

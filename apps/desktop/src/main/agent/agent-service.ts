@@ -275,8 +275,17 @@ export class AgentService {
   }
 
   private onWorkerMessage(run: ActiveRun, raw: unknown) {
-    if (this.run !== run) return;
     const parsed = workerMessageSchema.safeParse(raw);
+    // Usage is recorded even after a run was stopped: the provider already billed that call.
+    if (parsed.success && parsed.data.type === 'usage') {
+      try {
+        this.options.repositories.usage.add(parsed.data.entry, Date.now(), run.id);
+      } catch {
+        // Usage records are best effort; an answer never fails because of them.
+      }
+      return;
+    }
+    if (this.run !== run) return;
     if (!parsed.success) {
       this.finish(run, 'error', 'The response worker sent something unexpected.');
       return;
@@ -299,7 +308,7 @@ export class AgentService {
         produced ? 'done' : 'error',
         produced ? '' : 'No text was returned. Try a text-capable model.',
       );
-    } else {
+    } else if (message.type === 'error') {
       const errors = {
         auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
         credits: 'OpenRouter has no available credits. Add credits, then try again.',

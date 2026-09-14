@@ -96,6 +96,7 @@ const pageNames: Record<z.infer<typeof workspaceViewSchema>, string> = {
   settings: 'Settings',
   'settings.ai': 'Settings → AI',
   'settings.voice': 'Settings → Voice',
+  'settings.usage': 'Settings → Usage',
   'settings.keyboard': 'Settings → Keyboard',
   'settings.privacy': 'Settings → Privacy & Permissions',
   'settings.activity': 'Settings → Activity',

@@ -297,3 +297,44 @@
   display: grid;
   gap: var(--space-2);
 }
+
+/* Settings → Usage: the period's spend, a small daily chart, then where it went. */
+.usage-hero {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+}
+.usage-hero-label {
+  font: var(--text-footnote);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.usage-hero-cost {
+  font: var(--text-large-title);
+  letter-spacing: var(--tracking-large-title);
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
+}
+.usage-hero-detail {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 56px;
+  margin-top: var(--space-3);
+}
+.usage-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--accent-fill);
+  opacity: 0.85;
+}
+.usage-bar:hover {
+  opacity: 1;
+}

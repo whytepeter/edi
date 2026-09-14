@@ -302,7 +302,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   );
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
-  db.exec('DROP TABLE artifacts; PRAGMA user_version = 2;');
+  db.exec('DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;');
   migrate(db);
   assert.deepEqual(repos.artifacts.list(10), [
     {
@@ -321,4 +321,53 @@ test('migration 3 records existing shown content as workspace artifacts under th
   repos.artifacts.remove(uuid(20));
   assert.equal(repos.artifacts.get(uuid(20)), undefined);
   assert.throws(() => repos.artifacts.remove(uuid(20)), /no longer/);
+});
+
+test('usage totals by kind, model and local day; voice counts characters apart from model cost', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const now = new Date(2026, 8, 14, 15, 0).getTime();
+  const earlier = new Date(2026, 8, 12, 9, 0).getTime();
+  const tooOld = new Date(2026, 8, 1, 9, 0).getTime();
+  const call = (kind: 'answer' | 'page-reader', model: string, costUsd: number | null) => ({
+    kind,
+    provider: 'openrouter' as const,
+    model,
+    inputTokens: 1000,
+    outputTokens: 100,
+    cachedTokens: kind === 'answer' ? 800 : 0,
+    costUsd,
+    characters: 0,
+  });
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 0.01), now - 60_000, uuid(1));
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 0.02), now - 30_000, uuid(1));
+  repos.usage.add(call('page-reader', 'google/gemini-3.5-flash-lite', null), now, uuid(1));
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 0.5), earlier, uuid(2));
+  repos.usage.add(call('answer', 'anthropic/claude-sonnet-5', 9), tooOld, uuid(3));
+  repos.usage.add(
+    { ...call('answer', 'sonic-3.6', null), kind: 'voice', provider: 'cartesia', characters: 42 },
+    now,
+  );
+
+  const today = repos.usage.summary(1, now);
+  assert.equal(today.answers, 1);
+  assert.equal(today.total.calls, 3);
+  assert.equal(today.total.unpricedCalls, 1);
+  assert.ok(Math.abs(today.total.costUsd - 0.03) < 1e-9);
+  assert.deepEqual(
+    today.byKind.map(entry => [entry.kind, entry.calls, entry.cachedTokens]),
+    [
+      ['answer', 2, 1600],
+      ['page-reader', 1, 0],
+    ],
+  );
+  assert.deepEqual(today.voice, [{ provider: 'cartesia', replies: 1, characters: 42 }]);
+  assert.equal(today.daily.length, 1);
+
+  const week = repos.usage.summary(7, now);
+  assert.equal(week.answers, 2);
+  assert.equal(week.daily.length, 7);
+  assert.equal(week.daily.at(-1)?.day, '2026-09-14');
+  assert.ok(Math.abs(week.daily.find(day => day.day === '2026-09-12')!.costUsd - 0.5) < 1e-9);
+  assert.equal(week.byModel[0]?.model, 'anthropic/claude-sonnet-5');
+  assert.throws(() => repos.usage.add({ ...call('answer', 'x', -1) }, now));
 });

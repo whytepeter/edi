@@ -65,13 +65,14 @@ import { shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { PocketVoice } from './voice/pocket-process';
 import { MlxVoice } from './voice/mlx-process';
-import { listCloudVoices, speakCloud } from './voice/cloud-voice';
+import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
 import { speakable, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
-import { ModelCatalog } from './agent/model-catalog';
+import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
+import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
 import { CharacterActions } from './character/character-actions';
@@ -396,22 +397,24 @@ async function start() {
     process.env.EDI_MODEL_CATALOG === 'off'
       ? { list: () => Promise.reject(new Error('Model catalog disabled.')) }
       : new ModelCatalog();
-  // Web pages are read by the newest fast model in OpenRouter's catalog (cached for an hour).
+  // Web pages are read by the newest Gemini Flash Lite in OpenRouter's catalog (cached an hour).
   let readerModel: string | null = null;
   const refreshReaderModel = () =>
     void modelCatalog
       .list()
       .then(models => {
-        readerModel = models.find(model => model.recommended === 'fast')?.id ?? readerModel;
+        readerModel = readerModelFrom(models) ?? readerModel;
       })
       .catch(() => {});
   refreshReaderModel();
+  const openRouter = new OpenRouterCredentials();
+  const openRouterAccount = new OpenRouterAccount();
   agent = new AgentService({
     readerModel: () => {
       refreshReaderModel();
       return readerModel;
     },
-    credentials: new OpenRouterCredentials(),
+    credentials: openRouter,
     repositories,
     capabilities: [
       ...notesCapabilities({
@@ -547,15 +550,42 @@ async function start() {
       return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
     if (selection.model === 'pocket' && pocket)
       return pocket.speak(speakable(text, false), signal, consume);
-    if (isCloudVoiceModel(selection.model) && voiceKeys.has(selection.model))
+    if (isCloudVoiceModel(selection.model) && voiceKeys.has(selection.model)) {
+      const provider = selection.model;
+      const words = speakable(text, false);
+      // Cloud voices bill characters on the person's plan; count them once the reply streamed
+      // or was cut off (the provider already generated it).
+      const record = () => {
+        try {
+          repositories.usage.add(
+            {
+              kind: 'voice',
+              provider,
+              model: provider === 'cartesia' ? CARTESIA_MODEL : ELEVENLABS_MODEL,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedTokens: 0,
+              costUsd: null,
+              characters: words.length,
+            },
+            Date.now(),
+          );
+        } catch {
+          // Usage records are best effort; speech never fails because of them.
+        }
+      };
       return speakCloud(
-        selection.model,
-        voiceKeys.get(selection.model),
+        provider,
+        voiceKeys.get(provider),
         selection.voice,
-        speakable(text, false),
+        words,
         signal,
         consume,
-      );
+      ).then(record, (error: unknown) => {
+        if (signal.aborted) record();
+        throw error;
+      });
+    }
     return Promise.reject(new Error('That voice is not installed on this Mac.'));
   };
   const standIn = (): VoiceSelection | null =>
@@ -945,6 +975,10 @@ async function start() {
       };
     },
     models: () => modelCatalog.list(),
+    usage: async days => ({
+      ...repositories.usage.summary(days, Date.now()),
+      account: await openRouterAccount.get(openRouter.apiKey),
+    }),
     cloudVoices: provider => {
       if (!voiceKeys.has(provider)) return Promise.resolve([]);
       return loadCloudVoices(provider);

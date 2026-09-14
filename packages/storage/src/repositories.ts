@@ -2,7 +2,14 @@ import { z } from 'zod';
 import {
   runStatusSchema,
   toolCallStatusSchema,
+  usageEntrySchema,
+  usageKindSchema,
+  usageProviderSchema,
   type Activity,
+  type UsageEntry,
+  type UsagePeriod,
+  type UsageSummary,
+  type UsageTotals,
   type RunStatus,
   type ToolCallStatus,
   type ToolStep,
@@ -361,11 +368,131 @@ export class ArtifactRepository {
   }
 }
 
+const usageRow = z.object({
+  runId: z.string().nullable(),
+  at: z.number(),
+  kind: usageKindSchema,
+  provider: usageProviderSchema,
+  model: z.string(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  cachedTokens: z.number(),
+  costUsd: z.number().nullable(),
+  characters: z.number(),
+});
+
+const emptyTotals = (): UsageTotals => ({
+  calls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cachedTokens: 0,
+  costUsd: 0,
+  unpricedCalls: 0,
+});
+function addTo(totals: UsageTotals, row: z.infer<typeof usageRow>) {
+  totals.calls += 1;
+  totals.inputTokens += row.inputTokens;
+  totals.outputTokens += row.outputTokens;
+  totals.cachedTokens += row.cachedTokens;
+  if (row.costUsd === null) totals.unpricedCalls += 1;
+  else totals.costUsd += row.costUsd;
+}
+const localDay = (at: number) => {
+  const date = new Date(at);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+export class UsageRepository {
+  constructor(private readonly db: Database) {}
+
+  add(entry: UsageEntry, at: number, runId: string | null = null) {
+    const row = usageEntrySchema.parse(entry);
+    this.db
+      .prepare(
+        `INSERT INTO usage (at, run_id, kind, provider, model, input_tokens, output_tokens,
+                            cached_tokens, cost_usd, characters)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        at,
+        runId,
+        row.kind,
+        row.provider,
+        row.model,
+        row.inputTokens,
+        row.outputTokens,
+        row.cachedTokens,
+        row.costUsd,
+        row.characters,
+      );
+  }
+
+  /** Totals for the last `days` local days, today included. Account figures come from main. */
+  summary(days: UsagePeriod, now: number): Omit<UsageSummary, 'account'> {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (days - 1));
+    const rows = this.db
+      .prepare(
+        `SELECT run_id AS runId, at, kind, provider, model, input_tokens AS inputTokens,
+                output_tokens AS outputTokens, cached_tokens AS cachedTokens,
+                cost_usd AS costUsd, characters
+         FROM usage WHERE at >= ? AND at <= ? ORDER BY at`,
+      )
+      .all(start.getTime(), now)
+      .map(row => usageRow.parse(row));
+
+    const total = emptyTotals();
+    const kinds = new Map<'answer' | 'page-reader', UsageTotals>();
+    const models = new Map<string, UsageTotals>();
+    const daily = new Map<string, number>();
+    for (let offset = 0; offset < days; offset++) {
+      const day = new Date(start);
+      day.setDate(start.getDate() + offset);
+      daily.set(localDay(day.getTime()), 0);
+    }
+    const runs = new Set<string>();
+    const voice = new Map<'cartesia' | 'elevenlabs', { replies: number; characters: number }>();
+    for (const row of rows) {
+      if (row.kind === 'voice') {
+        if (row.provider === 'openrouter') continue;
+        const entry = voice.get(row.provider) ?? { replies: 0, characters: 0 };
+        entry.replies += 1;
+        entry.characters += row.characters;
+        voice.set(row.provider, entry);
+        continue;
+      }
+      addTo(total, row);
+      if (!kinds.has(row.kind)) kinds.set(row.kind, emptyTotals());
+      addTo(kinds.get(row.kind)!, row);
+      if (!models.has(row.model)) models.set(row.model, emptyTotals());
+      addTo(models.get(row.model)!, row);
+      const day = localDay(row.at);
+      daily.set(day, (daily.get(day) ?? 0) + (row.costUsd ?? 0));
+      if (row.kind === 'answer' && row.runId) runs.add(row.runId);
+    }
+    return {
+      days,
+      total,
+      answers: runs.size,
+      byKind: [...kinds].map(([kind, totals]) => ({ kind, ...totals })),
+      byModel: [...models]
+        .map(([model, totals]) => ({ model, ...totals }))
+        .sort((a, b) => b.costUsd - a.costUsd || b.inputTokens - a.inputTokens)
+        .slice(0, 12),
+      daily: [...daily].map(([day, costUsd]) => ({ day, costUsd })),
+      voice: [...voice].map(([provider, entry]) => ({ provider, ...entry })),
+    };
+  }
+}
+
 export interface Repositories {
   runs: RunRepository;
   toolCalls: ToolCallRepository;
   notes: NoteRepository;
   artifacts: ArtifactRepository;
+  usage: UsageRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -382,6 +509,7 @@ export function createRepositories(db: Database): Repositories {
     toolCalls: new ToolCallRepository(db),
     notes: new NoteRepository(db),
     artifacts: new ArtifactRepository(db),
+    usage: new UsageRepository(db),
 
     activity(limit) {
       const runs = db

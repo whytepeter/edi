@@ -7,9 +7,14 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Settings → Usage: what Edi spent on OpenRouter today, over 7 or 30 days, with a daily chart, answers vs
+  reading web pages, cost and tokens per model (with the share read from the prompt cache), characters sent to
+  Cartesia and ElevenLabs, and the OpenRouter key's own spend and limit. Every model call records tokens and the
+  cost OpenRouter reports (no prompts, pages or spoken text are stored). Anthropic models now use prompt caching,
+  so the repeated instructions, history and screenshots across a run's steps are billed at a tenth of the price.
 - Page reader for web fetch: Edi researches on its own (search, read result pages, follow links) and passes a
-  question with each page. A separate fast model with no tools (the newest Gemini Flash in OpenRouter's
-  catalog, else the chosen model) reads the page and Edi receives only its answer and the page's links, so raw
+  question with each page. A separate cheap model with no tools (the newest Gemini Flash Lite in OpenRouter's
+  catalog, else the fast pick or the chosen model) reads the page and Edi receives only its answer and the page's links, so raw
   page text and instructions hidden in it never reach the model that can use Edi's tools. If the reader fails,
   a shorter slice of the page is returned. Up to 10 steps per answer.
 - Cloud voices: Cartesia (Sonic 3.6) and ElevenLabs (Flash v2.5) with separate keys, checked with the provider

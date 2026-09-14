@@ -19,6 +19,7 @@ import { PermissionCard } from '../features/permissions/PermissionCard';
 import { SettingsView } from '../features/settings/SettingsView';
 import { AiSettings } from '../features/settings/AiSettings';
 import { VoiceSettings } from '../features/settings/VoiceSettings';
+import { UsageSettings } from '../features/settings/UsageSettings';
 import { KeyboardSettings } from '../features/settings/KeyboardSettings';
 import { PrivacySettings } from '../features/settings/PrivacySettings';
 import { AboutSettings } from '../features/settings/AboutSettings';
@@ -233,6 +234,7 @@ export function WorkspaceCard() {
               {view === 'settings.privacy' && (
                 <PrivacySettings permissions={permissionSnapshot} onOpen={navigate} />
               )}
+              {view === 'settings.usage' && <UsageSettings refreshKey={refreshKey} />}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}
               {view === 'settings.about' && <AboutSettings system={system} />}
             </div>

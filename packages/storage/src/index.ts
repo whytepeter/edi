@@ -6,6 +6,7 @@ export {
   ToolCallRepository,
   NoteRepository,
   ArtifactRepository,
+  UsageRepository,
   type Repositories,
   type NoteRecord,
   type ArtifactRecord,

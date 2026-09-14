@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ModelCatalog, compatibleModels } from '../../apps/desktop/src/main/agent/model-catalog';
+import {
+  ModelCatalog,
+  compatibleModels,
+  readerModelFrom,
+} from '../../apps/desktop/src/main/agent/model-catalog';
 
 const vision = {
   id: 'vendor/sees-and-calls',
@@ -72,4 +76,28 @@ test('recommendations pick the newest model of each suited family, never a batch
     balanced: 'anthropic/claude-sonnet-5',
     best: 'anthropic/claude-opus-5',
   });
+});
+
+test('the page reader is the newest Gemini Flash Lite, by version, else the fast pick', () => {
+  const option = (id: string, recommended: 'fast' | null = null) => ({
+    id,
+    name: id,
+    contextLength: 1_000_000,
+    inputPrice: 0.3,
+    recommended,
+  });
+  assert.equal(
+    readerModelFrom([
+      option('google/gemini-3.1-flash-lite'),
+      option('google/gemini-3.10-flash-lite'),
+      option('google/gemini-3.5-flash-lite-preview'),
+      option('google/gemini-3.8-flash', 'fast'),
+    ]),
+    'google/gemini-3.10-flash-lite',
+  );
+  assert.equal(
+    readerModelFrom([option('google/gemini-3.8-flash', 'fast')]),
+    'google/gemini-3.8-flash',
+  );
+  assert.equal(readerModelFrom([]), null);
 });

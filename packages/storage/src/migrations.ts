@@ -89,6 +89,27 @@ export const migrations: readonly { version: number; sql: string }[] = [
         AND json_type(output_json, '$.bytes') = 'integer';
     `,
   },
+  {
+    // What Edi consumed: one row per OpenRouter model call or cloud voice reply. Counts and
+    // costs only; no prompts, pages or spoken text.
+    version: 4,
+    sql: `
+      CREATE TABLE usage (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        at            INTEGER NOT NULL,
+        run_id        TEXT,
+        kind          TEXT    NOT NULL CHECK (kind IN ('answer', 'page-reader', 'voice')),
+        provider      TEXT    NOT NULL CHECK (provider IN ('openrouter', 'cartesia', 'elevenlabs')),
+        model         TEXT    NOT NULL,
+        input_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+        output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+        cached_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_tokens >= 0),
+        cost_usd      REAL             CHECK (cost_usd IS NULL OR cost_usd >= 0),
+        characters    INTEGER NOT NULL DEFAULT 0 CHECK (characters >= 0)
+      );
+      CREATE INDEX usage_at ON usage (at);
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

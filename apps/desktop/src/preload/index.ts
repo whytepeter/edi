@@ -13,6 +13,8 @@ import {
   settingsSchema,
   systemInfoSchema,
   permissionSnapshotSchema,
+  usagePeriodSchema,
+  usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
   type DesktopBridge,
@@ -57,6 +59,10 @@ const bridge: DesktopBridge = {
   cloudVoices: async provider =>
     cloudVoiceListSchema.parse(
       await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),
+    ),
+  usage: async days =>
+    usageSummarySchema.parse(
+      await ipcRenderer.invoke('edi:usage:get', usagePeriodSchema.parse(days)),
     ),
   onAgent: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {

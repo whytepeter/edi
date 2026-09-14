@@ -6,8 +6,11 @@ import {
   type ArtifactRef,
   artifactRefSchema,
   cloudProviderSchema,
+  usagePeriodSchema,
   type CloudProviderId,
   type CloudVoiceOption,
+  type UsagePeriod,
+  type UsageSummary,
   type AgentState,
   type Command,
   type LibraryItem,
@@ -38,6 +41,7 @@ interface IpcDependencies {
   system(): SystemInfo;
   models(): Promise<ModelOption[]>;
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
+  usage(days: UsagePeriod): Promise<UsageSummary>;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
 }
@@ -52,6 +56,7 @@ export function registerIpc({
   system,
   models,
   cloudVoices,
+  usage,
   artifact,
   permissions,
 }: IpcDependencies) {
@@ -97,6 +102,10 @@ export function registerIpc({
   ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
     authorize(callerOf(event), ['workspace']);
     return cloudVoices(cloudProviderSchema.parse(provider));
+  });
+  ipcMain.handle('edi:usage:get', (event, days: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return usage(usagePeriodSchema.parse(days));
   });
   ipcMain.handle('edi:permissions:get', event => {
     authorize(callerOf(event), ['workspace']);

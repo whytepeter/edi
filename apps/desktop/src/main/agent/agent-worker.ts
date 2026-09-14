@@ -6,7 +6,9 @@ import {
   stepCountIs,
   streamText,
   tool,
+  type LanguageModelUsage,
   type ModelMessage,
+  type ProviderMetadata,
   type ToolSet,
 } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
@@ -24,6 +26,42 @@ const send = (message: WorkerMessage) => parentPort?.postMessage(message);
 // wall-clock deadline and approvals.
 const MAX_STEPS = 10;
 const provider = createOpenRouter({ apiKey: input.apiKey });
+/**
+ * Every call asks OpenRouter to report its cost. Anthropic models also cache the repeated
+ * prompt prefix (instructions, history, screenshots) across the steps of a run and between
+ * nearby questions, so later steps read it at a tenth of the price; other providers cache
+ * automatically.
+ */
+const model = (id: string) =>
+  provider(id, {
+    usage: { include: true },
+    ...(id.startsWith('anthropic/') ? { cache_control: { type: 'ephemeral' as const } } : {}),
+  });
+
+/** Report one model call's tokens and cost; nothing about its content. */
+function reportUsage(
+  kind: 'answer' | 'page-reader',
+  modelId: string,
+  usage: LanguageModelUsage,
+  metadata: ProviderMetadata | undefined,
+) {
+  const cost = (metadata?.openrouter as { usage?: { cost?: unknown } } | undefined)?.usage?.cost;
+  const tokens = (value: number | undefined) =>
+    Math.max(0, Math.min(1_000_000_000, Math.round(value ?? 0)));
+  send({
+    type: 'usage',
+    entry: {
+      kind,
+      provider: 'openrouter',
+      model: modelId.slice(0, 160),
+      inputTokens: tokens(usage.inputTokens),
+      outputTokens: tokens(usage.outputTokens),
+      cachedTokens: tokens(usage.inputTokenDetails?.cacheReadTokens),
+      costUsd: typeof cost === 'number' && cost >= 0 && cost <= 10_000 ? cost : null,
+      characters: 0,
+    },
+  });
+}
 
 const SYSTEM = [
   `You are ${input.name}, a concise desktop companion in the Edi app. Answer in plain text.`,
@@ -228,8 +266,13 @@ async function readPage(outcome: ToolOutcome, question: string, signal?: AbortSi
   if (outcome.status !== 'succeeded' || typeof page?.text !== 'string') return outcome;
   const { text, ...rest } = page as Record<string, unknown> & { text: string };
   try {
-    const { text: answer } = await generateText({
-      model: provider(input.readerModel ?? input.model),
+    const readerModel = input.readerModel ?? input.model;
+    const {
+      text: answer,
+      usage,
+      providerMetadata,
+    } = await generateText({
+      model: model(readerModel),
       system: READER,
       prompt: `Question: ${question}\n\nPage title: ${String(page.title ?? '')}\nPage address: ${String(page.url ?? '')}\n\n<page>\n${text}\n</page>`,
       maxOutputTokens: 1_200,
@@ -240,6 +283,7 @@ async function readPage(outcome: ToolOutcome, question: string, signal?: AbortSi
         AbortSignal.timeout(30_000),
       ]),
     });
+    reportUsage('page-reader', readerModel, usage, providerMetadata);
     if (!answer.trim()) throw new Error('empty');
     return {
       ...outcome,
@@ -326,7 +370,7 @@ async function run() {
       web_search: provider.tools.webSearch({ engine: 'auto', maxResults: 5 }),
     };
     const result = streamText({
-      model: provider(input.model),
+      model: model(input.model),
       system: [
         SYSTEM,
         SHOWING,
@@ -349,6 +393,7 @@ async function run() {
       // failures twice before Edi asks the person to intervene.
       maxRetries: 2,
       providerOptions: { openrouter: { provider: { allow_fallbacks: true } } },
+      onStepEnd: step => reportUsage('answer', input.model, step.usage, step.providerMetadata),
       onError: ({ error }) => {
         failure = failureKind(error);
       },

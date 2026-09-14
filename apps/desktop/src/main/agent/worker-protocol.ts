@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ToolOutcome } from '@edi/capabilities';
-import { assistantNameSchema, modelIdSchema } from '@edi/contracts';
+import { assistantNameSchema, modelIdSchema, usageEntrySchema } from '@edi/contracts';
 
 const bytesWithin = (limit: number) =>
   z.custom<Uint8Array>(
@@ -60,6 +60,8 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('done') }).strict(),
+  /** Tokens and cost of one model call, as the provider reported them. */
+  z.object({ type: z.literal('usage'), entry: usageEntrySchema }).strict(),
   /** A closed set of progress hints; provider output never becomes free text here. */
   z.object({ type: z.literal('activity'), activity: z.enum(['searching-web']) }).strict(),
   z
