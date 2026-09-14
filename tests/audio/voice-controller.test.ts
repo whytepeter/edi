@@ -16,7 +16,6 @@ import {
 
 const runtime = {
   transcription: { executable: 'whisper', model: 'model', vadModel: 'vad' },
-  pocket: { python: 'python', worker: 'worker.py', cache: 'cache' },
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 

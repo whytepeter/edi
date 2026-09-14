@@ -145,7 +145,7 @@ export function UsageSettings({ refreshKey }: { refreshKey: string }) {
       {current && (
         <GroupedList
           title="Voice"
-          footer="Kokoro, Pocket and Chatterbox run on this Mac and cost nothing. Cartesia and ElevenLabs bill characters on your own plan."
+          footer="Kokoro and Chatterbox run on this Mac and cost nothing. Cartesia and ElevenLabs bill characters on your own plan."
         >
           {current.voice.length === 0 ? (
             <GroupedRow icon="waveform" title="On this Mac only" value="Free" />

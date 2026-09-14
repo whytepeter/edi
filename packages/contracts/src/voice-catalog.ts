@@ -5,13 +5,7 @@ import { z } from 'zod';
  * Edi sounds like within it. Settings stores one chosen voice per model, so switching models
  * back and forth keeps each choice.
  */
-export const voiceModelSchema = z.enum([
-  'kokoro',
-  'pocket',
-  'chatterbox-turbo',
-  'cartesia',
-  'elevenlabs',
-]);
+export const voiceModelSchema = z.enum(['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs']);
 export type VoiceModelId = z.infer<typeof voiceModelSchema>;
 
 /**
@@ -75,8 +69,6 @@ export const kokoroVoices = [
 
 export const voiceCatalog = {
   kokoro: kokoroVoices,
-  // The owner rejected Pocket's Alba and Fantine; Jane is the only Pocket voice Edi offers.
-  pocket: [{ id: 'jane', name: 'Jane', accent: 'American', gender: 'Female' }],
   // Chatterbox Turbo's built-in voice, delivered two ways: Calm samples conservatively for a
   // steadier, softer read; Expressive is the model's default liveliness. Cloning comes later.
   'chatterbox-turbo': [
@@ -92,12 +84,10 @@ const ids = <T extends readonly { id: string }[]>(voices: T) =>
   voices.map(voice => voice.id) as unknown as [T[number]['id'], ...T[number]['id'][]];
 
 export const kokoroVoiceSchema = z.enum(ids(voiceCatalog.kokoro));
-export const pocketVoiceSchema = z.enum(ids(voiceCatalog.pocket));
 export const chatterboxVoiceSchema = z.enum(ids(voiceCatalog['chatterbox-turbo']));
 
 export const defaultVoices = {
   kokoro: 'af_heart',
-  pocket: 'jane',
   'chatterbox-turbo': 'calm',
   cartesia: null,
   elevenlabs: null,
@@ -107,7 +97,6 @@ export const defaultVoices = {
 export const voiceChoicesSchema = z
   .object({
     kokoro: kokoroVoiceSchema.catch(defaultVoices.kokoro).default(defaultVoices.kokoro),
-    pocket: pocketVoiceSchema.catch(defaultVoices.pocket).default(defaultVoices.pocket),
     'chatterbox-turbo': chatterboxVoiceSchema
       .catch(defaultVoices['chatterbox-turbo'])
       .default(defaultVoices['chatterbox-turbo']),
@@ -120,7 +109,6 @@ export type VoiceChoices = z.infer<typeof voiceChoicesSchema>;
 /** A model and one of its own voices; a voice from another model is rejected. */
 export const voiceSelectionSchema = z.discriminatedUnion('model', [
   z.object({ model: z.literal('kokoro'), voice: kokoroVoiceSchema }).strict(),
-  z.object({ model: z.literal('pocket'), voice: pocketVoiceSchema }).strict(),
   z.object({ model: z.literal('chatterbox-turbo'), voice: chatterboxVoiceSchema }).strict(),
   z.object({ model: z.literal('cartesia'), voice: cloudVoiceIdSchema }).strict(),
   z.object({ model: z.literal('elevenlabs'), voice: cloudVoiceIdSchema }).strict(),

@@ -218,7 +218,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     'x',
   ])
     assert.equal(commandSchema.safeParse({ type: 'open-link', url }).success, false, url);
-  // Kokoro is the default; the old Pocket default moves once, an explicit Chatterbox choice stays.
+  // Kokoro is the default; a saved Pocket choice (removed) moves to Kokoro, Chatterbox stays.
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).voiceModel, 'kokoro');
   assert.equal(
     settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'pocket' }).voiceModel,
@@ -231,7 +231,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
       voiceModel: 'pocket',
       voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'calm' },
     }).voiceModel,
-    'pocket',
+    'kokoro',
   );
   assert.equal(
     settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'chatterbox-turbo' }).voiceModel,
@@ -246,7 +246,6 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     }).voices,
     {
       kokoro: 'bf_emma',
-      pocket: 'jane',
       'chatterbox-turbo': 'calm',
       cartesia: null,
       elevenlabs: null,
@@ -255,7 +254,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   assert.equal(
     commandSchema.safeParse({
       type: 'set-voice',
-      selection: { model: 'pocket', voice: 'af_heart' },
+      selection: { model: 'pocket', voice: 'jane' },
     }).success,
     false,
   );
@@ -621,7 +620,7 @@ test('system info accepts the longest cloud voice name with its model', () => {
     voice: {
       available: true,
       name: `${voice.name} · ElevenLabs`,
-      models: ['kokoro', 'pocket', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
+      models: ['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
     },
     pushToTalk: { status: 'ready', label: '⌥ Space' },
     notesFolder: '/Users/me/Documents/Edi',

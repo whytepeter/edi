@@ -190,11 +190,8 @@ export const settingsSchema = z.preprocess(
     if (saved.petScale === undefined && typeof saved.petSize === 'string')
       saved.petScale = legacyScale[saved.petSize];
     delete saved.petSize;
-    // Kokoro became the default speech model when voices became selectable. Preferences saved
-    // before that still hold the old default (Pocket) and move once; an explicit Chatterbox
-    // choice is kept.
-    if (saved.voices === undefined && (saved.voiceModel ?? 'pocket') === 'pocket')
-      saved.voiceModel = 'kokoro';
+    // Pocket was removed and Kokoro is the default: a saved Pocket choice moves to Kokoro.
+    if (saved.voiceModel === 'pocket') saved.voiceModel = 'kokoro';
     return saved;
   },
   z.object({
@@ -221,7 +218,6 @@ export const defaultSettings: Settings = {
   voiceModel: 'kokoro',
   voices: {
     kokoro: 'af_heart',
-    pocket: 'jane',
     'chatterbox-turbo': 'calm',
     cartesia: null,
     elevenlabs: null,
@@ -312,7 +308,7 @@ export const systemInfoSchema = z
               })
               .strict(),
           )
-          .length(5),
+          .length(4),
       })
       .strict(),
     pushToTalk: z

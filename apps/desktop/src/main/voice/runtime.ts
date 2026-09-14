@@ -1,12 +1,10 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { PocketRuntime } from './pocket-process';
 import type { MlxRuntime } from './mlx-process';
 import type { TranscriptionRuntime } from './transcription-process';
 
 export interface VoiceRuntime {
   transcription: TranscriptionRuntime;
-  pocket: PocketRuntime;
   /** MLX engines; each model folder is null until provisioned. */
   mlx: (MlxRuntime & { kokoro: string | null; chatterbox: string | null }) | null;
 }
@@ -32,11 +30,6 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
         : join(transcription, 'ggml-base.en.bin'),
       vadModel: join(transcription, 'ggml-silero-v6.2.0.bin'),
     },
-    pocket: {
-      python: join(voice, '.venv/bin/python'),
-      worker: join(appPath, 'voice/pocket_worker.py'),
-      cache: join(voice, 'cache/huggingface'),
-    },
     mlx: null,
   };
   // Provisioned by benchmarks/voice/provision_mlx.py. A model counts only if its weights exist.
@@ -54,6 +47,6 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
       chatterbox: model('chatterbox-turbo-4bit', 'model.safetensors'),
     };
   }
-  const paths = [...Object.values(runtime.transcription), ...Object.values(runtime.pocket)];
-  return paths.every(path => existsSync(path)) ? runtime : null;
+  // Listening needs transcription; speech engines are optional and checked per model.
+  return Object.values(runtime.transcription).every(path => existsSync(path)) ? runtime : null;
 }

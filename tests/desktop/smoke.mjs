@@ -235,7 +235,7 @@ try {
   await workspace.getByRole('menuitem', { name: /Settings/ }).click();
   await workspace.getByRole('button', { name: /^Voice/ }).click();
   // Speech model first (voices are offline in tests, so each shows as not installed).
-  for (const model of [/^Kokoro/, /^Pocket/, /^Chatterbox Turbo/])
+  for (const model of [/^Kokoro/, /^Chatterbox Turbo/])
     await expect(workspace.getByRole('radio', { name: model })).toBeVisible();
   // A cloud voice opens its key panel in place and closes again on a second tap.
   const cartesia = workspace.getByRole('radio', { name: /^Cartesia/ });

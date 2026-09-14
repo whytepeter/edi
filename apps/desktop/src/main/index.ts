@@ -63,7 +63,6 @@ import { AgentService } from './agent/agent-service';
 import { captureScreensForPrompt } from './capture/screens';
 import { shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
-import { PocketVoice } from './voice/pocket-process';
 import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
@@ -176,13 +175,6 @@ async function start() {
       available: Boolean(voiceRuntime?.mlx?.kokoro),
       expressions: false,
       detail: engineDetail(kokoroVoice, 'Natural, fast voices. The default.'),
-    },
-    {
-      id: 'pocket',
-      name: 'Pocket',
-      available: Boolean(voiceRuntime),
-      expressions: false,
-      detail: 'Kyutai’s streaming voice.',
     },
     {
       id: 'chatterbox-turbo',
@@ -516,7 +508,6 @@ async function start() {
     () => placement.place(),
     petPosition => settings.update({ petPosition }),
   );
-  const pocket = voiceRuntime ? new PocketVoice(voiceRuntime.pocket) : null;
   const mlx = voiceRuntime?.mlx ?? null;
   // Warm engines stay loaded for an hour while selected; Kokoro is small and also stands in
   // while Chatterbox loads.
@@ -548,8 +539,6 @@ async function start() {
       return chatterbox.speak(text, signal, consume, { voice: selection.voice });
     if (selection.model === 'kokoro' && kokoro)
       return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
-    if (selection.model === 'pocket' && pocket)
-      return pocket.speak(speakable(text, false), signal, consume);
     if (isCloudVoiceModel(selection.model) && voiceKeys.has(selection.model)) {
       const provider = selection.model;
       const words = speakable(text, false);
@@ -589,18 +578,13 @@ async function start() {
     return Promise.reject(new Error('That voice is not installed on this Mac.'));
   };
   const standIn = (): VoiceSelection | null =>
-    kokoro
-      ? { model: 'kokoro', voice: settings.current.voices.kokoro }
-      : pocket
-        ? { model: 'pocket', voice: 'jane' }
-        : null;
+    kokoro ? { model: 'kokoro', voice: settings.current.voices.kokoro } : null;
   const warmSelected = () => {
     const model = settings.current.voiceModel;
     if (model === 'chatterbox-turbo') {
       chatterbox?.warm();
       kokoro?.warm();
-    } else if (model === 'kokoro') kokoro?.warm();
-    else pocket?.warm();
+    } else kokoro?.warm(); // Kokoro, or the local stand-in for a cloud voice
   };
   const expressiveReady = () =>
     settings.current.voiceModel === 'chatterbox-turbo' && chatterbox?.status === 'ready';
@@ -623,7 +607,7 @@ async function start() {
     speak: async (text, signal, consume) => {
       warmSelected();
       const selected = selectedVoice();
-      // Chatterbox answers once loaded; until then Kokoro (or Jane) keeps the reply prompt.
+      // Chatterbox answers once loaded; until then Kokoro keeps the reply prompt.
       const chosen =
         selected.model === 'chatterbox-turbo' && chatterbox?.status !== 'ready'
           ? standIn()
@@ -1017,7 +1001,6 @@ async function start() {
     agent.stop();
   });
   app.on('will-quit', () => {
-    pocket?.dispose();
     chatterbox?.dispose();
     kokoro?.dispose();
     database.close();

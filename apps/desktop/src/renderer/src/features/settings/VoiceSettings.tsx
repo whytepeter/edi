@@ -37,7 +37,6 @@ interface VoiceSettingsProps {
 
 const modelHelp = (assistant: string): Record<VoiceModelId, string> => ({
   kokoro: `Choose who ${assistant} sounds like. Play a sample before you pick.`,
-  pocket: 'Pocket offers Jane, a clear American voice.',
   'chatterbox-turbo': `Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when ${assistant} means to.`,
   cartesia: 'Voices on your Cartesia account: ones you created, cloned or saved there.',
   elevenlabs: 'Voices on your ElevenLabs account: ones you created, cloned or saved there.',

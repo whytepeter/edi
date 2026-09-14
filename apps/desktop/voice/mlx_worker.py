@@ -1,6 +1,6 @@
 """Offline MLX speech worker for Kokoro and Chatterbox Turbo. stdout is the protocol channel.
 
-Protocol (one JSON object per line), the same credits as pocket_worker.py:
+Protocol (one JSON object per line), the same credits as the earlier Pocket worker:
   worker -> host  {"type": "ready", "rate": 24000, "engine": "kokoro"|"chatterbox-turbo"}
   host -> worker  {"text": "...", "voice": "af_heart"}      voice is used by Kokoro only
   worker -> host  {"type": "pcm", "rate": 24000, "data": b64 float32le}   at most 1 s each

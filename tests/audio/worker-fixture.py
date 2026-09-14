@@ -1,4 +1,4 @@
-"""Stdlib-only stand-in for pocket_worker.py's protocol; never loaded by production.
+"""Stdlib-only stand-in for mlx_worker.py's protocol; never loaded by production.
 
 Frame values encode which utterance this process is serving (0.25, 0.5, ...), so tests
 can tell a reused warm process from a fresh one.
@@ -12,17 +12,12 @@ import time
 
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument("--voice")
-parser.add_argument("--model")
-parser.add_argument("--engine")
+parser.add_argument("--model", required=True)
+parser.add_argument("--engine", required=True)
 args = parser.parse_args()
-if not args.voice and not args.model:
-    parser.error("--voice or --model is required")
-ready = {"type": "ready", "rate": 24000}
-if args.engine:
-    # mlx_worker.py; the "wrong-engine" model simulates a worker running another engine.
-    ready["engine"] = "pocket" if args.model == "wrong-engine" else args.engine
-else:
-    ready["voice"] = args.voice  # pocket_worker.py
+# The "wrong-engine" model simulates a worker running another engine.
+ready = {"type": "ready", "rate": 24000,
+         "engine": "other" if args.model == "wrong-engine" else args.engine}
 print(json.dumps(ready), flush=True)
 served = 0
 while True:
