@@ -31,6 +31,8 @@ import { workerMessageSchema, type HostMessage, type WorkerInput } from './worke
 
 /** Wall-clock budget for a run, excluding time spent waiting for a person to decide. */
 const RUN_BUDGET_MS = 120_000;
+/** After the budget, the model gets this long to answer from what it found, without tools. */
+export const WRAP_UP_MS = 30_000;
 /** Conversation context: completed exchanges sent with each request. */
 const HISTORY_TURNS = 10;
 const MAX_TEXT = 32_000;
@@ -75,6 +77,8 @@ interface ActiveRun {
   worker: Worker;
   abort: AbortController;
   deadline: PausableTimer;
+  /** The budget ran out and the model was asked to answer without more actions. */
+  wrappingUp: boolean;
 }
 
 type FinishedStatus = Extract<AgentState['status'], 'done' | 'stopped' | 'error'>;
@@ -243,9 +247,14 @@ export class AgentService {
       screenshots,
       worker: new Worker(join(__dirname, 'agent-worker.js'), { workerData }),
       abort: new AbortController(),
-      deadline: new PausableTimer(RUN_BUDGET_MS, () =>
-        this.finish(run, 'error', 'The response timed out. You can try again.'),
-      ),
+      deadline: new PausableTimer(RUN_BUDGET_MS, () => {
+        if (run.wrappingUp)
+          return this.finish(run, 'error', 'The response timed out. You can try again.');
+        run.wrappingUp = true;
+        run.worker.postMessage({ type: 'wrap-up' } satisfies HostMessage);
+        run.deadline.restart(WRAP_UP_MS);
+      }),
+      wrappingUp: false,
     };
     this.run = run;
     this.update({ ...this.state, runId: id, screenAccess: access ?? null });
@@ -632,5 +641,13 @@ export class PausableTimer {
   clear() {
     clearTimeout(this.timer);
     this.timer = undefined;
+  }
+
+  /** Starts again with `ms` left, keeping whether it was paused. */
+  restart(ms: number) {
+    const paused = !this.timer;
+    this.clear();
+    this.remaining = ms;
+    if (!paused) this.resume();
   }
 }

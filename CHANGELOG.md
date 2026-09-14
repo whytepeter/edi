@@ -213,6 +213,12 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- Asking Edi to look something up ("where I went to school") searched the workspace and opened folder after folder
+  instead of the web, then timed out with nothing. Public facts, including ones about the user, and anything the
+  user asks to look up or find on a site like LinkedIn now go to web search; one local search that doesn't answer
+  is used as a clue (a name from a résumé) rather than a reason to keep browsing folders. A reply or task that runs
+  out of time or steps now stops acting and answers from what it found instead of ending empty.
+
 - The agent reported a cloud voice by its id (and fell back on earlier conversation, e.g. "Heart") instead of
   its name; cloud voice names now come from the account, and the live setup outranks earlier messages.
 

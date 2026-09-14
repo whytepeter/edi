@@ -16,7 +16,7 @@ import {
   type ToolStep,
 } from '@edi/contracts';
 import type { Repositories, TaskRecord } from '@edi/storage';
-import { PausableTimer } from './agent-service';
+import { PausableTimer, WRAP_UP_MS } from './agent-service';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
@@ -56,6 +56,8 @@ interface ActiveTask {
   worker: WorkerLike;
   abort: AbortController;
   deadline: PausableTimer;
+  /** The time budget ran out and the model was asked to finish from what it has. */
+  wrappingUp: boolean;
   text: string;
   /** Over its cap: tool results wait here until the person allows more or stops it. */
   held: HostMessage[] | null;
@@ -260,9 +262,13 @@ export class TaskService {
       runId,
       worker,
       abort: new AbortController(),
-      deadline: new PausableTimer(TASK_BUDGET_MS, () =>
-        this.finish(active, 'failed', 'The task ran out of time.'),
-      ),
+      deadline: new PausableTimer(TASK_BUDGET_MS, () => {
+        if (active.wrappingUp) return this.finish(active, 'failed', 'The task ran out of time.');
+        active.wrappingUp = true;
+        active.worker.postMessage({ type: 'wrap-up' });
+        active.deadline.restart(WRAP_UP_MS);
+      }),
+      wrappingUp: false,
       text: '',
       held: null,
     };

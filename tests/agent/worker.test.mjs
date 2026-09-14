@@ -56,6 +56,13 @@ function launch(mode, tools = [], context = {}) {
       if (testMode === 'wait') return new Promise((resolve, reject) => {
         options.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
       });
+      // Keeps calling a tool until it is told not to, like a model hunting through folders.
+      if (testMode === 'loop')
+        return body.tool_choice === 'none'
+          ? sse([chunk({ content: 'Here is what I found so far.' }), end('stop')])
+          : sse([chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_' + requests,
+              type: 'function', function: { name: 'notes_save', arguments: '{"title":"Look","body":"again"}' } }] }),
+            end('tool_calls')]);
       if (testMode === 'tool' && requests === 1) {
         return sse([
           chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_1', type: 'function',
@@ -94,6 +101,7 @@ function launch(mode, tools = [], context = {}) {
         apiKey: 'test-only-secret',
         model: 'test/model',
         ...(context.readerModel ? { readerModel: context.readerModel } : {}),
+        ...(context.maxSteps ? { maxSteps: context.maxSteps } : {}),
         ...(context.desktopContext ? { desktopContext: context.desktopContext } : {}),
         prompt: 'Hello',
         history: context.history ?? [],
@@ -202,6 +210,36 @@ test('tool calls go to the host, and the host outcome reaches the model', async 
   assert.equal(requests[0].tools[0].function.name, 'notes_save');
   const toolMessage = requests[1].messages.find(m => m.role === 'tool');
   assert.match(JSON.stringify(toolMessage), /denied/);
+});
+
+test('the last step must answer, so a run never ends on an action with nothing to say', async () => {
+  const saved = { status: 'succeeded', summary: 'Saved.' };
+  const { messages, requests } = await collect(
+    launch('loop', [notesSave], { maxSteps: 3 }),
+    () => saved,
+  );
+  assert.equal(messages.filter(m => m.type === 'tool-call').length, 2);
+  assert.deepEqual(
+    requests.map(request => request.tool_choice ?? 'auto'),
+    ['auto', 'auto', 'none'],
+  );
+  assert.match(JSON.stringify(requests[2].messages[0].content), /out of time for more actions/);
+  assert.equal(text(messages), 'Here is what I found so far.');
+  assert.equal(messages.at(-1).type, 'done');
+});
+
+test('when main says time is nearly up, the next step answers without actions', async () => {
+  let worker;
+  const { messages, requests } = await collect(
+    (worker = launch('loop', [notesSave], { maxSteps: 10 })),
+    () => {
+      worker.postMessage({ type: 'wrap-up' });
+      return { status: 'succeeded', summary: 'Saved.' };
+    },
+  );
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].tool_choice, 'none');
+  assert.equal(text(messages), 'Here is what I found so far.');
 });
 
 test('history and every screenshot reach the model, in order', async () => {

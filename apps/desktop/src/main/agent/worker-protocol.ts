@@ -88,4 +88,7 @@ export type WorkerMessage = z.infer<typeof workerMessageSchema>;
 
 /** Main → worker. */
 export type HostMessage =
-  { type: 'stop' } | { type: 'tool-result'; id: string; outcome: ToolOutcome };
+  | { type: 'stop' }
+  /** Time is nearly up: stop using tools and answer from what has been found so far. */
+  | { type: 'wrap-up' }
+  | { type: 'tool-result'; id: string; outcome: ToolOutcome };
