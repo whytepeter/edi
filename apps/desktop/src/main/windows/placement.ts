@@ -1,12 +1,12 @@
 import { screen, type BrowserWindow } from 'electron';
-import { clampWindow, mapSkinPoint, placeCard, skinGeometry, type SkinId } from '@edi/contracts';
+import { clampWindow, mapSkinPoint, placeCard, type CharacterGeometry } from '@edi/contracts';
 
 /** Own placement separately from IPC and rendering so every summon path behaves alike. */
 export class WindowPlacement {
   constructor(
     private readonly pet: BrowserWindow,
     private readonly card: BrowserWindow,
-    private readonly skin: () => SkinId,
+    private readonly geometry: () => CharacterGeometry,
     /** Windows that sit beside the card (shown content) move with it. */
     private readonly onPlaced: () => void = () => {},
   ) {}
@@ -17,7 +17,7 @@ export class WindowPlacement {
    */
   place(size = this.card.getBounds()) {
     const petBounds = this.pet.getBounds();
-    const geometry = skinGeometry[this.skin()];
+    const geometry = this.geometry();
     const anchor = mapSkinPoint(geometry, geometry.anchors.workspace, petBounds);
     const area = screen.getDisplayMatching(petBounds).workArea;
     this.card.setBounds(placeCard(anchor, size, area));

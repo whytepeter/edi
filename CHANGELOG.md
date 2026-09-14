@@ -7,6 +7,22 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Character packages. A character is `character.json` plus `art.svg`, zipped as `.edichar`. Edi and Mochi
+  now ship as packages in `packages/characters` and pass the same check as installed ones. Appearance is a
+  character library: add a package (choose it or drop it on the page), see it in every mood before
+  installing, and remove ones you added. Packages hold data only. Every SVG is parsed strictly and rebuilt
+  from an allowlist of drawing elements and checked attribute values, so scripts, styles, images, links,
+  animation, text and external references never survive, and ids are scoped per copy. Installed packages
+  are checked again on every launch. Creators get `pnpm character check` and `pnpm character pack`, a
+  starter template and a guide in `docs/characters`.
+- Expressions in layers: what Edi is doing (listening, thinking, speaking…), a mood (happy, sad, surprised,
+  confused, sleepy, love, annoyed) and cues timed to the voice (laugh, chuckle, sigh, gasp, groan, sniff).
+  Art parts (eyes, brows, mouth, cheeks, extras) offer named variants, and Edi picks the closest one each
+  part has, falling back to `default`, so a new mood needs no per-character code. Moods come with body
+  motion and floating effects (hearts, z's, a question mark, a surprise burst, an anger mark). Replies
+  open with a `[MOOD:…]` tag the face shows and the text and voice hide; failures look briefly sad, and a
+  long quiet spell makes the companion sleepy until you interact. Edi and Mochi have faces for every mood.
+
 - Settings → Usage: what Edi spent on OpenRouter today, over 7 or 30 days, with a daily chart, answers vs
   reading web pages, cost and tokens per model (with the share read from the prompt cache), characters sent to
   Cartesia and ElevenLabs, and the OpenRouter key's own spend and limit. Every model call records tokens and the

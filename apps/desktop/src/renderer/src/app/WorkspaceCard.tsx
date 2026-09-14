@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { assistantName, type ArtifactRef, type WorkspaceView } from '@edi/contracts';
 import { Icon, IconButton, Menu, ToolbarGroup } from '../components/ui';
-import { accentFor, type Command } from '../lib/bridge';
+import { type Command } from '../lib/bridge';
+import { characterById, useCharacters } from '../hooks/useCharacters';
 import { useSettings } from '../hooks/useSettings';
 import { AssistantNameContext } from '../hooks/useAssistantName';
 import { useAgentState } from '../hooks/useAgentState';
 import { usePermissions } from '../hooks/usePermissions';
 import { ApprovalSheet } from '../features/conversation/ApprovalSheet';
-import { Pet } from '../components/Pet';
+import { CharacterArt } from '../components/character/CharacterArt';
 import { AgentPanel } from '../features/conversation/AgentPanel';
 import { HomeView } from '../features/home/HomeView';
 import { AppearanceView } from '../features/appearance/AppearanceView';
@@ -39,6 +40,8 @@ import './workspace.css';
 /** The floating card: section navigation, card controls, and the active view. */
 export function WorkspaceCard() {
   const { settings, setSettings, error: loadError } = useSettings();
+  const characters = useCharacters();
+  const character = characterById(characters, settings.skin);
   const { state: agent } = useAgentState();
   // While a review is pending, everything else in the card is inert.
   const blocked = agent.approval !== null;
@@ -145,20 +148,20 @@ export function WorkspaceCard() {
   );
 
   return (
-    <AssistantNameContext.Provider value={assistantName(settings)}>
+    <AssistantNameContext.Provider value={assistantName(settings, character.manifest.name)}>
       <div
         className="workspace-card ds-card glass-window"
         data-accent
         data-view={view}
         data-section={section}
         data-expanded={expanded || undefined}
-        style={{ '--accent': accentFor(settings.skin) } as CSSProperties}
+        style={{ '--accent': character.manifest.colors.accent } as CSSProperties}
       >
         {expanded && (
           <nav className="workspace-sidebar" aria-label="Edi sections" inert={blocked}>
             <div className="workspace-brand">
               <span className="workspace-avatar">
-                <Pet skin={settings.skin} />
+                <CharacterArt character={character} />
               </span>
               <span className="workspace-wordmark">edi</span>
             </div>
@@ -178,7 +181,7 @@ export function WorkspaceCard() {
             <div className="workspace-view" hidden={Boolean(activePermission)}>
               {view === 'home' && (
                 <HomeView
-                  skin={settings.skin}
+                  character={character}
                   agent={agent}
                   system={system}
                   refreshKey={refreshKey}
@@ -199,6 +202,7 @@ export function WorkspaceCard() {
               {view === 'appearance' && (
                 <AppearanceView
                   skin={settings.skin}
+                  characters={characters}
                   scale={settings.petScale}
                   customName={settings.name}
                   onApply={skin => void send({ type: 'apply-skin', skin })}
@@ -267,7 +271,7 @@ export function WorkspaceCard() {
                   onClick={() => setMenuOpen(open => !open)}
                 >
                   <span className="workspace-avatar">
-                    <Pet skin={settings.skin} />
+                    <CharacterArt character={character} />
                   </span>
                   <span className="workspace-title">{titleOf(view)}</span>
                   <Icon name="chevron-down" size={14} />

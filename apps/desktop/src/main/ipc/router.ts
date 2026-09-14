@@ -18,6 +18,8 @@ import {
   type Settings,
   type SystemInfo,
   type PermissionSnapshot,
+  type CharacterDescriptor,
+  type CharacterInspection,
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
@@ -44,6 +46,9 @@ interface IpcDependencies {
   usage(days: UsagePeriod): Promise<UsageSummary>;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
+  characters(): CharacterDescriptor[];
+  pickCharacterPackage(): Promise<CharacterInspection | null>;
+  inspectCharacterFile(path: string): Promise<CharacterInspection>;
 }
 
 export function registerIpc({
@@ -59,6 +64,9 @@ export function registerIpc({
   usage,
   artifact,
   permissions,
+  characters,
+  pickCharacterPackage,
+  inspectCharacterFile,
 }: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
     // Subframes never inherit their window's privileges.
@@ -114,6 +122,19 @@ export function registerIpc({
   ipcMain.handle('edi:bubble-approval:get', event => {
     authorize(callerOf(event), ['bubble']);
     return agentState().approval;
+  });
+  ipcMain.handle('edi:characters:get', event => {
+    authorize(callerOf(event), ['workspace', 'pet', 'artifact']);
+    return characters();
+  });
+  ipcMain.handle('edi:characters:pick', event => {
+    authorize(callerOf(event), ['workspace']);
+    return pickCharacterPackage();
+  });
+  ipcMain.handle('edi:characters:inspect-file', (event, path: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    if (typeof path !== 'string' || path.length > 4096) throw new Error('Invalid file');
+    return inspectCharacterFile(path);
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

@@ -1,4 +1,22 @@
 import { z } from 'zod';
+import { assistantNameSchema } from './assistant-name';
+import {
+  characterDescriptorSchema,
+  characterIdSchema,
+  type CharacterDescriptor,
+  type CharacterId,
+} from './character/manifest';
+import type { CharacterExpression, CharacterMood } from './character/expressions';
+export { assistantNameSchema } from './assistant-name';
+export * from './character/expressions';
+export * from './character/manifest';
+export * from './character/package';
+export {
+  sanitizeCharacterArt,
+  maxArtBytes,
+  type ArtProblem,
+  type SanitizedArt,
+} from './character/svg';
 import { approvalRequestSchema, toolStepSchema, type Activity } from './capabilities';
 export * from './capabilities';
 export * from './screen-context';
@@ -31,7 +49,8 @@ export {
 } from './window-placement';
 export {
   skinGeometrySchema,
-  skinGeometry,
+  characterGeometrySchema,
+  type CharacterGeometry,
   handPaths,
   handTip,
   mapSkinPoint,
@@ -120,18 +139,10 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
   };
 }
 
-export const skinSchema = z.enum(['edi', 'mochi']);
-export type SkinId = z.infer<typeof skinSchema>;
-/**
- * The name the person gives their companion. It starts with a letter and holds only letters,
- * digits, spaces, apostrophes, periods and hyphens, so it is safe in copy, menus and prompts.
- */
-export const assistantNameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(24)
-  .regex(/^\p{L}[\p{L}\p{M}\p{N} '’.-]*$/u);
+/** Settings keep the historical name `skin`; it holds any installed character's id. */
+export const skinSchema = characterIdSchema;
+export type SkinId = CharacterId;
+
 import {
   cloudProviderSchema,
   voiceChoicesSchema,
@@ -142,19 +153,6 @@ import {
 } from './voice-catalog';
 export * from './voice-catalog';
 
-/**
- * Semantic character states, independent of artwork and voice provider. A skin
- * may express them differently, but it must not invent provider-specific moods.
- */
-export const characterExpressionSchema = z.enum([
-  'idle',
-  'listening',
-  'thinking',
-  'speaking',
-  'happy',
-  'attention',
-]);
-export type CharacterExpression = z.infer<typeof characterExpressionSchema>;
 export const screenPointSchema = z
   .object({
     x: z.number().finite().min(-100000).max(100000),
@@ -227,8 +225,8 @@ export const defaultSettings: Settings = {
 };
 
 /** What the companion is called: the person's chosen name, otherwise its character's name. */
-export function assistantName(settings: Pick<Settings, 'name' | 'skin'>): string {
-  return settings.name ?? skins.find(skin => skin.id === settings.skin)?.name ?? 'Edi';
+export function assistantName(settings: Pick<Settings, 'name'>, characterName: string): string {
+  return settings.name ?? characterName;
 }
 /**
  * Every place the card can show, as a stable, versioned destination list. Edi's
@@ -366,6 +364,9 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('permission-dismiss'), permission: permissionIdSchema }).strict(),
   z.object({ type: z.literal('hide-workspace') }).strict(),
   z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
+  /** Install the package checked earlier under this token (from a pick or a drop). */
+  z.object({ type: z.literal('character-install'), token: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('character-remove'), id: characterIdSchema }).strict(),
   /** Name the companion, or null to go back to the character's own name. */
   z.object({ type: z.literal('set-name'), name: assistantNameSchema.nullable() }).strict(),
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
@@ -464,22 +465,32 @@ export interface DesktopBridge {
   onVoice(callback: (event: VoiceHostEvent) => void): () => void;
   /** Live semantic state; only the pet renderer translates this into motion. */
   onCharacterExpression(callback: (expression: CharacterExpression) => void): () => void;
+  /** How the moment feels; lasts for a reply or a while. */
+  onCharacterMood(callback: (mood: CharacterMood) => void): () => void;
+  /** Built-in and installed characters, checked and ready to render. */
+  characters(): Promise<CharacterDescriptor[]>;
+  onCharacters(callback: (characters: CharacterDescriptor[]) => void): () => void;
+  /** Choose a .edichar file and check it; nothing is installed yet. Null when cancelled. */
+  pickCharacterPackage(): Promise<CharacterInspection | null>;
+  /** Check a .edichar file dropped on the card. */
+  inspectCharacterFile(file: File): Promise<CharacterInspection>;
 }
-export const skins = [
-  {
-    id: 'edi',
-    name: 'Edi',
-    description: 'Warm, bright, and always nearby.',
-    color: '#3d2419',
-    fill: '#b5744c',
-    accent: '#3d2419',
-  },
-  {
-    id: 'mochi',
-    name: 'Mochi',
-    description: 'Soft, cheerful, and a little bouncy.',
-    color: '#71493D',
-    fill: '#fbf2e8',
-    accent: '#71493D',
-  },
-] as const;
+/** What checking a package found. Install it by sending `character-install` with the token. */
+export const characterInspectionSchema = z
+  .object({
+    token: z.string().uuid(),
+    fileName: z.string().max(200),
+    character: characterDescriptorSchema.nullable(),
+    manifest: z
+      .object({ id: z.string().max(64), name: z.string().max(60), version: z.string().max(20) })
+      .nullable(),
+    problems: z
+      .array(
+        z.object({ level: z.enum(['error', 'warning']), message: z.string().max(400) }).strict(),
+      )
+      .max(64),
+    /** The installed version this would replace, if any. */
+    replaces: z.string().max(20).nullable(),
+  })
+  .strict();
+export type CharacterInspection = z.infer<typeof characterInspectionSchema>;

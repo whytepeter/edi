@@ -3,17 +3,17 @@ import {
   presentationText,
   type AgentState,
   type LibraryItem,
-  type SkinId,
+  type CharacterDescriptor,
   type SystemInfo,
   type WorkspaceView,
 } from '@edi/contracts';
 import { GroupedList, GroupedRow, Icon } from '../../components/ui';
-import { Pet } from '../../components/Pet';
+import { CharacterArt } from '../../components/character/CharacterArt';
 import './home.css';
 import { useAssistantName } from '../../hooks/useAssistantName';
 
 interface HomeViewProps {
-  skin: SkinId;
+  character: CharacterDescriptor;
   agent: AgentState;
   system: SystemInfo | null;
   refreshKey: string;
@@ -33,7 +33,7 @@ const clip = (text: string, length = 90) =>
   text.length > length ? `${text.slice(0, length).trimEnd()}…` : text;
 
 /** Where the card opens: ask something, pick up where you left off, or finish setup. */
-export function HomeView({ skin, agent, system, refreshKey, onOpen, onAsk }: HomeViewProps) {
+export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }: HomeViewProps) {
   const assistant = useAssistantName();
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -69,7 +69,7 @@ export function HomeView({ skin, agent, system, refreshKey, onOpen, onAsk }: Hom
     <section className="home-view">
       <header className="home-hero">
         <span className="home-avatar">
-          <Pet skin={skin} />
+          <CharacterArt character={character} />
         </span>
         <h1 className="ds-large-title">{greeting()}</h1>
         <p className="ds-body ds-secondary">What can I help with?</p>

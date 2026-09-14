@@ -136,6 +136,14 @@ const POINTING = [
   'These are temporary visual annotations, never clicks or changes to another app.',
 ].join(' ');
 
+// The face shows how a reply feels; main reads the tag and strips it from text and speech.
+const MOOD = [
+  'Begin every reply with one mood tag for how you feel about what you are saying, chosen from',
+  '[MOOD:neutral], [MOOD:happy], [MOOD:sad], [MOOD:surprised], [MOOD:confused], [MOOD:sleepy],',
+  '[MOOD:love] and [MOOD:annoyed]. Your face shows it; the user never sees the tag. Use neutral',
+  'when nothing stands out, keep annoyed playful, and never mention or explain the tag.',
+].join(' ');
+
 // Voice turns are heard, not read: keep them short and free of formatting.
 const SPOKEN = [
   'This question was spoken aloud and your reply will be read aloud.',
@@ -376,6 +384,7 @@ async function run() {
         SHOWING,
         WORKSPACE,
         SELF,
+        MOOD,
         input.selfContext ? `Current Edi setup (trusted runtime data): ${input.selfContext}` : '',
         input.screenshots.length ? POINTING : '',
         input.spoken ? SPOKEN : '',

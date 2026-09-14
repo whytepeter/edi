@@ -1,0 +1,21 @@
+{
+  "name": "@edi/characters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The characters that ship with Edi, as ordinary character packages.",
+  "exports": {
+    "./*": "./*"
+  },
+  "scripts": {
+    "build": "node --import tsx scripts/build.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@edi/contracts": "workspace:*",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}

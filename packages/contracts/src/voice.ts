@@ -17,7 +17,7 @@ const bytes = z.custom<Uint8Array>(value => value instanceof Uint8Array, 'Expect
 export const maxVoicePcmBytes = 16_000 * 2 * 61;
 
 /** Expression tags the character performs in time with the voice. Other tags are only heard. */
-export const speechCueSchema = z.enum(['laugh', 'chuckle']);
+export const speechCueSchema = z.enum(['laugh', 'chuckle', 'sigh', 'gasp', 'groan', 'sniff']);
 export type SpeechCue = z.infer<typeof speechCueSchema>;
 
 export interface CueSegment {
@@ -29,11 +29,11 @@ export interface CueSegment {
   trailing: SpeechCue | null;
 }
 
-const cueTag = /(\[(?:laugh|chuckle)\])/i;
+const cueTag = /(\[(?:laugh|chuckle|sigh|gasp|groan|sniff)\])/i;
 const hasWords = (text: string) => /[\p{L}\p{N}]/u.test(text.replace(/\[[^\]]*\]/g, ''));
 
 /**
- * Splits an expressive clip so each laugh or chuckle starts its own utterance. Streaming
+ * Splits an expressive clip so each performed tag (a laugh, a sigh…) starts its own utterance. Streaming
  * synthesis cannot say where inside a clip a tag's sound lands, but the start of an utterance
  * is exact, so the character's laugh begins with the audible one.
  */

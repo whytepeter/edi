@@ -1,14 +1,24 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { assistantNameSchema, skins, type SkinId } from '@edi/contracts';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import {
+  assistantNameSchema,
+  defaultCharacterId,
+  type CharacterDescriptor,
+  type CharacterInspection,
+  type SkinId,
+} from '@edi/contracts';
 import { Button, Icon, TextField } from '../../components/ui';
+import { CharacterArt } from '../../components/character/CharacterArt';
 import { useAssistantName } from '../../hooks/useAssistantName';
-import { accentFor, inkFor } from '../../lib/bridge';
-import { Pet } from '../../components/Pet';
+import { characterById } from '../../hooks/useCharacters';
+import { CharacterInstallSheet } from './CharacterInstallSheet';
+import { MoodPreview } from './MoodPreview';
 import './appearance.css';
 
 interface AppearanceViewProps {
   skin: SkinId;
   scale: number;
+  /** Built-in and installed characters. */
+  characters: CharacterDescriptor[];
   /** The person's own name for their companion; null uses the character's name. */
   customName: string | null;
   onApply(skin: SkinId): void;
@@ -19,19 +29,21 @@ interface AppearanceViewProps {
 }
 
 /**
- * Preview a character before applying it; size applies live. The name is the person's own, or
- * the character's until they give one. Voice and conversation are unaffected.
+ * The character library: preview a character before applying it, add one from a .edichar file
+ * (chosen, or dropped here), see it in every mood, and remove ones you installed. The name and
+ * size apply to whichever character is showing. Voice and conversation are unaffected.
  */
 export function AppearanceView({
   skin,
   scale,
+  characters,
   customName,
   onApply,
   onName,
   onScale,
 }: AppearanceViewProps) {
   const assistant = useAssistantName();
-  const characterName = skins.find(entry => entry.id === skin)?.name ?? 'Edi';
+  const current = characterById(characters, skin);
   const [draft, setDraft] = useState(customName ?? '');
   const [savingName, setSavingName] = useState(false);
   // A saved name arriving from main (or the agent renaming itself) replaces the field.
@@ -43,13 +55,17 @@ export function AppearanceView({
   const trimmed = draft.trim();
   const nameValid = trimmed === '' || assistantNameSchema.safeParse(trimmed).success;
   const nameChanged = (trimmed || null) !== customName;
-  const [preview, setPreview] = useState<SkinId>(skin);
+  const [previewId, setPreviewId] = useState<SkinId>(skin);
+  const preview = characterById(characters, previewId);
   const [hovered, setHovered] = useState<SkinId | null>(null);
+  const [moods, setMoods] = useState(false);
+  const [inspection, setInspection] = useState<CharacterInspection | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const [message, setMessage] = useState('');
   // The dragged value, only while the slider moves; otherwise the saved scale.
   const [dragging, setDragging] = useState<number | null>(null);
   const size = dragging ?? scale;
   const frame = useRef(0);
-  const previewName = skins.find(entry => entry.id === preview)?.name ?? 'Edi';
 
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
@@ -60,8 +76,61 @@ export function AppearanceView({
     frame.current = requestAnimationFrame(() => onScale(value, false));
   }
 
+  async function pick() {
+    setMessage('');
+    try {
+      const result = await window.edi?.pickCharacterPackage();
+      if (result) setInspection(result);
+    } catch {
+      setMessage('Couldn’t open that file.');
+    }
+  }
+
+  async function drop(event: DragEvent) {
+    event.preventDefault();
+    setDropping(false);
+    const file = [...event.dataTransfer.files].find(item =>
+      item.name.toLowerCase().endsWith('.edichar'),
+    );
+    if (!file) return setMessage('Characters come as .edichar files.');
+    setMessage('');
+    try {
+      const result = await window.edi?.inspectCharacterFile(file);
+      if (result) setInspection(result);
+    } catch {
+      setMessage('Couldn’t read that file.');
+    }
+  }
+
+  async function remove(character: CharacterDescriptor) {
+    setMessage('');
+    try {
+      await window.edi?.command({ type: 'character-remove', id: character.manifest.id });
+      setPreviewId(skin === character.manifest.id ? defaultCharacterId : skin);
+      setMoods(false);
+    } catch {
+      setMessage(`Couldn’t remove ${character.manifest.name}.`);
+    }
+  }
+
+  const choose = (id: SkinId) => {
+    setPreviewId(id);
+    setMoods(false);
+  };
+
   return (
-    <section>
+    <section
+      className="appearance-view"
+      onDragOver={event => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false);
+      }}
+      onDrop={event => void drop(event)}
+    >
       <header className="view-header">
         <h1 className="ds-large-title">Pick your little someone.</h1>
         <p className="ds-body ds-secondary">
@@ -69,43 +138,80 @@ export function AppearanceView({
         </p>
       </header>
       <div className="avatar-grid">
-        {skins.map(entry => (
-          <button
-            key={entry.id}
-            type="button"
-            className="avatar-choice"
-            aria-label={`${entry.name} avatar option`}
-            aria-pressed={preview === entry.id}
-            data-accent
-            style={{ '--accent': accentFor(entry.id), color: inkFor(entry.id) } as CSSProperties}
-            onClick={() => setPreview(entry.id)}
-            onMouseEnter={() => setHovered(entry.id)}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={() => setHovered(entry.id)}
-            onBlur={() => setHovered(null)}
-          >
-            <Pet skin={entry.id} expression={hovered === entry.id ? 'happy' : 'idle'} />
-            <span className="ds-headline">{entry.name}</span>
-            <span className="ds-caption ds-tertiary">
-              {skin === entry.id ? `Your ${assistant}` : 'Try a new look'}
-            </span>
-            {preview === entry.id && (
-              <i className="avatar-check">
-                <Icon name="check" size={12} />
-              </i>
-            )}
-          </button>
-        ))}
+        {characters.map(entry => {
+          const id = entry.manifest.id;
+          return (
+            <button
+              key={id}
+              type="button"
+              className="avatar-choice"
+              aria-label={`${entry.manifest.name} avatar option`}
+              aria-pressed={previewId === id}
+              data-accent
+              style={
+                {
+                  '--accent': entry.manifest.colors.accent,
+                  color: entry.manifest.colors.outline,
+                } as CSSProperties
+              }
+              onClick={() => choose(id)}
+              onMouseEnter={() => setHovered(id)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(id)}
+              onBlur={() => setHovered(null)}
+            >
+              <CharacterArt character={entry} expression={hovered === id ? 'happy' : 'idle'} />
+              <span className="ds-headline">{entry.manifest.name}</span>
+              <span className="ds-caption ds-tertiary">
+                {skin === id ? `Your ${assistant}` : entry.builtIn ? 'Try a new look' : 'Installed'}
+              </span>
+              {previewId === id && (
+                <i className="avatar-check">
+                  <Icon name="check" size={12} />
+                </i>
+              )}
+            </button>
+          );
+        })}
+        <button type="button" className="avatar-add" onClick={() => void pick()}>
+          <Icon name="plus" size={22} />
+          <span className="ds-headline">Add</span>
+          <span className="ds-caption ds-tertiary">A .edichar file</span>
+        </button>
       </div>
       <Button
         className="appearance-apply"
         variant="prominent"
         block
-        disabled={preview === skin}
-        onClick={() => onApply(preview)}
+        disabled={previewId === current.manifest.id}
+        onClick={() => onApply(previewId)}
       >
-        {preview === skin ? `This is your ${assistant}` : `Use ${previewName}`}
+        {previewId === current.manifest.id
+          ? `This is your ${assistant}`
+          : `Use ${preview.manifest.name}`}
       </Button>
+      <div className="appearance-character-actions">
+        <Button size="small" variant="plain" onClick={() => setMoods(open => !open)}>
+          {moods ? 'Hide moods' : `See ${preview.manifest.name} in every mood`}
+        </Button>
+        {!preview.builtIn && (
+          <Button size="small" variant="plain" onClick={() => void remove(preview)}>
+            Remove {preview.manifest.name}
+          </Button>
+        )}
+      </div>
+      {!preview.builtIn && (
+        <p className="appearance-credit ds-footnote ds-tertiary">
+          {preview.manifest.name} {preview.manifest.version} by {preview.manifest.author.name} ·{' '}
+          {preview.manifest.license}
+        </p>
+      )}
+      {moods && <MoodPreview character={preview} />}
+      {message && (
+        <p className="appearance-message ds-footnote" role="alert">
+          {message}
+        </p>
+      )}
       <form
         className="appearance-name"
         onSubmit={async event => {
@@ -118,7 +224,7 @@ export function AppearanceView({
       >
         <TextField
           label="Name"
-          placeholder={characterName}
+          placeholder={current.manifest.name}
           value={draft}
           maxLength={24}
           autoComplete="off"
@@ -134,7 +240,7 @@ export function AppearanceView({
           role={nameValid ? undefined : 'alert'}
         >
           {nameValid
-            ? `Leave empty to use the character’s name, ${characterName}.`
+            ? `Leave empty to use the character’s name, ${current.manifest.name}.`
             : 'Start with a letter. Letters, numbers, spaces, hyphens and apostrophes only.'}
         </p>
       </form>
@@ -169,6 +275,22 @@ export function AppearanceView({
       <p className="view-footnote ds-footnote ds-tertiary">
         Your voice and conversations stay the same.
       </p>
+      {dropping && (
+        <div className="appearance-drop" aria-hidden="true">
+          <Icon name="plus" size={28} />
+          <span className="ds-headline">Drop to check this character</span>
+        </div>
+      )}
+      {inspection && (
+        <CharacterInstallSheet
+          inspection={inspection}
+          onClose={() => setInspection(null)}
+          onInstalled={id => {
+            setInspection(null);
+            choose(id);
+          }}
+        />
+      )}
     </section>
   );
 }

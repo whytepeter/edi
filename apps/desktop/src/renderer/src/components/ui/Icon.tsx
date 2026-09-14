@@ -3,6 +3,7 @@ const paths = {
   expand: 'M14 4h6v6M20 4l-6 6M10 20H4v-6M4 20l6-6',
   collapse: 'M20 10h-6V4M14 10l6-6M4 14h6v6M10 14l-6 6',
   close: 'M6.5 6.5l11 11M17.5 6.5l-11 11',
+  plus: 'M12 5v14M5 12h14',
   back: 'M14.5 5.5L8 12l6.5 6.5',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   pin: 'M9.5 3.5h5l-.8 6.5 3.8 3.5v1.5h-11V13.5L10.3 10 9.5 3.5ZM12 15v5.5',

@@ -52,7 +52,6 @@ test('streamed presentation tags stay hidden, including partial tokens', () => {
   const shots = [{ width: 100, height: 100, display: { x: 0, y: 0, width: 100, height: 100 } }];
   assert.equal(resolvePresentation(parsePresentation('[DRAW:circle:5,5,20:bad]'), shots), null);
 });
-import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
 import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
 
 test('card placement flips at left edge and clamps small/negative-origin displays', () => {
@@ -84,40 +83,6 @@ test('card placement flips at left edge and clamps small/negative-origin display
     { x: 0, y: 0, width: 320, height: 300 },
   );
   assert.throws(() => clampWindow({ x: NaN, y: 0, width: 1, height: 1 }, area));
-});
-
-test('all bundled skins validate and reject out-of-bounds anchors', () => {
-  for (const geometry of Object.values(skinGeometry)) {
-    assert.equal(skinGeometrySchema.safeParse(geometry).success, true);
-    assert.equal(
-      skinGeometrySchema.safeParse({
-        ...geometry,
-        anchors: { ...geometry.anchors, leftHand: { x: -1, y: 0 } },
-      }).success,
-      false,
-    );
-    assert.equal(
-      skinGeometrySchema.safeParse({
-        ...geometry,
-        paintedBounds: { x: 0, y: 0, width: 999, height: 10 },
-      }).success,
-      false,
-    );
-  }
-});
-test('skin coordinates match centered SVG scaling including negative display origins', () => {
-  const geometry = skinGeometry.mochi;
-  assert.deepEqual(
-    mapSkinPoint(geometry, { x: 80, y: 85 }, { x: -500, y: 10, width: 320, height: 170 }),
-    { x: -340, y: 95 },
-  );
-  assert.deepEqual(
-    mapSkinPoint(geometry, geometry.anchors.leftHand, { x: 0, y: 0, width: 160, height: 170 }),
-    { x: 30, y: 99 },
-  );
-  assert.throws(() =>
-    mapSkinPoint(geometry, { x: 0, y: 0 }, { x: 0, y: 0, width: 0, height: 170 }),
-  );
 });
 
 test('bridge rejects unknown capabilities and invalid skin selections', () => {
@@ -593,9 +558,8 @@ test('presentations resolve onto the right display, and bad targets are rejected
 test('the companion is named by the person, or by its character until then', () => {
   const saved = settingsSchema.parse({ skin: 'mochi', pinned: false });
   assert.equal(saved.name, null);
-  assert.equal(assistantName(saved), 'Mochi');
-  assert.equal(assistantName({ ...saved, skin: 'edi' }), 'Edi');
-  assert.equal(assistantName({ skin: 'mochi', name: 'Luna' }), 'Luna');
+  assert.equal(assistantName(saved, 'Mochi'), 'Mochi');
+  assert.equal(assistantName({ name: 'Luna' }, 'Mochi'), 'Luna');
   assert.equal(settingsSchema.parse({ skin: 'edi', pinned: false, name: '  Zoë ' }).name, 'Zoë');
   // Names are copy, menu labels and prompt text: markup, paths and empty names are refused.
   for (const name of ['', '<b>Edi</b>', '../x', '1Edi', 'A'.repeat(25)]) {

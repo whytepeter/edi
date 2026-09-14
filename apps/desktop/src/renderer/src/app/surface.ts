@@ -1,10 +1,10 @@
+import { z } from 'zod';
 import {
   assistantNameSchema,
   artifactRefSchema,
   artifactSummarySchema,
   bubbleNoticeSchema,
   bubbleSideSchema,
-  skinSchema,
   statusBubbleStateSchema,
   presentationScriptSchema,
 } from '@edi/contracts';
@@ -22,6 +22,12 @@ const surfaces: readonly Surface[] = [
 ];
 
 const params = new URLSearchParams(location.search);
+/** Colors main passes for windows without a bridge; anything else falls back. */
+const hexColor = (fallback: string) =>
+  z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .catch(fallback);
 
 export const surface: Surface =
   surfaces.find(name => name === params.get('surface')) ?? 'workspace';
@@ -41,7 +47,7 @@ export const artifactParams = {
 export const bubbleParams = {
   state: statusBubbleStateSchema.catch('unavailable').parse(params.get('state')),
   side: bubbleSideSchema.catch('right').parse(params.get('side')),
-  skin: skinSchema.catch('edi').parse(params.get('skin')),
+  accent: hexColor('#3d2419').parse(params.get('accent')),
   name: assistantNameSchema.catch('Edi').parse(params.get('name')),
   text: bubbleNoticeSchema.catch('').parse(params.get('text')),
   artifact: (() => {
@@ -73,5 +79,7 @@ export const pointerParams = {
       return [];
     }
   })(),
-  skin: skinSchema.catch('edi').parse(params.get('skin')),
+  accent: hexColor('#3d2419').parse(params.get('accent')),
+  outline: hexColor('#3b2016').parse(params.get('outline')),
+  hand: hexColor('#bb7a4e').parse(params.get('hand')),
 };

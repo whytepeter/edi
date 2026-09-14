@@ -15,6 +15,7 @@ import type { WindowPlacement } from '../windows/placement';
 import type { VoiceController } from '../voice/voice-controller';
 import { cardSize, resizePetWindow } from '../windows/factory';
 import type { PermissionManager } from '../permission-manager';
+import type { CharacterLibrary } from '../characters/library';
 
 interface CommandDependencies {
   workspace: BrowserWindow;
@@ -42,6 +43,8 @@ interface CommandDependencies {
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
   reportView(view: WorkspaceView): void;
+  /** Built-in and installed characters. */
+  characters: CharacterLibrary;
 }
 
 const fromPet = ['pet'] as const;
@@ -69,6 +72,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     setVoiceKey,
     deleteLibraryItem,
     reportView,
+    characters,
   } = deps;
 
   // Move the card immediately; the write and broadcast follow.
@@ -140,7 +144,25 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ expanded }) =>
         placement.place({ x: 0, y: 0, ...(expanded ? cardSize.expanded : cardSize.compact) }),
     },
-    'apply-skin': { from: fromWorkspace, handle: ({ skin }) => updateLayout({ skin }) },
+    'apply-skin': {
+      from: fromWorkspace,
+      handle: ({ skin }) => {
+        if (!characters.has(skin)) throw new Error('That character is not installed.');
+        const bounds = resizePetWindow(
+          pet,
+          settings.current.petScale,
+          characters.get(skin).manifest.geometry,
+        );
+        return updateLayout({ skin, petPosition: { x: bounds.x, y: bounds.y } });
+      },
+    },
+    'character-install': {
+      from: fromWorkspace,
+      handle: async ({ token }) => {
+        await characters.install(token);
+      },
+    },
+    'character-remove': { from: fromWorkspace, handle: ({ id }) => characters.remove(id) },
     'set-name': { from: fromWorkspace, handle: ({ name }) => settings.update({ name }) },
     'set-pinned': { from: fromWorkspace, handle: ({ pinned }) => updateLayout({ pinned }) },
     'set-speak-replies': {
@@ -150,7 +172,11 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'set-pet-scale': {
       from: fromWorkspace,
       handle: ({ scale, commit }) => {
-        const bounds = resizePetWindow(pet, scale, settings.current.skin);
+        const bounds = resizePetWindow(
+          pet,
+          scale,
+          characters.get(settings.current.skin).manifest.geometry,
+        );
         // While the slider moves, the card (and the slider in it) stays still even if a display
         // edge pushes Edi; it re-attaches once, when the slider settles, and the size is saved.
         if (!commit) return;

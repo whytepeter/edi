@@ -1,11 +1,13 @@
 import { useEffect, useEffectEvent, useRef, useState, type PointerEvent } from 'react';
 import {
   petDragThreshold,
+  type CharacterDescriptor,
   type CharacterExpression,
+  type CharacterMood,
   type Command,
-  type SkinId,
+  type SpeechCue,
 } from '@edi/contracts';
-import { Pet } from '../../components/Pet';
+import { CharacterArt } from '../../components/character/CharacterArt';
 import { useAssistantName } from '../../hooks/useAssistantName';
 
 interface Gesture {
@@ -18,13 +20,15 @@ interface Gesture {
 
 /** Pointer capture keeps the grab stable when Edi's native window moves beneath it. */
 export function DesktopPet({
-  skin,
-  color,
+  character,
   expression,
+  mood,
+  cue,
 }: {
-  skin: SkinId;
-  color: string;
+  character: CharacterDescriptor;
   expression: CharacterExpression;
+  mood: CharacterMood;
+  cue: SpeechCue | null;
 }) {
   const assistant = useAssistantName();
   const gesture = useRef<Gesture | null>(null);
@@ -92,7 +96,7 @@ export function DesktopPet({
   return (
     <button
       ref={button}
-      className={`desktop-pet${dragging ? ' is-dragging' : ''}`}
+      className={`desktop-pet character-live${dragging ? ' is-dragging' : ''}`}
       aria-label={assistant}
       aria-haspopup="menu"
       title={error || 'Hold to talk. Drag to move. Right-click for options.'}
@@ -101,7 +105,7 @@ export function DesktopPet({
         finish(true);
         void send({ type: 'character-menu', point: { x: event.screenX, y: event.screenY } });
       }}
-      style={{ color }}
+      style={{ color: character.manifest.colors.outline }}
       onPointerDown={event => {
         if (event.button !== 0 || gesture.current) return;
         setError('');
@@ -159,7 +163,7 @@ export function DesktopPet({
         if (event.detail === 0) void send({ type: 'character-menu' });
       }}
     >
-      <Pet skin={skin} expression={expression} />
+      <CharacterArt character={character} expression={expression} mood={mood} cue={cue} />
     </button>
   );
 }

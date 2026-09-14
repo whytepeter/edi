@@ -27,8 +27,8 @@ async function checkGeometry(pet, skin) {
       bodyHit: hits(80, 90),
       marginHit: hits(3, 3),
       shadowHit: hits(80, 153),
-      left: svg.querySelector('[data-part="left-hand"]').getAttribute('transform'),
-      right: svg.querySelector('[data-part="right-hand"]').getAttribute('transform'),
+      left: svg.querySelector('[data-hand="left"]').getAttribute('transform'),
+      right: svg.querySelector('[data-hand="right"]').getAttribute('transform'),
     };
   });
   expect(result.bodyHit).toBe(true);
@@ -36,10 +36,11 @@ async function checkGeometry(pet, skin) {
   expect(result.shadowHit).toBe(false);
   expect(result.left).toBe('translate(30 99)');
   expect(result.right).toBe('translate(132 112)');
-  // Edi's hoops reach the canvas sides and her thinking hand rests below the chin.
+  // Everything painted, shadows included, stays inside the 160×170 artboard. Edi's hoops reach
+  // the sides and her shadow sits near the bottom edge.
   const expected = {
-    mochi: { left: 8, top: 17, right: 154, bottom: 148 },
-    edi: { left: 1, top: 20, right: 159, bottom: 167 },
+    mochi: { left: 8, top: 14, right: 154, bottom: 161 },
+    edi: { left: 1, top: 20, right: 159, bottom: 170 },
   }[skin];
   expect(result.box.x - 2).toBeGreaterThanOrEqual(expected.left);
   expect(result.box.y - 2).toBeGreaterThanOrEqual(expected.top);
@@ -129,8 +130,9 @@ try {
   expect(petCannotChangeSettings).toBe(true);
   await workspace.getByRole('button', { name: /choose a section/ }).click();
   await workspace.getByRole('menuitem', { name: /Appearance/ }).click();
-  // Only Edi and Mochi are offered; retired characters are gone.
+  // Only Edi and Mochi ship; retired characters are gone. Installing more starts from Add.
   await expect(workspace.getByRole('button', { name: /avatar option/ })).toHaveCount(2);
+  await expect(workspace.getByRole('button', { name: /^Add/ })).toBeVisible();
   await workspace.getByRole('button', { name: 'Mochi avatar option' }).click();
   await workspace.getByRole('button', { name: 'Use Mochi' }).click();
   await expect(pet.getByRole('img', { name: /^Mochi avatar/ })).toBeVisible();

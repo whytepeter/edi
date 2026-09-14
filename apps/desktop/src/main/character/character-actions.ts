@@ -3,12 +3,11 @@ import {
   mapSkinPoint,
   placeContextMenu,
   placeSpeechBubble,
-  skinGeometry,
   type ApprovalRequest,
   type ArtifactSummary,
   type BubbleSide,
   type CharacterExpression,
-  type SkinId,
+  type CharacterManifest,
   type StatusBubbleState,
 } from '@edi/contracts';
 import {
@@ -22,7 +21,8 @@ import {
 interface CharacterActionsOptions {
   pet: BrowserWindow;
   card: BrowserWindow;
-  skin: () => SkinId;
+  /** The current character: its geometry places bubbles, its accent colors them. */
+  character: () => CharacterManifest;
   /** The companion's current name, for menus and bubbles. */
   name: () => string;
   /** Start real capture; false means the local voice runtime is unavailable. */
@@ -34,6 +34,8 @@ interface CharacterActionsOptions {
   createMenu: (name: string) => BrowserWindow;
   /** Narrow main-to-renderer state channel; artwork remains renderer-owned. */
   showExpression: (expression: CharacterExpression) => void;
+  /** The person did something with the character; a sleepy companion wakes up. */
+  noteActivity: () => void;
   quit: () => void;
 }
 
@@ -60,6 +62,7 @@ export class CharacterActions {
   }
 
   requestListening = (mode: 'conversation' | 'push-to-talk' = 'conversation') => {
+    this.options.noteActivity();
     this.hideMenu();
     this.mode = mode;
     this.options.stopWork();
@@ -179,7 +182,7 @@ export class CharacterActions {
       side,
       text,
       artifact,
-      skin: this.options.skin(),
+      accent: this.options.character().colors.accent,
       name: this.options.name(),
     });
     this.bubble = { window, state, side };
@@ -215,7 +218,7 @@ export class CharacterActions {
 
   private bubblePlacement(size: { width: number; height: number }, side?: BubbleSide) {
     const pet = this.options.pet.getBounds();
-    const geometry = skinGeometry[this.options.skin()];
+    const geometry = this.options.character().geometry;
     return placeSpeechBubble(
       {
         right: mapSkinPoint(geometry, geometry.anchors.speechRight, pet),
@@ -286,6 +289,7 @@ export class CharacterActions {
   }
 
   showContent = () => {
+    this.options.noteActivity();
     this.options.showContent();
     // Let an approval bubble's IPC reply complete before destroying its sender.
     const bubble = this.bubble?.window;

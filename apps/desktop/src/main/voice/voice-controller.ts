@@ -73,7 +73,7 @@ export function speakable(text: string, expressions = false) {
     .replace(/\[([^\]]+)\]\((?:https?:\/\/|www\.)[^)\s]*\)/gi, '$1')
     .replace(/\b(?:https?:\/\/|www\.)[^\s)]*[^\s).,;:!?]/gi, ' ')
     .replace(/\s+([.,;:!?])/g, '$1')
-    .replace(/\[(?:POINT|DRAW):[^\]]*\]/gi, ' ')
+    .replace(/\[(?:POINT|DRAW|MOOD):[^\]]*\]/gi, ' ')
     .replace(/[*_`#>|~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

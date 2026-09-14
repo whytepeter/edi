@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
   activitySchema,
   artifactRefSchema,
@@ -7,6 +7,9 @@ import {
   artifactSchema,
   agentStateSchema,
   characterExpressionSchema,
+  characterInspectionSchema,
+  characterListSchema,
+  characterMoodSchema,
   commandSchema,
   librarySchema,
   modelCatalogSchema,
@@ -100,5 +103,29 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('edi:character-expression', listener);
     return () => ipcRenderer.removeListener('edi:character-expression', listener);
   },
+  onCharacterMood: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = characterMoodSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:character-mood', listener);
+    return () => ipcRenderer.removeListener('edi:character-mood', listener);
+  },
+  characters: async () => characterListSchema.parse(await ipcRenderer.invoke('edi:characters:get')),
+  onCharacters: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = characterListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:characters', listener);
+    return () => ipcRenderer.removeListener('edi:characters', listener);
+  },
+  pickCharacterPackage: async () =>
+    characterInspectionSchema.nullable().parse(await ipcRenderer.invoke('edi:characters:pick')),
+  // The renderer never sees file paths; only this preload turns a dropped File into one.
+  inspectCharacterFile: async file =>
+    characterInspectionSchema.parse(
+      await ipcRenderer.invoke('edi:characters:inspect-file', webUtils.getPathForFile(file)),
+    ),
 };
 contextBridge.exposeInMainWorld('edi', bridge);

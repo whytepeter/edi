@@ -19,7 +19,14 @@ const MOUTH_RELEASE = 0.22;
 /** Silence after the last queued chunk before the mouth hands back to the expression. */
 const MOUTH_IDLE_MS = 300;
 /** A tag that ends a clip sounds over roughly its last this-many seconds of audio. */
-const CUE_END_LEAD: Record<SpeechCue, number> = { laugh: 1.2, chuckle: 0.8 };
+const CUE_END_LEAD: Record<SpeechCue, number> = {
+  laugh: 1.2,
+  chuckle: 0.8,
+  sigh: 1.1,
+  gasp: 0.6,
+  groan: 1,
+  sniff: 0.5,
+};
 
 interface Capture {
   generation: number;

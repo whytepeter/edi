@@ -354,8 +354,8 @@ test('laughs and chuckles start their own utterance, with a cue just ahead of th
     { text: 'Oh wow', lead: null, trailing: null },
     { text: '[laugh] that is funny.', lead: 'laugh', trailing: null },
   ]);
-  assert.deepEqual(cueSegments('[chuckle] Sure. [sigh] Fine.'), [
-    { text: '[chuckle] Sure. [sigh] Fine.', lead: 'chuckle', trailing: null },
+  assert.deepEqual(cueSegments('[chuckle] Sure. [cough] Fine.'), [
+    { text: '[chuckle] Sure. [cough] Fine.', lead: 'chuckle', trailing: null },
   ]);
   // Nothing to say after the tag: it ends the clip and plays near the end of that audio.
   assert.deepEqual(cueSegments('That worked [LAUGH]'), [

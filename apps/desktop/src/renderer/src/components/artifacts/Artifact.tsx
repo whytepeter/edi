@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { Artifact, ArtifactKind, ArtifactRef, ArtifactSummary } from '@edi/contracts';
 import { useSettings } from '../../hooks/useSettings';
-import { accentFor } from '../../lib/bridge';
+import { characterById, useCharacters } from '../../hooks/useCharacters';
 import { Icon, IconButton, type IconName } from '../ui';
 import { Markdown } from './Markdown';
 import './artifacts.css';
@@ -209,6 +209,7 @@ const canDownload: Record<ArtifactKind, boolean> = {
  */
 export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
   const { settings } = useSettings();
+  const characters = useCharacters();
   const [reference, setReference] = useState(initial);
   const key = reference ? ('callId' in reference ? reference.callId : reference.noteId) : '';
   // Results are tagged with the content they belong to, so switching content never shows
@@ -280,7 +281,11 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     <article
       className="artifact-window ds-card glass-window"
       data-accent
-      style={{ '--accent': accentFor(settings.skin) } as CSSProperties}
+      style={
+        {
+          '--accent': characterById(characters, settings.skin).manifest.colors.accent,
+        } as CSSProperties
+      }
       aria-label={artifact?.title ?? 'Content'}
     >
       <header className="artifact-window-header">

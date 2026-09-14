@@ -3,7 +3,6 @@ import type {
   ApprovalRequest,
   ArtifactSummary,
   BubbleSide,
-  SkinId,
   StatusBubbleState,
 } from '@edi/contracts';
 import { ArtifactPreview } from '../../components/artifacts/Artifact';
@@ -14,7 +13,6 @@ import {
   SpeechBubble,
   ThinkingDots,
 } from '../../components/ui';
-import { accentFor } from '../../lib/bridge';
 import './pet.css';
 
 const announcement = (
@@ -42,14 +40,15 @@ const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleB
 export function StatusBubble({
   state,
   side,
-  skin,
+  accent,
   name,
   text: notice,
   artifact,
 }: {
   state: StatusBubbleState;
   side: BubbleSide;
-  skin: SkinId;
+  /** The character's accent color, from the URL. */
+  accent: string;
   name: string;
   text: string;
   artifact: ArtifactSummary | null;
@@ -110,7 +109,7 @@ export function StatusBubble({
         data-accent
         data-side={side}
         data-state={state}
-        style={{ '--accent': accentFor(skin) } as CSSProperties}
+        style={{ '--accent': accent } as CSSProperties}
       >
         {artifact ? (
           <ArtifactPreview
@@ -132,7 +131,7 @@ export function StatusBubble({
       data-accent
       data-side={side}
       data-state={state}
-      style={{ '--accent': accentFor(skin) } as CSSProperties}
+      style={{ '--accent': accent } as CSSProperties}
     >
       <SpeechBubble side={side} className={state === 'approval' ? 'approval-bubble' : ''}>
         {state === 'thinking' && <ThinkingDots />}

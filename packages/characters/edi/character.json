@@ -1,0 +1,59 @@
+{
+  "format": 1,
+  "id": "edi",
+  "name": "Edi",
+  "version": "2.0.0",
+  "description": "Warm, bright, and always nearby.",
+  "author": {
+    "name": "Fewer Labs"
+  },
+  "license": "All rights reserved",
+  "colors": {
+    "accent": "#3d2419",
+    "outline": "#3b2016",
+    "skin": "#bb7a4e"
+  },
+  "geometry": {
+    "version": 1,
+    "viewBox": {
+      "x": 0,
+      "y": 0,
+      "width": 160,
+      "height": 170
+    },
+    "paintedBounds": {
+      "x": 1,
+      "y": 20,
+      "width": 158,
+      "height": 148
+    },
+    "bodyPath": "M80 22C116 22 140 47 141 82C142 106 135 125 121 137C109 146 95 149 80 149C65 149 51 146 39 137C25 125 18 106 19 82C20 47 44 22 80 22Z",
+    "anchors": {
+      "workspace": {
+        "x": 31,
+        "y": 40
+      },
+      "leftHand": {
+        "x": 30,
+        "y": 99
+      },
+      "rightHand": {
+        "x": 132,
+        "y": 112
+      },
+      "speechRight": {
+        "x": 122,
+        "y": 54
+      },
+      "speechLeft": {
+        "x": 40,
+        "y": 54
+      }
+    }
+  },
+  "motion": {
+    "intensity": 1,
+    "blink": true
+  },
+  "effects": true
+}

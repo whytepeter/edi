@@ -10,8 +10,8 @@ import {
   systemPreferences,
 } from 'electron';
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { readFile, stat, writeFile } from 'node:fs/promises';
+import { basename, join, relative, resolve } from 'node:path';
 
 if (process.env.EDI_CWD) process.chdir(process.env.EDI_CWD);
 
@@ -48,7 +48,8 @@ import {
   voiceName,
   voiceSelectionSchema,
   type VoiceSelection,
-  skins,
+  defaultCharacterId,
+  replyMood,
   type Artifact,
   type ArtifactRef,
   type ArtifactSummary,
@@ -75,6 +76,9 @@ import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
 import { CharacterActions } from './character/character-actions';
+import { CharacterMoodController } from './character/character-mood';
+import { CharacterLibrary } from './characters/library';
+import { maxPackageBytes, packageExtension } from './characters/package-file';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
 import { PetDrag } from './character/pet-drag';
@@ -149,6 +153,14 @@ async function start() {
 
   const settings = new SettingsStore();
   await settings.load();
+  // Built-in and installed characters. A saved character that is no longer installed falls
+  // back to Edi.
+  const characters = new CharacterLibrary(() => join(app.getPath('userData'), 'characters'));
+  await characters.load();
+  if (!characters.has(settings.current.skin)) await settings.update({ skin: defaultCharacterId });
+  const currentCharacter = () => characters.get(settings.current.skin);
+  /** What the companion is called: the person's name for it, or its character's. */
+  const companion = () => assistantName(settings.current, currentCharacter().manifest.name);
   // One user-visible workspace. Structured generated content and human notes remain distinct.
   const workspaceFolder = join(app.getPath('documents'), 'Edi');
   const notesFolder = () => join(workspaceFolder, 'Notes');
@@ -281,7 +293,7 @@ async function start() {
     return [...notes, ...artifacts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 500);
   };
   const setupSnapshot = (): EdiSetupSnapshot => {
-    const character = skins.find(item => item.id === settings.current.skin) ?? skins[0];
+    const character = currentCharacter().manifest;
     const selectedModel =
       voiceModels().find(item => item.id === settings.current.voiceModel) ?? voiceModels()[0]!;
     const speaking = selectedVoice();
@@ -289,7 +301,7 @@ async function start() {
     const notes = items.filter(item => item.kind === 'note');
     return {
       identity: {
-        name: assistantName(settings.current),
+        name: companion(),
         customName: settings.current.name !== null,
         app: 'Edi',
         version: app.getVersion(),
@@ -366,7 +378,10 @@ async function start() {
         id,
         status,
       })),
-      availableCharacters: skins.map(({ id, name }) => ({ id, name })),
+      availableCharacters: characters.list().map(({ manifest }) => ({
+        id: manifest.id,
+        name: manifest.name,
+      })),
       availableVoices: voiceModels().map(({ id, name, available, expressions, detail }) => ({
         id,
         name,
@@ -465,7 +480,7 @@ async function start() {
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
     selfContext: () => JSON.stringify(setupSnapshot()),
-    assistantName: () => assistantName(settings.current),
+    assistantName: () => companion(),
   });
   await agent.load();
 
@@ -474,7 +489,7 @@ async function start() {
   cardOpen = () => !workspace.isDestroyed() && workspace.isVisible();
   const pointer = new PointerOverlay({
     pet,
-    skin: () => settings.current.skin,
+    character: () => currentCharacter().manifest,
     create: createPointerWindow,
   });
   // Shown content opens in its own window beside the card. Focus may move between the two
@@ -500,7 +515,7 @@ async function start() {
   const placement = new WindowPlacement(
     pet,
     workspace,
-    () => settings.current.skin,
+    () => currentCharacter().manifest.geometry,
     () => artifactWindow.follow(),
   );
   const petDrag = new PetDrag(
@@ -603,7 +618,7 @@ async function start() {
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
     transcribe: (runtime, pcm, signal) =>
-      transcribePcm(runtime, pcm, signal, undefined, assistantName(settings.current)),
+      transcribePcm(runtime, pcm, signal, undefined, companion()),
     speak: async (text, signal, consume) => {
       warmSelected();
       const selected = selectedVoice();
@@ -634,7 +649,7 @@ async function start() {
   warmSelected();
   const previewVoice = async (selection: VoiceSelection) => {
     const name = spokenVoiceName(selection);
-    const self = assistantName(settings.current);
+    const self = companion();
     const sample =
       selection.model === 'chatterbox-turbo'
         ? `Hi, I'm ${self}. [chuckle] This is how I sound with ${name}.`
@@ -644,8 +659,7 @@ async function start() {
       (words, signal, consume) => speakWith(selection, words, signal, consume),
       selection.model === 'chatterbox-turbo',
     );
-    if (!played)
-      throw new Error(`${assistantName(settings.current)} is using its voice right now.`);
+    if (!played) throw new Error(`${companion()} is using its voice right now.`);
   };
 
   const mediaPermissions = createMacMediaPermissions({
@@ -657,11 +671,15 @@ async function start() {
   });
   const permissions = mediaPermissions.manager;
   permissionPort.current = permissions;
+  const mood = new CharacterMoodController(value => broadcast([pet], 'edi:character-mood', value));
+  pet.webContents.on('did-finish-load', () =>
+    pet.webContents.send('edi:character-mood', mood.current),
+  );
   const character = new CharacterActions({
     pet,
     card: workspace,
-    skin: () => settings.current.skin,
-    name: () => assistantName(settings.current),
+    character: () => currentCharacter().manifest,
+    name: () => companion(),
     startVoice: mode => voice.start(mode),
     showContent: () => placement.show(),
     openSettings: () => {
@@ -677,6 +695,7 @@ async function start() {
     createBubble: createStatusBubbleWindow,
     createMenu: createCharacterMenuWindow,
     showExpression: expression => broadcast([pet], 'edi:character-expression', expression),
+    noteActivity: () => mood.noteActivity(),
     quit: () => app.quit(),
   });
 
@@ -740,6 +759,8 @@ async function start() {
     else openArtifact({ callId: artifact.id });
   };
   applyPreferences = async patch => {
+    if (patch.character && !characters.has(patch.character))
+      throw new Error('That character is not installed. Check availableCharacters.');
     if (patch.voice && !voiceModels().find(model => model.id === patch.voice)?.available)
       throw new Error('That voice model is not installed on this Mac.');
     const model = patch.voice ?? settings.current.voiceModel;
@@ -754,8 +775,8 @@ async function start() {
     )
       throw new Error(`That voice is not one of ${model}'s voices. Check availableVoices.`);
     if (patch.size !== undefined) {
-      const skin = patch.character ?? settings.current.skin;
-      const bounds = resizePetWindow(pet, patch.size, skin);
+      const geometry = characters.get(patch.character ?? settings.current.skin).manifest.geometry;
+      const bounds = resizePetWindow(pet, patch.size, geometry);
       await settings.update({ petScale: patch.size, petPosition: { x: bounds.x, y: bounds.y } });
     }
     await settings.update({
@@ -825,6 +846,16 @@ async function start() {
     const watching = cardOpen() && currentView === 'conversations';
     character.setThinking(running, running && !watching ? progressLabel(state) : undefined);
     if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();
+    // The reply's mood shows as soon as its tag streams in and lingers a little after it ends;
+    // a failure looks briefly sad.
+    if (state.status === 'running') {
+      mood.noteActivity();
+      const felt = replyMood(state.text);
+      if (felt && felt !== mood.current) mood.set(felt);
+    } else if (previousAgentStatus === 'running') {
+      if (state.status === 'error') mood.set('sad', 5000);
+      else mood.set(replyMood(state.text) ?? 'neutral', 9000);
+    }
     previousAgentStatus = state.status;
     // A new review appears beside Edi first. The person can act there or reveal
     // the already-prepared full review in the content card.
@@ -882,6 +913,17 @@ async function start() {
     return artifactPath({ noteId: String((call.input as { id?: unknown }).id ?? '') });
   };
 
+  /** Read a package the person chose or dropped. Only .edichar files, and never large ones. */
+  const inspectCharacterFile = async (path: string) => {
+    const fileName = basename(path);
+    if (!fileName.toLowerCase().endsWith(packageExtension))
+      throw new Error('Characters come as .edichar files.');
+    const info = await stat(path);
+    if (!info.isFile() || info.size > maxPackageBytes)
+      throw new Error('That file is not a character package.');
+    return characters.inspect(await readFile(path), fileName);
+  };
+
   // Registered in the same tick as window creation, before any renderer can run.
   registerIpc({
     identify: sender => {
@@ -931,6 +973,7 @@ async function start() {
       reportView: view => {
         currentView = view;
       },
+      characters,
       revealLibraryItem: id => {
         const note = repositories.notes.get(id);
         if (!note) throw new Error('That note is no longer in Edi’s history.');
@@ -967,6 +1010,18 @@ async function start() {
     },
     artifact: resolveArtifact,
     permissions: () => permissions.snapshot(),
+    characters: () => characters.list(),
+    pickCharacterPackage: async () => {
+      const result = await dialog.showOpenDialog(workspace, {
+        title: 'Add a character',
+        buttonLabel: 'Check Character',
+        properties: ['openFile'],
+        filters: [{ name: 'Edi character', extensions: [packageExtension.slice(1)] }],
+      });
+      const path = result.filePaths[0];
+      return result.canceled || !path ? null : inspectCharacterFile(path);
+    },
+    inspectCharacterFile,
   });
 
   // The app menu is still called Edi; its items use the companion's name and follow a rename.
@@ -980,11 +1035,20 @@ async function start() {
       ]),
     );
   applicationMenu();
-  let menuName = assistantName(settings.current);
-  settings.onChange(value => {
-    if (assistantName(value) === menuName) return;
-    menuName = assistantName(value);
+  let menuName = companion();
+  settings.onChange(() => {
+    if (companion() === menuName) return;
+    menuName = companion();
     applicationMenu();
+  });
+  characters.onChange(async list => {
+    broadcast(
+      [workspace, pet, ...(artifactWindow.window ? [artifactWindow.window] : [])],
+      'edi:characters',
+      list,
+    );
+    // A removed character hands the desktop back to Edi.
+    if (!characters.has(settings.current.skin)) await settings.update({ skin: defaultCharacterId });
   });
   // Hands-free listening starts only from Edi → Listen; reopening Edi shows it instead.
   const reopen = () => {

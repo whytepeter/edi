@@ -6,11 +6,10 @@ import {
   clampWindow,
   mapSkinPoint,
   petWindowSize,
-  skinGeometry,
   type BubbleSide,
   type ArtifactRef,
   type ArtifactSummary,
-  type SkinId,
+  type CharacterGeometry,
   type StatusBubbleState,
 } from '@edi/contracts';
 
@@ -154,10 +153,9 @@ export function createPetWindow(saved: { x: number; y: number } | null, petScale
  * Resize Edi around the point where the card attaches, so the card (and the slider in it)
  * stays still while Edi grows or shrinks. Only a display edge can force a move.
  */
-export function resizePetWindow(pet: BrowserWindow, petScale: number, skin: SkinId) {
+export function resizePetWindow(pet: BrowserWindow, petScale: number, geometry: CharacterGeometry) {
   const old = pet.getBounds();
   const size = petWindowSize(petScale);
-  const geometry = skinGeometry[skin];
   const anchor = mapSkinPoint(geometry, geometry.anchors.workspace, old);
   const local = mapSkinPoint(geometry, geometry.anchors.workspace, { x: 0, y: 0, ...size });
   const next = { ...size, x: Math.round(anchor.x - local.x), y: Math.round(anchor.y - local.y) };
@@ -168,7 +166,8 @@ export function resizePetWindow(pet: BrowserWindow, petScale: number, skin: Skin
 export interface StatusBubbleOptions {
   state: StatusBubbleState;
   side: BubbleSide;
-  skin: SkinId;
+  /** The character's accent color; validated again by the renderer. */
+  accent: string;
   /** The companion's name; validated again by the renderer. */
   name: string;
   /** Only for `notice`; validated again by the renderer. */
@@ -180,7 +179,7 @@ export interface StatusBubbleOptions {
 export function createStatusBubbleWindow({
   state,
   side,
-  skin,
+  accent,
   name,
   text,
   artifact,
@@ -209,7 +208,7 @@ export function createStatusBubbleWindow({
   return loadSurface(win, 'voice-status', {
     state,
     side,
-    skin,
+    accent,
     name,
     ...(text ? { text } : {}),
     ...(artifact ? { artifact: JSON.stringify(artifact) } : {}),

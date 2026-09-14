@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 170" fill="none">
+  <!-- Anything outside a part is always visible: a shadow, the body, ears, accessories. -->
+  <ellipse cx="80" cy="156" rx="38" ry="5" fill="#1f3b4d" opacity="0.1"/>
+  <path d="M80 26C114 26 138 52 138 88C138 124 114 148 80 148C46 148 22 124 22 88C22 52 46 26 80 26Z"
+        fill="#bfe6f2" stroke="#1f3b4d" stroke-width="3.4"/>
+
+  <!-- Cheeks: optional. "love" is a variant; without one, Edi keeps "default". -->
+  <g data-part="cheeks">
+    <g data-variant="default" fill="#f4a6b8" opacity="0.5">
+      <ellipse cx="48" cy="108" rx="9" ry="5"/>
+      <ellipse cx="112" cy="108" rx="9" ry="5"/>
+    </g>
+  </g>
+
+  <!-- Brows: optional, and with no "default" they only appear for these moods. -->
+  <g data-part="brows" stroke="#1f3b4d" stroke-width="3" stroke-linecap="round">
+    <g data-variant="sad"><path d="M50 74L64 70M96 70L110 74"/></g>
+    <g data-variant="surprised"><path d="M50 70Q57 64 64 68M96 68Q103 64 110 70"/></g>
+    <g data-variant="annoyed"><path d="M50 68L64 74M96 74L110 68"/></g>
+  </g>
+
+  <!-- Eyes: required, with a "default". Put what should glance around in data-part="pupils". -->
+  <g data-part="eyes">
+    <g data-variant="default">
+      <g data-part="pupils" fill="#1f3b4d">
+        <ellipse cx="60" cy="88" rx="6" ry="8"/>
+        <ellipse cx="100" cy="88" rx="6" ry="8"/>
+        <circle cx="62.5" cy="84" r="2.2" fill="#ffffff"/>
+        <circle cx="102.5" cy="84" r="2.2" fill="#ffffff"/>
+      </g>
+    </g>
+    <g data-variant="happy" stroke="#1f3b4d" stroke-width="3.4" stroke-linecap="round">
+      <path d="M52 90Q60 80 68 90M92 90Q100 80 108 90"/>
+    </g>
+    <g data-variant="sad">
+      <g data-part="pupils" fill="#1f3b4d">
+        <ellipse cx="60" cy="91" rx="6" ry="7"/>
+        <ellipse cx="100" cy="91" rx="6" ry="7"/>
+      </g>
+    </g>
+    <g data-variant="surprised">
+      <g data-part="pupils" fill="#1f3b4d">
+        <ellipse cx="60" cy="87" rx="7.5" ry="10"/>
+        <ellipse cx="100" cy="87" rx="7.5" ry="10"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- Mouth: required, with a "default". "talk" opens and closes with the voice. -->
+  <g data-part="mouth" stroke="#1f3b4d" stroke-linecap="round" stroke-linejoin="round">
+    <g data-variant="default"><path d="M72 108Q80 114 88 108" stroke-width="3"/></g>
+    <g data-variant="talk"><ellipse cx="80" cy="111" rx="7" ry="6" fill="#7a2f45" stroke-width="2.4"/></g>
+    <g data-variant="happy"><path d="M68 106Q80 124 92 106Q80 110 68 106Z" fill="#7a2f45" stroke-width="2.4"/></g>
+    <g data-variant="sad"><path d="M72 113Q80 107 88 113" stroke-width="3"/></g>
+    <g data-variant="surprised"><ellipse cx="80" cy="112" rx="4.5" ry="6" fill="#7a2f45" stroke-width="2.4"/></g>
+  </g>
+</svg>
