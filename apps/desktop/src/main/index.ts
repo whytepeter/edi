@@ -1475,7 +1475,7 @@ async function start() {
           models: voiceModels(),
         },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },
-        notesFolder: notesFolder(),
+        workspaceFolder,
       };
     },
     models: () => modelCatalog.list(),

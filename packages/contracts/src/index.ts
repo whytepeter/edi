@@ -359,7 +359,8 @@ export const systemInfoSchema = z
     pushToTalk: z
       .object({ status: z.enum(['starting', 'ready', 'unavailable']), label: z.string().max(20) })
       .strict(),
-    notesFolder: z.string().max(1024),
+    /** Documents › Edi: notes, generated content and everything the Library lists. */
+    workspaceFolder: z.string().max(1024),
   })
   .strict();
 export type SystemInfo = z.infer<typeof systemInfoSchema>;

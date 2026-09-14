@@ -591,7 +591,7 @@ test('system info accepts the longest cloud voice name with its model', () => {
       models: ['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
     },
     pushToTalk: { status: 'ready', label: '⌥ Space' },
-    notesFolder: '/Users/me/Documents/Edi',
+    workspaceFolder: '/Users/me/Documents/Edi',
   };
   assert.equal(systemInfoSchema.safeParse(info).success, true);
 });

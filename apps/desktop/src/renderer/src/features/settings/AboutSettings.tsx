@@ -10,7 +10,7 @@ export function AboutSettings({ system }: { system: SystemInfo | null }) {
         <GroupedRow title="Version" value={system?.version ?? '—'} />
         <GroupedRow
           title="Workspace folder"
-          detail={system?.notesFolder ?? 'Documents › Edi › Notes'}
+          detail={system?.workspaceFolder ?? 'Documents › Edi'}
         />
       </GroupedList>
     </div>
