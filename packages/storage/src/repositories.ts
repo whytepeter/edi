@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   approvalRuleSchema,
+  connectorToolSchema,
   providerFailureSchema,
   runStatusSchema,
   toolCallStatusSchema,
@@ -11,6 +12,7 @@ import {
   usageProviderSchema,
   type Activity,
   type ApprovalRule,
+  type ConnectorTool,
   type ProviderFailure,
   type UsageEntry,
   type UsagePeriod,
@@ -848,6 +850,92 @@ const localDay = (at: number) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
+export interface ConnectorRecord {
+  id: string;
+  name: string;
+  url: string;
+  catalogId: string | null;
+  enabled: boolean;
+  /** The server's tools as last listed, with the person's on/off choice for each. */
+  tools: ConnectorTool[];
+  addedAt: number;
+}
+
+const connectorRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  catalogId: z.string().nullable(),
+  enabled: z.number(),
+  tools: z.string(),
+  addedAt: z.number(),
+});
+
+export class ConnectorRepository {
+  constructor(private readonly db: Database) {}
+
+  private static parse(row: unknown): ConnectorRecord {
+    const raw = connectorRow.parse(row);
+    const tools = z.array(connectorToolSchema).max(200).safeParse(JSON.parse(raw.tools));
+    return { ...raw, enabled: raw.enabled === 1, tools: tools.success ? tools.data : [] };
+  }
+
+  list(): ConnectorRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, name, url, catalog_id AS catalogId, enabled, tools_json AS tools,
+                added_at AS addedAt
+         FROM connectors ORDER BY added_at, rowid LIMIT 50`,
+      )
+      .all()
+      .map(row => ConnectorRepository.parse(row));
+  }
+
+  get(id: string) {
+    return this.list().find(connector => connector.id === id);
+  }
+
+  add(connector: ConnectorRecord) {
+    this.db
+      .prepare(
+        `INSERT INTO connectors (id, name, url, catalog_id, enabled, tools_json, added_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        connector.id,
+        connector.name.slice(0, 60),
+        connector.url,
+        connector.catalogId,
+        connector.enabled ? 1 : 0,
+        JSON.stringify(connector.tools),
+        connector.addedAt,
+      );
+  }
+
+  update(id: string, patch: Partial<Pick<ConnectorRecord, 'enabled' | 'tools' | 'name'>>) {
+    const fields: string[] = [];
+    const values: (string | number)[] = [];
+    if (patch.enabled !== undefined) {
+      fields.push('enabled = ?');
+      values.push(patch.enabled ? 1 : 0);
+    }
+    if (patch.tools) {
+      fields.push('tools_json = ?');
+      values.push(JSON.stringify(z.array(connectorToolSchema).max(200).parse(patch.tools)));
+    }
+    if (patch.name) {
+      fields.push('name = ?');
+      values.push(patch.name.slice(0, 60));
+    }
+    if (!fields.length) return;
+    this.db.prepare(`UPDATE connectors SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
+  remove(id: string) {
+    return this.db.prepare(`DELETE FROM connectors WHERE id = ?`).run(id).changes > 0;
+  }
+}
+
 /** Safe summaries of failed model calls, kept to the most recent 500. */
 export class FailureRepository {
   constructor(private readonly db: Database) {}
@@ -999,6 +1087,7 @@ export interface Repositories {
   artifacts: ArtifactRepository;
   usage: UsageRepository;
   failures: FailureRepository;
+  connectors: ConnectorRepository;
   conversations: ConversationRepository;
   tasks: TaskRepository;
   schedules: ScheduleRepository;
@@ -1021,6 +1110,7 @@ export function createRepositories(db: Database): Repositories {
     artifacts: new ArtifactRepository(db),
     usage: new UsageRepository(db),
     failures: new FailureRepository(db),
+    connectors: new ConnectorRepository(db),
     conversations: new ConversationRepository(db),
     tasks: new TaskRepository(db),
     schedules: new ScheduleRepository(db),

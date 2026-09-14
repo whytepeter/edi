@@ -57,7 +57,8 @@ export const workerInputSchema = z
     desktopContext: desktopContextSchema.nullable().default(null),
     /** Trusted, current, non-secret product configuration supplied by main. */
     selfContext: z.string().max(12_000).default(''),
-    tools: z.array(toolManifestEntrySchema).max(64),
+    // Providers accept up to 128 tools; Edi keeps connected apps within that.
+    tools: z.array(toolManifestEntrySchema).max(128),
   })
   .strict();
 export type WorkerInput = z.infer<typeof workerInputSchema>;

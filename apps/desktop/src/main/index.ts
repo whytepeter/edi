@@ -9,6 +9,7 @@ import {
   globalShortcut,
   Menu,
   screen,
+  safeStorage,
   shell,
   systemPreferences,
 } from 'electron';
@@ -48,6 +49,8 @@ import {
 } from '@edi/capabilities';
 import { macDependencies } from './platform/mac-actions';
 import { ApprovalRules } from './agent/approval-rules';
+import { ConnectorManager } from './connectors/manager';
+import { EncryptedSecretStore } from './connectors/secrets';
 import {
   artifactExport,
   artifactPreview,
@@ -273,6 +276,7 @@ async function start() {
   let applyPreferences = async (_patch: EdiPreferences) => {};
   let windowAction = (_action: 'close' | 'sleep') => {};
   let cardOpen = () => false;
+  let connectedApps = () => '';
   let currentView: WorkspaceView = 'home';
   let pushToTalk = (): EdiSetupSnapshot['current']['pushToTalk'] => ({
     status: 'starting',
@@ -372,6 +376,10 @@ async function start() {
           name: 'Read and add Reminders and Calendar events (Settings → Privacy & Permissions)',
           asksFirst: true,
         },
+        {
+          name: `Use connected apps (Connectors)${connectedApps() ? `: ${connectedApps()}` : ', none connected yet'}`,
+          asksFirst: true,
+        },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
           name: 'Change its character, size, pin, voice and whether replies are spoken',
@@ -390,7 +398,6 @@ async function start() {
       ],
       notYetAvailable: [
         'Installing skills',
-        'Connecting apps or MCP servers',
         'Clicking or typing in other apps',
         'Opening, reading or using logged-in websites in a browser',
         'Changing the keyboard shortcut',
@@ -710,8 +717,25 @@ async function start() {
     }),
   ];
   const approvalRules = new ApprovalRules(repositories);
+  const connectors = new ConnectorManager({
+    repositories,
+    secrets: new EncryptedSecretStore(join(app.getPath('userData'), 'connectors'), {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: text => safeStorage.encryptString(text),
+      decrypt: data => safeStorage.decryptString(data),
+    }),
+    openBrowser: url => shell.openExternal(url, { activate: true }),
+    version: app.getVersion(),
+  });
+  connectedApps = () =>
+    connectors
+      .list()
+      .filter(connector => connector.status === 'connected')
+      .map(connector => connector.name)
+      .join(', ');
   const tasks = new TaskService({
     rules: approvalRules,
+    connectedTools: () => connectors.capabilities(),
     credentials: openRouter,
     repositories,
     capabilities: toolCapabilities,
@@ -755,6 +779,7 @@ async function start() {
   });
   agent = new AgentService({
     rules: approvalRules,
+    connectedTools: () => connectors.capabilities(),
     readerModel: () => {
       refreshReaderModel();
       return readerModel;
@@ -1242,6 +1267,8 @@ async function start() {
   tasks.resume();
   scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
   approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
+  connectors.onChange(list => broadcast([workspace], 'edi:connectors', list));
+  connectors.start();
   scheduler.start();
   // A Mac waking from sleep checks for anything that came due meanwhile.
   powerMonitor.on('resume', () => scheduler.tick());
@@ -1312,6 +1339,7 @@ async function start() {
       tasks,
       scheduler,
       approvalRules,
+      connectors,
       placement,
       petDrag,
       character,
@@ -1377,6 +1405,7 @@ async function start() {
     tasks: () => tasks.list(),
     schedules: () => scheduler.list(),
     approvalRules: () => approvalRules.list(),
+    connectors: () => connectors.list(),
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),
@@ -1445,6 +1474,7 @@ async function start() {
   });
   app.on('will-quit', () => {
     scheduler.dispose();
+    void connectors.dispose();
     tasks.dispose();
     chatterbox?.dispose();
     kokoro?.dispose();

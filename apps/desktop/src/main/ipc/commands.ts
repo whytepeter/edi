@@ -10,6 +10,7 @@ import type { AgentService } from '../agent/agent-service';
 import type { TaskService } from '../agent/task-service';
 import type { Scheduler } from '../agent/scheduler';
 import type { ApprovalRules } from '../agent/approval-rules';
+import type { ConnectorManager } from '../connectors/manager';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
@@ -28,6 +29,7 @@ interface CommandDependencies {
   tasks: TaskService;
   scheduler: Scheduler;
   approvalRules: ApprovalRules;
+  connectors: ConnectorManager;
   placement: WindowPlacement;
   petDrag: PetDrag;
   character: CharacterActions;
@@ -67,6 +69,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     tasks,
     scheduler,
     approvalRules,
+    connectors,
     placement,
     petDrag,
     character,
@@ -286,6 +289,28 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
     'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
+    'add-connector': {
+      from: fromWorkspace,
+      handle: ({ catalogId, url, name }) => {
+        connectors.add({ catalogId, url, name });
+      },
+    },
+    // Signing in waits on the browser; progress arrives through the connector list.
+    'connect-connector': {
+      from: fromWorkspace,
+      handle: ({ id }) => {
+        void connectors.connect(id, true);
+      },
+    },
+    'set-connector-enabled': {
+      from: fromWorkspace,
+      handle: ({ id, enabled }) => connectors.setEnabled(id, enabled),
+    },
+    'set-connector-tool': {
+      from: fromWorkspace,
+      handle: ({ id, tool, enabled }) => connectors.setToolEnabled(id, tool, enabled),
+    },
+    'remove-connector': { from: fromWorkspace, handle: ({ id }) => connectors.remove(id) },
     'set-task-budget': {
       from: fromWorkspace,
       handle: ({ budgetUsd }) => settings.update({ taskBudgetUsd: budgetUsd }),

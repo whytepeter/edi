@@ -7,6 +7,13 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Connectors. Connect Notion, Linear or Asana, or any remote MCP server by its https address, from Connectors. Signing
+  in opens the app's own page in your browser and returns to Edi on a one-time 127.0.0.1 address (OAuth with dynamic
+  client registration and PKCE through the official MCP SDK); sign-ins are encrypted on this Mac with a keychain-held
+  key, renewed when possible, and never used to open a browser on launch. Each app's tools can be switched on or off,
+  become Edi actions that are always reviewed ("Always allow" per tool per app), and return information marked as
+  coming from another service. Background tasks can use them too. Up to 80 connected tools are offered at once.
+
 - Mac actions. Edi can open apps, open links in your browser, open files in allowed folders (with their usual app or
   one you name; never apps, scripts, installers or shortcuts) and show files in Finder. It can check and add
   Reminders (a due time also alerts) and check and add Calendar events through EventKit, with Reminders and Calendar

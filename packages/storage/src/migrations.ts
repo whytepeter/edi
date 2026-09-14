@@ -252,6 +252,21 @@ export const migrations: readonly { version: number; sql: string }[] = [
       CREATE INDEX failures_at ON failures (at);
     `,
   },
+  {
+    // Connected apps. Sign-in secrets are not here: they are encrypted in their own files.
+    version: 11,
+    sql: `
+      CREATE TABLE connectors (
+        id         TEXT PRIMARY KEY,
+        name       TEXT    NOT NULL,
+        url        TEXT    NOT NULL,
+        catalog_id TEXT,
+        enabled    INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        tools_json TEXT    NOT NULL DEFAULT '[]',
+        added_at   INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

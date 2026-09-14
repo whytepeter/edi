@@ -33,6 +33,8 @@ export interface Capability<Input = unknown> {
   description: string;
   effect: Effect;
   input: z.ZodType<Input>;
+  /** The JSON Schema shown to the model, when it comes from elsewhere (an MCP server's tool). */
+  inputSchema?: Record<string, unknown>;
   timeoutMs: number;
   prepare(input: Input, context: CallContext): Promise<PreparedAction> | PreparedAction;
 }

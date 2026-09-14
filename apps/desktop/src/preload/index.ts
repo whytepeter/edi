@@ -23,6 +23,7 @@ import {
   taskListSchema,
   scheduleListSchema,
   approvalRulesSchema,
+  connectorListSchema,
   usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
@@ -61,6 +62,15 @@ const bridge: DesktopBridge = {
   schedules: async () => scheduleListSchema.parse(await ipcRenderer.invoke('edi:schedules:get')),
   approvalRules: async () =>
     approvalRulesSchema.parse(await ipcRenderer.invoke('edi:approval-rules:get')),
+  connectors: async () => connectorListSchema.parse(await ipcRenderer.invoke('edi:connectors:get')),
+  onConnectors: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = connectorListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:connectors', listener);
+    return () => ipcRenderer.removeListener('edi:connectors', listener);
+  },
   onApprovalRules: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = approvalRulesSchema.safeParse(value);

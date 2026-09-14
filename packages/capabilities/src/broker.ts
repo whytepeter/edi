@@ -27,27 +27,44 @@ export const toolNameFor = (capabilityId: string) => capabilityId.replace(/[^a-z
  * Writes run one at a time; reads may overlap.
  */
 export class CapabilityBroker {
-  private readonly byName = new Map<string, Capability>();
+  private readonly fixed = new Map<string, Capability>();
   private writeQueue: Promise<unknown> = Promise.resolve();
   private readonly id: () => string;
 
+  /**
+   * `extra` supplies capabilities that come and go while Edi runs (connected apps); they never
+   * replace a built-in one with the same name.
+   */
   constructor(
     capabilities: readonly Capability[],
     private readonly deps: BrokerDependencies,
+    private readonly extra: () => readonly Capability[] = () => [],
   ) {
     for (const capability of capabilities) {
       const name = toolNameFor(capability.id);
-      if (this.byName.has(name)) throw new Error(`Duplicate tool name: ${name}`);
-      this.byName.set(name, capability);
+      if (this.fixed.has(name)) throw new Error(`Duplicate tool name: ${name}`);
+      this.fixed.set(name, capability);
     }
     this.id = deps.id ?? randomUUID;
+  }
+
+  private get byName() {
+    const extra = this.extra();
+    if (!extra.length) return this.fixed;
+    const all = new Map(this.fixed);
+    for (const capability of extra) {
+      const name = toolNameFor(capability.id);
+      if (!all.has(name)) all.set(name, capability);
+    }
+    return all;
   }
 
   manifest(): ToolManifestEntry[] {
     return [...this.byName].map(([name, capability]) => ({
       name,
       description: capability.description,
-      inputSchema: z.toJSONSchema(capability.input) as Record<string, unknown>,
+      inputSchema:
+        capability.inputSchema ?? (z.toJSONSchema(capability.input) as Record<string, unknown>),
     }));
   }
 

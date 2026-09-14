@@ -63,6 +63,18 @@ prefix or a look-alike site does not match). Actions without a scope, such as de
 for the current conversation or task only. Saved rules are listed under Settings → Privacy & Permissions → Always
 allowed, where removing one makes Edi ask again.
 
+## Connectors (MCP)
+
+Connected apps are remote MCP servers (`apps/desktop/src/main/connectors/`). Only https addresses are accepted (plain
+http only on 127.0.0.1 or localhost, for testing). Signing in uses the MCP authorization flow through the official SDK:
+protected-resource and authorization-server discovery, dynamic client registration as a public client, PKCE (S256),
+and a one-shot loopback listener on 127.0.0.1 that accepts only `/callback` with the expected state. Client
+registration, tokens and the verifier are stored per connector with Electron `safeStorage` in
+`userData/connectors/<id>.enc`; the database holds only the name, address and tool choices. On launch Edi reconnects
+with saved sign-ins and never registers or opens a browser by itself; an app that needs signing in says so. Every tool
+from a connected app is a reviewed write, whatever the server says about it; results are marked as untrusted
+information for the model.
+
 ## Adding another permission
 
 Add the ID to `packages/contracts/src/permissions.ts`, register its main-process adapter and Settings URL in the composition root, and add user-facing copy to the shared permission card. The queue, bridge, IPC commands, focus refresh, and dismissal behavior remain unchanged. Add manager-state tests plus one feature-level test proving that the permission is requested only when needed.

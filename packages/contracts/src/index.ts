@@ -43,6 +43,7 @@ import { petScaleSchema } from './skin-geometry';
 import type { UsagePeriod, UsageSummary } from './usage';
 import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
+import { connectorUrlSchema, type Connector } from './connectors';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -54,6 +55,7 @@ export * from './artifacts';
 export * from './usage';
 export * from './tasks';
 export * from './schedules';
+export * from './connectors';
 export {
   placeArtifact,
   placeCard,
@@ -424,6 +426,37 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('remove-approval-rule'), id: z.string().uuid() }).strict(),
+  /** From Edi's short list by id, or any server by its address. */
+  z
+    .object({
+      type: z.literal('add-connector'),
+      catalogId: z.string().min(1).max(40).optional(),
+      url: connectorUrlSchema.optional(),
+      name: z.string().trim().min(1).max(60).optional(),
+    })
+    .strict()
+    .refine(
+      value => Boolean(value.catalogId) !== Boolean(value.url),
+      'Choose an app or an address.',
+    ),
+  /** Signs in when needed, or reconnects. */
+  z.object({ type: z.literal('connect-connector'), id: z.string().uuid() }).strict(),
+  z
+    .object({
+      type: z.literal('set-connector-enabled'),
+      id: z.string().uuid(),
+      enabled: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('set-connector-tool'),
+      id: z.string().uuid(),
+      tool: z.string().min(1).max(128),
+      enabled: z.boolean(),
+    })
+    .strict(),
+  z.object({ type: z.literal('remove-connector'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
   z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
   z
@@ -548,6 +581,9 @@ export interface DesktopBridge {
   /** Saved "Always allow" choices, newest first. */
   approvalRules(): Promise<ApprovalRule[]>;
   onApprovalRules(callback: (rules: ApprovalRule[]) => void): () => void;
+  /** Connected apps and their tools. */
+  connectors(): Promise<Connector[]>;
+  onConnectors(callback: (connectors: Connector[]) => void): () => void;
   /** Saved conversations, most recently active first. */
   conversations(query?: string): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */

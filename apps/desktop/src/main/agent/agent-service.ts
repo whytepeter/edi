@@ -56,6 +56,8 @@ interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
   capabilities: readonly Capability[];
+  /** Tools from connected apps, read at the start of each run. */
+  connectedTools?: () => readonly Capability[];
   /** Privacy gate decides locally whether this prompt needs current screen context. */
   captureScreens: (prompt: string) => Promise<CapturedScreens>;
   screenPermissionRequired?: () => void;
@@ -127,10 +129,14 @@ export class AgentService {
 
   constructor(private readonly options: AgentServiceOptions) {
     this.stepRecorder = this.recorder();
-    this.broker = new CapabilityBroker(options.capabilities, {
-      approvals: this.approvals,
-      recorder: this.stepRecorder,
-    });
+    this.broker = new CapabilityBroker(
+      options.capabilities,
+      {
+        approvals: this.approvals,
+        recorder: this.stepRecorder,
+      },
+      () => options.connectedTools?.() ?? [],
+    );
   }
 
   onChange(listener: (state: AgentState) => void) {

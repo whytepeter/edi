@@ -47,6 +47,8 @@ interface TaskServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
   capabilities: readonly Capability[];
+  /** Tools from connected apps, read at the start of each run. */
+  connectedTools?: () => readonly Capability[];
   selfContext?: () => string;
   assistantName?: () => string;
   readerModel?: () => string | null;
@@ -110,10 +112,14 @@ export class TaskService {
   constructor(private readonly options: TaskServiceOptions) {
     this.now = options.now ?? Date.now;
     this.stepRecorder = this.recorder();
-    this.broker = new CapabilityBroker(options.capabilities, {
-      approvals: this.approvals,
-      recorder: this.stepRecorder,
-    });
+    this.broker = new CapabilityBroker(
+      options.capabilities,
+      {
+        approvals: this.approvals,
+        recorder: this.stepRecorder,
+      },
+      () => options.connectedTools?.() ?? [],
+    );
   }
 
   onChange(listener: (tasks: Task[]) => void) {
