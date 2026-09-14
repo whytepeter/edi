@@ -77,7 +77,7 @@ import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from '.
 import { VoiceKeys } from './voice/voice-keys';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
-import { speakable, VoiceController } from './voice/voice-controller';
+import { speakable, spokenFailure, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { FileAccessManager } from './platform/file-access';
@@ -1105,6 +1105,7 @@ async function start() {
     if (value.voiceModel !== 'chatterbox-turbo') chatterbox?.dispose();
     warmSelected();
   });
+  let runWasSpoken = false;
   let previousAgentStatus = agent.state.status;
   /** Short progress for the bubble, only for real work (a step or a web search); else just dots. */
   const stepLabels: Record<string, string> = {
@@ -1120,6 +1121,7 @@ async function start() {
     'notes.delete': 'Removing the note',
     'notes.show': 'Opening your note',
     'web.fetch': 'Reading a page',
+    'web.search': 'Searching the web',
     'tasks.start': 'Starting a background task',
     'tasks.list': 'Checking your tasks',
     'schedules.create': 'Scheduling it',
@@ -1151,7 +1153,10 @@ async function start() {
     const running = state.status === 'running' && !state.approval;
     // A new request gets a warm nod; progress follows unless the person is already watching
     // the conversation, where the steps are shown in full.
-    if (state.status === 'running' && previousAgentStatus !== 'running') character.acknowledge();
+    if (state.status === 'running' && previousAgentStatus !== 'running') {
+      character.acknowledge();
+      runWasSpoken = agent.runningSpoken ?? false;
+    }
     const watching = cardOpen() && currentView === 'conversations';
     character.setThinking(running, running && !watching ? progressLabel(state) : undefined);
     if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();
@@ -1163,6 +1168,10 @@ async function start() {
       if (felt && felt !== mood.current) mood.set(felt);
     } else if (previousAgentStatus === 'running') {
       if (state.status === 'error') mood.set('sad', 5000);
+      // Voice turns report their own outcome; a typed question someone isn't watching must not
+      // fail silently.
+      if (state.status === 'error' && !runWasSpoken && !watching)
+        character.showVoiceStatus({ notice: spokenFailure(state.error) });
       else mood.set(replyMood(state.text) ?? 'neutral', 9000);
     }
     previousAgentStatus = state.status;

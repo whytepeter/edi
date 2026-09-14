@@ -5,7 +5,9 @@ import { gzipSync } from 'node:zlib';
 import {
   htmlToText,
   isPublicAddress,
+  readableAddress,
   robotsAllows,
+  unreadableShell,
   webCapabilities,
   type WebFetchOutput,
 } from './index';
@@ -167,4 +169,26 @@ test('web.fetch refuses local and private networks, other schemes and credential
     await assert.rejects(run(url), /private or local network/, url);
   assert.throws(() => fetch.prepare({ url: 'file:///etc/passwd' }, context), /Only http and https/);
   assert.throws(() => fetch.prepare({ url: 'https://me:pw@example.com' }, context), /credentials/);
+});
+
+test('Google documents are read through their text export; sign-in shells are not a page', () => {
+  const id = '1Hlmk3K-V8FBZN7YfB2J_t082KavIc5HYlxy';
+  const doc = readableAddress(new URL(`https://docs.google.com/document/d/${id}/edit?tab=t.0`));
+  assert.equal(doc.google, true);
+  assert.equal(doc.url.href, `https://docs.google.com/document/d/${id}/export?format=txt`);
+  assert.equal(
+    readableAddress(new URL(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`)).url.href,
+    `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`,
+  );
+  const other = new URL('https://example.com/document/d/abc');
+  assert.equal(readableAddress(other).url, other);
+
+  assert.equal(
+    unreadableShell(
+      'This browser version is no longer supported. Please upgrade to a supported browser.\n\nWhyte Peter Resume\n\nShare\n\nFile',
+    ),
+    true,
+  );
+  assert.equal(unreadableShell('Please enable JavaScript to continue.'), true);
+  assert.equal(unreadableShell(`Forecast. ${'Light rain clearing by noon. '.repeat(40)}`), false);
 });

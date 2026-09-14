@@ -59,6 +59,12 @@ const PLAYBACK_ACK_MS = 5000;
 const MAX_SPOKEN_CHARS = 600;
 
 /** Whisper marks non-speech as tags like [BLANK_AUDIO] or (music); they are not a question. */
+/** The bubble after a voice question fails: the real reason, short, with where to look. */
+export function spokenFailure(error: string) {
+  const reason = error.trim() || 'Something went wrong with that answer.';
+  return reason.length > 110 ? `${reason.slice(0, 107).trimEnd()}…` : reason;
+}
+
 export function cleanTranscript(text: string) {
   return text
     .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
@@ -273,11 +279,7 @@ export class VoiceController<Screens> {
       });
       if (turn.signal.aborted) return;
       if (reply.status !== 'done') {
-        return ended(
-          reply.status === 'error'
-            ? 'I couldn’t reach the AI model. I left the details in Conversations.'
-            : undefined,
-        );
+        return ended(reply.status === 'error' ? spokenFailure(reply.error) : undefined);
       }
       if (this.deps.speakReplies?.() === false) return ended('Answered in Conversations.');
       // A reply that arrived all at once still starts with a short first clip.

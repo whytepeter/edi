@@ -195,3 +195,49 @@ test('a batch is reviewed once, runs every item and reports the ones that did no
     /Two items would be moved/,
   );
 });
+
+test('search ranks what a person means: named documents first, code projects and tool folders last', async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'edi-rank-')));
+  const files = [
+    'Documents/code/app/.git/HEAD',
+    'Documents/code/app/src/resume-worker.ts',
+    'Documents/code/app/src/parser.ts',
+    'Documents/code/env/my-venv/lib/site-packages/resume.py',
+    'Documents/Whyte Peter/Docs/Whyte Peter Resume .pdf',
+    'Documents/Whyte Peter/Docs/Cover letter.pdf',
+    'Documents/notes/resume ideas.md',
+  ];
+  for (const file of files) {
+    await mkdir(join(base, file, '..'), { recursive: true });
+    await writeFile(join(base, file), 'resume');
+  }
+  const asked: string[] = [];
+  const [search] = fileCapabilities({
+    home: base,
+    roots: () => [{ name: 'Documents', path: join(base, 'Documents'), access: 'allowed' }],
+    workspace: join(base, 'Documents/Edi'),
+    trash: async () => {},
+    // Spotlight's own order puts code first; content matches include files without the word in
+    // their name.
+    spotlight: async (_root, _query, _signal, by) => {
+      asked.push(by);
+      const all = files.filter(file => !file.includes('.git/')).map(file => join(base, file));
+      return by === 'name' ? all.filter(path => /resume/i.test(path.split('/').pop()!)) : all;
+    },
+  });
+  const result = await (
+    await search!.prepare({ query: 'resume' } as never, context)
+  ).execute(live());
+  const paths = (result.output as { results: { path: string }[] }).results.map(entry => entry.path);
+  assert.deepEqual(asked, ['name', 'content']);
+  assert.deepEqual(paths.slice(0, 2).sort(), [
+    '~/Documents/Whyte Peter/Docs/Whyte Peter Resume .pdf',
+    '~/Documents/notes/resume ideas.md',
+  ]);
+  assert.equal(paths[2], '~/Documents/code/app/src/resume-worker.ts');
+  assert.ok(!paths.some(path => path.includes('site-packages')));
+  assert.ok(
+    paths.indexOf('~/Documents/Whyte Peter/Docs/Cover letter.pdf') <
+      paths.indexOf('~/Documents/code/app/src/parser.ts'),
+  );
+});

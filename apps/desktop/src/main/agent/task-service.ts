@@ -19,7 +19,12 @@ import type { Repositories, TaskRecord } from '@edi/storage';
 import { PausableTimer, WRAP_UP_MS } from './agent-service';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
-import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
+import {
+  recordWebSearch,
+  workerMessageSchema,
+  type HostMessage,
+  type WorkerInput,
+} from './worker-protocol';
 
 /** Wall-clock budget for a task's run, excluding time waiting for a review or more budget. */
 const TASK_BUDGET_MS = 15 * 60_000;
@@ -92,12 +97,14 @@ export class TaskService {
   );
   private readonly broker: CapabilityBroker;
   private readonly now: () => number;
+  private readonly stepRecorder: ToolCallRecorder;
 
   constructor(private readonly options: TaskServiceOptions) {
     this.now = options.now ?? Date.now;
+    this.stepRecorder = this.recorder();
     this.broker = new CapabilityBroker(options.capabilities, {
       approvals: this.approvals,
-      recorder: this.recorder(),
+      recorder: this.stepRecorder,
     });
   }
 
@@ -308,6 +315,8 @@ export class TaskService {
     if (this.active.get(active.id) !== active) return;
     if (message.type === 'text') {
       active.text = (active.text + message.text).slice(0, MAX_TEXT);
+    } else if (message.type === 'web-search') {
+      recordWebSearch(this.stepRecorder, active.runId, message);
     } else if (message.type === 'tool-call') {
       void this.invokeTool(active, message.id, message.name, message.input);
     } else if (message.type === 'done') {

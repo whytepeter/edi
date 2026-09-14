@@ -27,8 +27,13 @@ export interface FileDependencies {
   trash(path: string): Promise<void>;
   /** Reports what macOS allowed when a folder was touched, so Settings stays truthful. */
   accessResult?(root: FileRoot, allowed: boolean): void;
-  /** Spotlight search; replaceable in tests. */
-  spotlight?(root: string, query: string, signal: AbortSignal): Promise<string[]>;
+  /** Spotlight search by name or by content; replaceable in tests. */
+  spotlight?(
+    root: string,
+    query: string,
+    signal: AbortSignal,
+    by: 'name' | 'content',
+  ): Promise<string[]>;
 }
 
 const MAX_READ_BYTES = 5 * 1024 * 1024;
@@ -136,20 +141,79 @@ async function writable(deps: FileDependencies, raw: string) {
   return target;
 }
 
+/** Folders made by tools rather than people: dependencies, environments and build output. */
+const GENERATED =
+  /^(node_modules|bower_components|site-packages|dist-packages|__pycache__|venv|[\w.-]+-venv|DerivedData|Pods)$|\.(app|framework|bundle|xcassets|photoslibrary)$/;
+
 const hidden = (path: string, root: string) =>
   relative(root, path)
     .split(sep)
-    .some(part => part.startsWith('.') || part === 'node_modules');
+    .some(part => part.startsWith('.') || GENERATED.test(part));
 
-function defaultSpotlight(root: string, query: string, signal: AbortSignal) {
+/** Kinds people usually mean when they look for "my résumé" or "the contract". */
+const DOCUMENTS = /\.(pdf|docx?|pages|rtf|odt|txt|md|key|pptx?|numbers|xlsx?|csv|jpe?g|png|heic)$/i;
+
+/** Spotlight words for a name query: letters and digits only, so the query cannot be escaped. */
+const nameWords = (query: string) =>
+  query
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => word.replace(/[^\p{L}\p{N}_-]/gu, ''))
+    .filter(Boolean);
+
+function defaultSpotlight(
+  root: string,
+  query: string,
+  signal: AbortSignal,
+  by: 'name' | 'content',
+) {
+  const words = nameWords(query);
+  const args =
+    by === 'name'
+      ? words.length
+        ? [words.map(word => `kMDItemFSName == "*${word}*"cd`).join(' && ')]
+        : []
+      : [query];
+  if (!args.length) return Promise.resolve([]);
   return new Promise<string[]>((done, fail) => {
     execFile(
       '/usr/bin/mdfind',
-      ['-onlyin', root, query],
-      { signal, timeout: 8_000, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => (error ? fail(error) : done(stdout.split('\n').filter(Boolean))),
+      ['-onlyin', root, ...args],
+      { signal, timeout: 8_000, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout) => {
+        // A very common word fills the buffer; the part that arrived is still useful.
+        const lines = String(stdout ?? '')
+          .split('\n')
+          .filter(Boolean);
+        if (error && !((error as { code?: unknown }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'))
+          fail(error);
+        else done(lines);
+      },
     );
   });
+}
+
+/** Whether a path sits inside a code project (a folder with .git between it and the root). */
+function inProject(root: string) {
+  const known = new Map<string, Promise<boolean>>();
+  const isRepo = (folder: string) => {
+    let answer = known.get(folder);
+    if (!answer) {
+      answer = lstat(join(folder, '.git')).then(
+        () => true,
+        () => false,
+      );
+      known.set(folder, answer);
+    }
+    return answer;
+  };
+  return async (path: string) => {
+    for (let folder = dirname(path); within(folder, root); folder = dirname(folder)) {
+      if (await isRepo(folder)) return true;
+      if (folder === root) break;
+    }
+    return false;
+  };
 }
 
 /** Name search without Spotlight: breadth-first, bounded, skipping hidden folders. */
@@ -228,20 +292,22 @@ export function fileCapabilities(deps: FileDependencies) {
     id: 'files.search',
     title: 'Search your files',
     description:
-      'Find files and folders by name or content in the folders Edi can use (Desktop, Documents, ' +
-      'Downloads, folders the user added, or everywhere in their home folder with Full Disk ' +
-      'Access), using Spotlight. Returns paths for files.read, files.list and the change tools. ' +
-      'For things Edi made or saved, use workspace_search instead.',
+      'Find files and folders on this Mac by name or content in the folders Edi can use (Desktop, ' +
+      'Documents, Downloads, folders the user added, or everywhere in their home folder with Full ' +
+      'Disk Access), using Spotlight. Best matches first: names, then documents, with code ' +
+      'projects and generated folders last. Search for a likely file name (“resume”, “invoice ' +
+      'march”), not a question. Returns paths for files.read, files.list and the change tools. ' +
+      'For things Edi made or saved, use workspace_search; for facts about the world, search the web.',
     effect: 'read',
     timeoutMs: 20_000,
     input: z
       .object({
         query: z.string().trim().min(1).max(200).describe('Words in the name or content'),
         folder: pathInput.optional().describe('Only inside this folder, e.g. ~/Downloads'),
-        limit: z.number().int().min(1).max(50).optional().describe('At most this many (20)'),
+        limit: z.number().int().min(1).max(50).optional().describe('At most this many (10)'),
       })
       .strict(),
-    prepare({ query, folder, limit = 20 }) {
+    prepare({ query, folder, limit = 10 }) {
       return {
         preview: {
           title: 'Search your files',
@@ -260,43 +326,61 @@ export function fileCapabilities(deps: FileDependencies) {
                 .filter(root => root.access !== 'off')
                 .map(root => ({ root, path: root.path }));
           const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-          const results: string[] = [];
+          // Spotlight lists matches in no useful order, and a word like "resume" matches
+          // thousands of code files by content, so gather widely and rank here.
+          const CANDIDATES = 300;
+          const results = new Map<string, { root: string }>();
           const skipped: string[] = [];
           for (const scope of scopes) {
-            if (results.length >= limit) break;
             try {
               await ensureAccess(deps, scope.root);
             } catch {
               skipped.push(scope.root.name);
               continue;
             }
-            let paths: string[];
-            try {
-              paths = await spotlight(scope.path, query, signal);
-            } catch {
-              paths = [];
-            }
+            const found = async (by: 'name' | 'content') => {
+              try {
+                return await spotlight(scope.path, query, signal, by);
+              } catch {
+                return [];
+              }
+            };
+            const byName = await found('name');
+            let paths = [...byName, ...(byName.length >= CANDIDATES ? [] : await found('content'))];
             if (!paths.length) paths = await walk(scope.path, words, limit * 2, signal);
+            let added = 0;
             for (const path of paths) {
-              if (!within(path, scope.path) || hidden(path, scope.path) || results.includes(path))
+              if (!within(path, scope.path) || hidden(path, scope.path) || results.has(path))
                 continue;
-              results.push(path);
-              if (results.length >= limit * 2) break;
+              results.set(path, { root: scope.path });
+              if (++added >= CANDIDATES) break;
             }
           }
-          // Name matches first, then the most recently changed.
+          const projects = new Map<string, (path: string) => Promise<boolean>>();
           const described = (
-            await Promise.all(results.map(path => describe(path, deps.home).catch(() => null)))
-          ).filter(entry => entry !== null);
-          const byName = (entry: { name: string }) =>
-            words.every(word => entry.name.toLowerCase().includes(word)) ? 0 : 1;
+            await Promise.all(
+              [...results].map(async ([path, { root }]) => {
+                const entry = await describe(path, deps.home).catch(() => null);
+                if (!entry) return null;
+                if (!projects.has(root)) projects.set(root, inProject(root));
+                const project = await projects.get(root)!(path);
+                const name = entry.name.toLowerCase();
+                // Lower is better: the name matches, it is a document, it is not inside code.
+                const rank =
+                  (words.every(word => name.includes(word)) ? 0 : 4) +
+                  (entry.kind === 'folder' || DOCUMENTS.test(name) ? 0 : 1) +
+                  (project ? 2 : 0);
+                return { entry, rank };
+              }),
+            )
+          ).filter(item => item !== null);
           described.sort(
             (a, b) =>
-              byName(a) - byName(b) ||
-              b.modified.localeCompare(a.modified) ||
-              a.path.localeCompare(b.path),
+              a.rank - b.rank ||
+              b.entry.modified.localeCompare(a.entry.modified) ||
+              a.entry.path.localeCompare(b.entry.path),
           );
-          const found = described.slice(0, limit);
+          const found = described.slice(0, limit).map(item => item.entry);
           return {
             summary:
               (found.length === 1 ? 'Found 1 item.' : `Found ${found.length} items.`) +

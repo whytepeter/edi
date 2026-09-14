@@ -213,11 +213,15 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
-- Asking Edi to look something up ("where I went to school") searched the workspace and opened folder after folder
-  instead of the web, then timed out with nothing. Public facts, including ones about the user, and anything the
-  user asks to look up or find on a site like LinkedIn now go to web search; one local search that doesn't answer
-  is used as a clue (a name from a résumé) rather than a reason to keep browsing folders. A reply or task that runs
-  out of time or steps now stops acting and answers from what it found instead of ending empty.
+- Asking Edi to look something up ("where I went to school") hunted through code files and folders, then timed out
+  with nothing. File search now ranks what a person means: name matches first, documents over other files, code
+  projects last, and dependency/environment folders (node_modules, site-packages, venvs, app bundles) skipped, so
+  "resume" finds the résumé instead of 20 source files. Google Docs, Sheets and Slides shared by link are read
+  through their text export, and a page that only says it needs a browser or sign-in is reported as unreadable
+  instead of "read". Web searches now appear as steps with the pages they found. Public facts and "look it up
+  online" go to web search. A reply or task that runs out of time or steps stops acting and answers from what it
+  found; a run that ends with no answer is reported, and a failed typed question shows its reason in the bubble
+  when Conversations isn't open (voice says the real reason too, not always "couldn't reach the AI model").
 
 - The agent reported a cloud voice by its id (and fell back on earlier conversation, e.g. "Heart") instead of
   its name; cloud voice names now come from the account, and the live setup outranks earlier messages.

@@ -27,7 +27,12 @@ import type { ScreenContext, Screenshot } from '../capture/screens';
 type CapturedScreens = ScreenContext;
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
-import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
+import {
+  recordWebSearch,
+  workerMessageSchema,
+  type HostMessage,
+  type WorkerInput,
+} from './worker-protocol';
 
 /** Wall-clock budget for a run, excluding time spent waiting for a person to decide. */
 const RUN_BUDGET_MS = 120_000;
@@ -110,11 +115,13 @@ export class AgentService {
   /** Kinds of action the person allowed for the rest of a conversation, this session only. */
   private readonly allowedInConversation = new Map<string, Set<string>>();
   private readonly broker: CapabilityBroker;
+  private readonly stepRecorder: ToolCallRecorder;
 
   constructor(private readonly options: AgentServiceOptions) {
+    this.stepRecorder = this.recorder();
     this.broker = new CapabilityBroker(options.capabilities, {
       approvals: this.approvals,
-      recorder: this.recorder(),
+      recorder: this.stepRecorder,
     });
   }
 
@@ -429,17 +436,27 @@ export class AgentService {
         return;
       }
       this.update({ ...this.state, text: this.state.text + message.text, activity: null });
+    } else if (message.type === 'web-search') {
+      recordWebSearch(this.stepRecorder, run.id, message);
     } else if (message.type === 'activity') {
       this.update({ ...this.state, activity: message.activity });
     } else if (message.type === 'tool-call') {
       void this.invokeTool(run, message.id, message.name, message.input);
     } else if (message.type === 'done') {
-      const produced = this.state.text || this.state.steps.length || this.state.artifacts.length;
-      this.finish(
-        run,
-        produced ? 'done' : 'error',
-        produced ? '' : 'No text was returned. Try a text-capable model.',
-      );
+      // Tags alone (a mood, a pointer) are not an answer; steps without one leave the person
+      // with nothing, so that is reported rather than shown as a silent success.
+      const said = parsePresentation(this.state.text)
+        .text.replace(/\[MOOD:[a-z]+\]/gi, '')
+        .trim();
+      if (said || this.state.artifacts.length) this.finish(run, 'done');
+      else
+        this.finish(
+          run,
+          'error',
+          this.state.steps.length
+            ? 'Edi finished without an answer. Try again, or ask more specifically.'
+            : 'No text was returned. Try a text-capable model.',
+        );
     } else if (message.type === 'error') {
       const errors = {
         auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',

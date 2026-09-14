@@ -297,6 +297,17 @@ test('a search result is read without a link from the user, through the page rea
   );
   assert.equal(messages.filter(m => m.type === 'tool-call').length, 1);
   assert.ok(messages.some(m => m.type === 'activity' && m.activity === 'searching-web'));
+  // The search becomes a visible step with the pages it cited.
+  assert.deepEqual(
+    messages.filter(m => m.type === 'web-search'),
+    [
+      {
+        type: 'web-search',
+        query: '',
+        pages: [{ url: 'https://news.example/story', title: 'Story' }],
+      },
+    ],
+  );
   assert.equal(text(messages), 'Read it.');
 
   // The model is offered a question for the reader.

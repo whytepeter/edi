@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { ToolOutcome } from '@edi/capabilities';
+import { randomUUID } from 'node:crypto';
+import type { ToolCallRecorder, ToolOutcome } from '@edi/capabilities';
 import {
   assistantNameSchema,
   desktopContextSchema,
@@ -73,6 +74,19 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('done') }).strict(),
   /** Tokens and cost of one model call, as the provider reported them. */
   z.object({ type: z.literal('usage'), entry: usageEntrySchema }).strict(),
+  /**
+   * OpenRouter ran a web search during a step. Recorded as a step so the person (and a later
+   * look at the run) can see that the web was searched and which pages it found.
+   */
+  z
+    .object({
+      type: z.literal('web-search'),
+      query: z.string().max(300),
+      pages: z
+        .array(z.object({ url: z.string().url().max(2048), title: z.string().max(300) }).strict())
+        .max(10),
+    })
+    .strict(),
   /** A closed set of progress hints; provider output never becomes free text here. */
   z.object({ type: z.literal('activity'), activity: z.enum(['searching-web']) }).strict(),
   z
@@ -92,3 +106,31 @@ export type HostMessage =
   /** Time is nearly up: stop using tools and answer from what has been found so far. */
   | { type: 'wrap-up' }
   | { type: 'tool-result'; id: string; outcome: ToolOutcome };
+
+/** Records a search OpenRouter ran as a finished, read-only step of `runId`. */
+export function recordWebSearch(
+  recorder: ToolCallRecorder,
+  runId: string,
+  search: Extract<WorkerMessage, { type: 'web-search' }>,
+) {
+  const id = randomUUID();
+  const hosts = [...new Set(search.pages.map(page => new URL(page.url).hostname))].slice(0, 3);
+  recorder.created({
+    id,
+    runId,
+    capability: 'web.search',
+    title: 'Search the web',
+    effect: 'read',
+    input: { query: search.query },
+    status: 'running',
+  });
+  recorder.finished(id, {
+    status: 'succeeded',
+    summary:
+      (search.query ? `Searched “${search.query}”. ` : '') +
+      (search.pages.length
+        ? `Found ${search.pages.length === 1 ? '1 page' : `${search.pages.length} pages`} (${hosts.join(', ')}).`
+        : 'Found nothing to cite.'),
+    output: search,
+  });
+}
