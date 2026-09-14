@@ -203,7 +203,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7 | Planned; scale naming is an open decision |
 | Keep identity, voice, skin, capabilities, permissions separate | Principle | Enforced by contracts; skin changes never touch capabilities |
 | Private custom voices with consent | 8 | Planned |
-| Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Bundled skins share a validated contract |
+| Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Character packages: install from a .edichar file, every mood previewed; community library planned |
 | Skill vs skin communities; creator profiles | 8 | Planned; formats kept compatible |
 | Edi Workspace with a scoped local folder, no arbitrary filesystem access | 2–3 | Started: Documents › Edi with Notes; Library lists it |
 | Dynamic content area renders rich artifacts | 2 | Documents, checklists, tables, notes and sandboxed interactive HTML in the artifact window; composition blocks planned |

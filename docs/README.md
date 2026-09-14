@@ -7,7 +7,6 @@ recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 - [Roadmap](ROADMAP.md): milestones, acceptance gates and progress.
 - [Architecture](ARCHITECTURE.md): the intended design and its reasoning.
-- [Suggestions](SUGGESTIONS.md): the detailed idea backlog the roadmap maps each feature to.
 
 ## How the code works
 
