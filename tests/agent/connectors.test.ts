@@ -176,7 +176,7 @@ test('a server’s tools become reviewed Edi actions whose results are marked as
     assert.deepEqual(
       tools.map(tool => [tool.id, tool.effect]),
       [
-        ['mcp_team_notes.search_pages', 'write'],
+        ['mcp_team_notes.search_pages', 'read'],
         ['mcp_team_notes.delete_page', 'write'],
       ],
     );
@@ -188,7 +188,7 @@ test('a server’s tools become reviewed Edi actions whose results are marked as
 
     const search = await tools[0]!.prepare({ query: 'packing' }, context);
     assert.deepEqual(search.scope, { kind: 'app', value: id, label: 'Team Notes', covers: [id] });
-    assert.equal(search.preview.summary, 'Search pages on Team Notes.');
+    assert.equal(search.preview.summary, 'Search pages — packing');
     assert.deepEqual(search.preview.fields, [{ label: 'query', value: 'packing' }]);
     const result = await search.execute(live());
     assert.equal(result.summary, 'Used Search pages on Team Notes.');
@@ -259,6 +259,8 @@ test('without a saved sign-in, launching only marks the app as needing one', asy
       name: 'Locked Notes',
       url: server.url,
       catalogId: null,
+      provider: 'mcp',
+      composioConnectionId: null,
       enabled: true,
       tools: [],
       addedAt: 1,
@@ -271,5 +273,190 @@ test('without a saved sign-in, launching only marks the app as needing one', asy
   } finally {
     await connectors.dispose();
     await server.close();
+  }
+});
+
+/** Composio's v3.1 API, faked: one managed auth config, one account, two Gmail tools. */
+function fakeComposio(opened: string[]) {
+  const requests: { method: string; path: string; key: string | null; body: unknown }[] = [];
+  const fetch = async (url: string | URL, init?: RequestInit) => {
+    const { pathname, searchParams } = new URL(url);
+    const path = pathname.replace('/api/v3.1', '');
+    const method = init?.method ?? 'GET';
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    const key = new Headers(init?.headers).get('x-api-key');
+    requests.push({ method, path: `${path}${searchParams.size ? `?${searchParams}` : ''}`, key, body });
+    const json = (value: unknown, status = 200) =>
+      new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+    if (key !== 'ak_right_key') return json({ error: { message: 'Invalid API key' } }, 401);
+    if (method === 'GET' && path === '/auth_configs') return json({ items: [] });
+    if (method === 'POST' && path === '/auth_configs')
+      return json({ toolkit: { slug: 'gmail' }, auth_config: { id: 'ac_1' } });
+    if (method === 'GET' && path === '/connected_accounts') return json({ items: [] });
+    if (method === 'POST' && path === '/connected_accounts/link')
+      return json({
+        connected_account_id: 'ca_1',
+        redirect_url: 'https://connect.composio.dev/link/lk_1',
+        link_token: 'lk_1',
+        expires_at: '2026-09-15T00:00:00Z',
+      });
+    if (method === 'GET' && path === '/connected_accounts/ca_1')
+      return json({ id: 'ca_1', toolkit: { slug: 'gmail' }, status: opened.length ? 'ACTIVE' : 'INITIATED' });
+    if (method === 'DELETE' && path === '/connected_accounts/ca_1') return json({ success: true });
+    if (method === 'GET' && path === '/tools')
+      return json({
+        items: [
+          {
+            slug: 'GMAIL_FETCH_EMAILS',
+            name: 'Fetch emails',
+            description: 'Fetch emails.',
+            version: '20250905_00',
+            input_parameters: { type: 'object', properties: { query: { type: 'string' } } },
+            tags: ['readOnlyHint', 'important'],
+          },
+          {
+            slug: 'GMAIL_PATCH_SEND_AS',
+            name: 'Patch send-as alias',
+            description: 'Change a send-as alias.',
+            version: '20250905_00',
+            input_parameters: { type: 'object', properties: {} },
+            tags: [],
+          },
+          {
+            slug: 'GMAIL_SEND_EMAIL',
+            name: 'Send email',
+            description: 'Send an email.',
+            version: '20250905_00',
+            input_parameters: { type: 'object', properties: { to: { type: 'string' } } },
+            tags: ['budget'],
+          },
+        ],
+        total_items: 3,
+      });
+    if (method === 'POST' && path === '/tools/execute/GMAIL_SEND_EMAIL')
+      return json({ successful: true, data: { id: 'm1' }, error: null });
+    return json({ error: { message: 'Not found' } }, 404);
+  };
+  return { requests, fetch };
+}
+
+test('Composio apps sign in through Composio, run reviewed tools with the saved account, and remove it', async () => {
+  const repositories = createRepositories(openDatabase(':memory:'));
+  const opened: string[] = [];
+  const composio = fakeComposio(opened);
+  const credentials = {
+    apiKey: '',
+    get configured() {
+      return this.apiKey.length > 0;
+    },
+    async save(apiKey: string) {
+      this.apiKey = apiKey;
+    },
+    async clear() {
+      this.apiKey = '';
+    },
+  };
+  const connectors = new ConnectorManager({
+    repositories,
+    secrets: new MemorySecretStore(),
+    composioCredentials: credentials as never,
+    fetch: composio.fetch,
+    openBrowser: async url => {
+      opened.push(url);
+    },
+  });
+  try {
+    // A key Composio refuses is never saved.
+    await assert.rejects(connectors.setComposioKey('ak_wrong_key'), /Invalid API key/);
+    assert.equal(credentials.configured, false);
+    await connectors.setComposioKey('ak_right_key');
+    assert.equal(credentials.apiKey, 'ak_right_key');
+
+    const id = connectors.add({ catalogId: 'gmail' });
+    const connected = await new Promise<Connector>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out')), 8_000);
+      const stop = connectors.onChange(list => {
+        const gmail = list.find(item => item.id === id);
+        if (gmail?.status === 'error') reject(new Error(gmail.error));
+        if (gmail?.status !== 'connected') return;
+        clearTimeout(timer);
+        stop();
+        resolve(gmail);
+      });
+    });
+    assert.deepEqual(opened, ['https://connect.composio.dev/link/lk_1']);
+    assert.equal(connected.composioConnectionId, 'ca_1');
+    assert.deepEqual(
+      composio.requests.find(request => request.path === '/connected_accounts/link')?.body,
+      { auth_config_id: 'ac_1', user_id: 'edi' },
+    );
+    // Edi's recommended tools come first and start on; others are listed but off. Only
+    // Composio's exact read-only hint counts; a tag like “budget” doesn't.
+    assert.deepEqual(
+      connected.tools.map(tool => [tool.name, tool.readOnly, tool.enabled]),
+      [
+        ['GMAIL_FETCH_EMAILS', true, true],
+        ['GMAIL_SEND_EMAIL', false, true],
+        ['GMAIL_PATCH_SEND_AS', false, false],
+      ],
+    );
+    // Recommended tools missing from the toolkit page are asked for by name.
+    const byName = composio.requests.find(request => request.path.includes('tool_slugs='));
+    assert.ok(byName?.path.includes('GMAIL_REPLY_TO_THREAD'), byName?.path);
+    // The person's choices stand until they ask for Edi's recommendation again.
+    connectors.setToolEnabled(id, 'GMAIL_PATCH_SEND_AS', true);
+    connectors.setToolEnabled(id, 'GMAIL_SEND_EMAIL', false);
+    connectors.useRecommendedTools(id);
+    assert.deepEqual(
+      connectors.list()[0]!.tools.map(tool => [tool.name, tool.enabled]),
+      [
+        ['GMAIL_FETCH_EMAILS', true],
+        ['GMAIL_SEND_EMAIL', true],
+        ['GMAIL_PATCH_SEND_AS', false],
+      ],
+    );
+    const send = connectors.capabilities().find(tool => tool.id.endsWith('.gmail_send_email'));
+    assert.ok(send, connectors.capabilities().map(tool => tool.id).join(', '));
+    assert.equal(send.effect, 'write');
+    const prepared = await send.prepare({ to: 'sam@example.com' }, context);
+    const result = await prepared.execute(live());
+    assert.match(String((result.output as { text: string }).text), /"id": "m1"/);
+    assert.deepEqual(
+      composio.requests.find(request => request.path === '/tools/execute/GMAIL_SEND_EMAIL'),
+      {
+        method: 'POST',
+        path: '/tools/execute/GMAIL_SEND_EMAIL',
+        key: 'ak_right_key',
+        body: {
+          connected_account_id: 'ca_1',
+          user_id: 'edi',
+          arguments: { to: 'sam@example.com' },
+          version: '20250905_00',
+        },
+      },
+    );
+
+    await connectors.remove(id);
+    assert.ok(composio.requests.some(r => r.method === 'DELETE' && r.path === '/connected_accounts/ca_1'));
+    assert.deepEqual(connectors.list(), []);
+  } finally {
+    await connectors.dispose();
+  }
+});
+
+test('the short list names each Composio app’s everyday tools and skips apps Composio can’t sign in to', async () => {
+  const { connectorCatalog } = await import('../../packages/contracts/src/index');
+  const ids = connectorCatalog.map(entry => entry.id);
+  assert.equal(new Set(ids).size, ids.length);
+  // X has no Composio-managed sign-in, so connecting it would always fail.
+  assert.ok(!ids.includes('twitter'));
+  for (const entry of connectorCatalog.filter(item => item.provider === 'composio')) {
+    const prefix = `${entry.url.toUpperCase()}_`;
+    assert.ok(entry.tools && entry.tools.length >= 5, `${entry.id} needs recommended tools`);
+    assert.equal(new Set(entry.tools).size, entry.tools.length, `${entry.id} repeats a tool`);
+    assert.ok(
+      entry.tools.every(tool => tool.startsWith(prefix)),
+      `${entry.id} lists a tool from another app`,
+    );
   }
 });

@@ -56,6 +56,7 @@ export * from './usage';
 export * from './tasks';
 export * from './schedules';
 export * from './connectors';
+export * from './connector-catalog';
 export {
   placeArtifact,
   placeCard,
@@ -456,7 +457,14 @@ export const commandSchema = z.discriminatedUnion('type', [
       enabled: z.boolean(),
     })
     .strict(),
+  z.object({ type: z.literal('use-recommended-tools'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('remove-connector'), id: z.string().uuid() }).strict(),
+  z
+    .object({
+      type: z.literal('setup-composio'),
+      apiKey: z.string().trim().min(10).max(512).optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
   z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
   z
@@ -584,6 +592,8 @@ export interface DesktopBridge {
   /** Connected apps and their tools. */
   connectors(): Promise<Connector[]>;
   onConnectors(callback: (connectors: Connector[]) => void): () => void;
+  /** Whether the Composio API key has been configured. */
+  composioConfigured(): Promise<boolean>;
   /** Saved conversations, most recently active first. */
   conversations(query?: string): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */

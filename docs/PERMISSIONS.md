@@ -75,6 +75,13 @@ with saved sign-ins and never registers or opens a browser by itself; an app tha
 from a connected app is a reviewed write, whatever the server says about it; results are marked as untrusted
 information for the model.
 
+Apps under **More apps** (Gmail, Slack, Google Drive and others) connect through Composio with the person's own
+Composio key (`connectors/composio.ts`, API v3.1). Edi checks the key with Composio before saving it, encrypted with
+`safeStorage` in `userData/composio.enc`. Signing in opens Composio's link page; Composio holds the app's OAuth client
+and the resulting sign-in, and Edi stores only the connected account id. Accounts use the Composio user id `edi`.
+Removing the app deletes that account in Composio. Tools run through the same broker, approvals and untrusted-result
+marking as MCP tools; only Composio's exact `readOnlyHint` tag marks a tool read-only.
+
 ## Adding another permission
 
 Add the ID to `packages/contracts/src/permissions.ts`, register its main-process adapter and Settings URL in the composition root, and add user-facing copy to the shared permission card. The queue, bridge, IPC commands, focus refresh, and dismissal behavior remain unchanged. Add manager-state tests plus one feature-level test proving that the permission is requested only when needed.

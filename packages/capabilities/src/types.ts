@@ -35,6 +35,8 @@ export interface Capability<Input = unknown> {
   input: z.ZodType<Input>;
   /** The JSON Schema shown to the model, when it comes from elsewhere (an MCP server's tool). */
   inputSchema?: Record<string, unknown>;
+  /** The connected app a tool comes from; built-in tools have none. */
+  app?: string;
   timeoutMs: number;
   prepare(input: Input, context: CallContext): Promise<PreparedAction> | PreparedAction;
 }
@@ -90,4 +92,8 @@ export interface ToolManifestEntry {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** The connected app it comes from. */
+  app?: string;
+  /** Declared but shown to the model only after it finds the tool with `find_app_tools`. */
+  deferred?: boolean;
 }

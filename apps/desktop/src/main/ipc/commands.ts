@@ -310,7 +310,15 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ id, tool, enabled }) => connectors.setToolEnabled(id, tool, enabled),
     },
+    'use-recommended-tools': {
+      from: fromWorkspace,
+      handle: ({ id }) => connectors.useRecommendedTools(id),
+    },
     'remove-connector': { from: fromWorkspace, handle: ({ id }) => connectors.remove(id) },
+    'setup-composio': {
+      from: fromWorkspace,
+      handle: ({ apiKey }) => connectors.setComposioKey(apiKey),
+    },
     'set-task-budget': {
       from: fromWorkspace,
       handle: ({ budgetUsd }) => settings.update({ taskBudgetUsd: budgetUsd }),

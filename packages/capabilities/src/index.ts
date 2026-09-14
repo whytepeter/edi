@@ -1,4 +1,4 @@
-export { CapabilityBroker, toolNameFor } from './broker';
+export { CapabilityBroker, DIRECT_APP_TOOLS, toolNameFor } from './broker';
 export {
   defineCapability,
   OutcomeUnknownError,

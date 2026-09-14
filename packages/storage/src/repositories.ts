@@ -855,6 +855,8 @@ export interface ConnectorRecord {
   name: string;
   url: string;
   catalogId: string | null;
+  provider: 'mcp' | 'composio';
+  composioConnectionId: string | null;
   enabled: boolean;
   /** The server's tools as last listed, with the person's on/off choice for each. */
   tools: ConnectorTool[];
@@ -866,6 +868,8 @@ const connectorRow = z.object({
   name: z.string(),
   url: z.string(),
   catalogId: z.string().nullable(),
+  provider: z.enum(['mcp', 'composio']),
+  composioConnectionId: z.string().nullable(),
   enabled: z.number(),
   tools: z.string(),
   addedAt: z.number(),
@@ -877,14 +881,19 @@ export class ConnectorRepository {
   private static parse(row: unknown): ConnectorRecord {
     const raw = connectorRow.parse(row);
     const tools = z.array(connectorToolSchema).max(200).safeParse(JSON.parse(raw.tools));
-    return { ...raw, enabled: raw.enabled === 1, tools: tools.success ? tools.data : [] };
+    return {
+      ...raw,
+      enabled: raw.enabled === 1,
+      tools: tools.success ? tools.data : [],
+    };
   }
 
   list(): ConnectorRecord[] {
     return this.db
       .prepare(
-        `SELECT id, name, url, catalog_id AS catalogId, enabled, tools_json AS tools,
-                added_at AS addedAt
+        `SELECT id, name, url, catalog_id AS catalogId, provider,
+                composio_connection_id AS composioConnectionId,
+                enabled, tools_json AS tools, added_at AS addedAt
          FROM connectors ORDER BY added_at, rowid LIMIT 50`,
       )
       .all()
@@ -898,23 +907,29 @@ export class ConnectorRepository {
   add(connector: ConnectorRecord) {
     this.db
       .prepare(
-        `INSERT INTO connectors (id, name, url, catalog_id, enabled, tools_json, added_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO connectors (id, name, url, catalog_id, provider, composio_connection_id,
+                                 enabled, tools_json, added_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         connector.id,
         connector.name.slice(0, 60),
         connector.url,
         connector.catalogId,
+        connector.provider,
+        connector.composioConnectionId,
         connector.enabled ? 1 : 0,
         JSON.stringify(connector.tools),
         connector.addedAt,
       );
   }
 
-  update(id: string, patch: Partial<Pick<ConnectorRecord, 'enabled' | 'tools' | 'name'>>) {
+  update(
+    id: string,
+    patch: Partial<Pick<ConnectorRecord, 'enabled' | 'tools' | 'name' | 'composioConnectionId'>>,
+  ) {
     const fields: string[] = [];
-    const values: (string | number)[] = [];
+    const values: (string | number | null)[] = [];
     if (patch.enabled !== undefined) {
       fields.push('enabled = ?');
       values.push(patch.enabled ? 1 : 0);
@@ -926,6 +941,10 @@ export class ConnectorRepository {
     if (patch.name) {
       fields.push('name = ?');
       values.push(patch.name.slice(0, 60));
+    }
+    if (patch.composioConnectionId !== undefined) {
+      fields.push('composio_connection_id = ?');
+      values.push(patch.composioConnectionId);
     }
     if (!fields.length) return;
     this.db.prepare(`UPDATE connectors SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);

@@ -49,6 +49,7 @@ import {
 } from '@edi/capabilities';
 import { macDependencies } from './platform/mac-actions';
 import { ApprovalRules } from './agent/approval-rules';
+import { ComposioCredentials } from './connectors/composio-credentials';
 import { ConnectorManager } from './connectors/manager';
 import { EncryptedSecretStore } from './connectors/secrets';
 import {
@@ -717,6 +718,8 @@ async function start() {
     }),
   ];
   const approvalRules = new ApprovalRules(repositories);
+  const composioCredentials = new ComposioCredentials();
+  await composioCredentials.load();
   const connectors = new ConnectorManager({
     repositories,
     secrets: new EncryptedSecretStore(join(app.getPath('userData'), 'connectors'), {
@@ -724,6 +727,7 @@ async function start() {
       encrypt: text => safeStorage.encryptString(text),
       decrypt: data => safeStorage.decryptString(data),
     }),
+    composioCredentials,
     openBrowser: url => shell.openExternal(url, { activate: true }),
     version: app.getVersion(),
   });
@@ -1331,6 +1335,7 @@ async function start() {
       if (artifactWindow.owns(sender)) return 'artifact';
       return undefined;
     },
+    composioConfigured: () => composioCredentials.configured,
     routes: createCommandRoutes({
       workspace,
       pet,

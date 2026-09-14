@@ -15,6 +15,7 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { ToolOutcome } from '@edi/capabilities';
 import { describeDesktopContext, type ProviderFailure } from '@edi/contracts';
 import { workerInputSchema, type HostMessage, type WorkerMessage } from './worker-protocol';
+import { activate, findAppTools } from './app-tool-search';
 
 // The worker is a process boundary. Reject malformed or unexpectedly large startup data
 // before it reaches provider code, even though the current producer is trusted main.
@@ -541,6 +542,47 @@ async function run() {
       // local or mutating action continues to go through the capability broker above.
       web_search: provider.tools.webSearch({ engine: 'auto', maxResults: 5 }),
     };
+    // Many connected-app tools: all stay declared, but the model sees only the ones it finds.
+    // Calls still go through the broker by name, so each keeps its own review rule.
+    const deferred = input.tools.filter(entry => entry.deferred);
+    const found = new Set<string>();
+    const deferredApps = [...new Set(deferred.flatMap(entry => (entry.app ? [entry.app] : [])))];
+    if (deferred.length) {
+      tools.find_app_tools = tool({
+        description:
+          `Find tools from the user's connected apps (${deferredApps.join(', ')}). Describe ` +
+          'what you need in a few words, e.g. "send gmail email" or "list linear issues". ' +
+          'The tools it returns can be called from your next step.',
+        inputSchema: jsonSchema<{ query: string }>({
+          type: 'object',
+          properties: { query: { type: 'string', maxLength: 200 } },
+          required: ['query'],
+          additionalProperties: false,
+        }),
+        execute: async ({ query }) => {
+          const matches = findAppTools(deferred, String(query ?? ''));
+          activate(
+            found,
+            matches.map(entry => entry.name),
+          );
+          return matches.length
+            ? {
+                tools: matches.map(entry => ({
+                  name: entry.name,
+                  app: entry.app,
+                  description: entry.description.slice(0, 300),
+                })),
+                note: 'These tools can be called now.',
+              }
+            : {
+                tools: [],
+                note: 'No connected-app tool matched. Try other words, or say which app is missing.',
+              };
+        },
+      });
+    }
+    const direct = Object.keys(tools).filter(name => !deferred.some(entry => entry.name === name));
+    const activeTools = () => (deferred.length ? [...direct, ...found] : undefined);
     const system = [
       SYSTEM,
       SHOWING,
@@ -561,6 +603,10 @@ async function run() {
       input.screenshots.length ? POINTING : '',
       input.spoken ? SPOKEN : '',
       input.mode === 'task' ? TASK : '',
+      deferred.length
+        ? `The user's connected apps (${deferredApps.join(', ')}) have more tools than are listed. ` +
+          'When a request involves one of them, call find_app_tools first, then use what it returns.'
+        : '',
       input.spoken && input.expressiveVoice ? EXPRESSIVE : '',
     ]
       .filter(Boolean)
@@ -573,10 +619,15 @@ async function run() {
       stopWhen: stepCountIs(input.maxSteps),
       // A run never ends on a tool call with nothing to show: the last step, or the step after
       // main's wrap-up, must answer. Tools stay declared because the history contains their calls.
-      prepareStep: ({ stepNumber }) =>
-        stepNumber >= input.maxSteps - 1 || wrapUp.signal.aborted
-          ? { toolChoice: 'none', instructions: `${system} ${FINAL}` }
-          : undefined,
+      prepareStep: ({ stepNumber }) => {
+        const active = activeTools();
+        const step = active ? { activeTools: active } : {};
+        return stepNumber >= input.maxSteps - 1 || wrapUp.signal.aborted
+          ? { ...step, toolChoice: 'none' as const, instructions: `${system} ${FINAL}` }
+          : active
+            ? step
+            : undefined;
+      },
       // Shown content arrives as tool arguments, so a report or an interactive page needs room;
       // providers bill generated tokens, not this ceiling.
       maxOutputTokens: 16_000,

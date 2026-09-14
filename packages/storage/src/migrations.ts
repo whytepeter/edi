@@ -267,6 +267,15 @@ export const migrations: readonly { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    // Composio-backed connectors: provider distinguishes MCP from Composio, and
+    // composio_connection_id links to the user's Composio account for that app.
+    version: 12,
+    sql: `
+      ALTER TABLE connectors ADD COLUMN provider TEXT NOT NULL DEFAULT 'mcp';
+      ALTER TABLE connectors ADD COLUMN composio_connection_id TEXT;
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

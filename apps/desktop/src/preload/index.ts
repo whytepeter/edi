@@ -63,6 +63,10 @@ const bridge: DesktopBridge = {
   approvalRules: async () =>
     approvalRulesSchema.parse(await ipcRenderer.invoke('edi:approval-rules:get')),
   connectors: async () => connectorListSchema.parse(await ipcRenderer.invoke('edi:connectors:get')),
+  composioConfigured: async () => {
+    const result = await ipcRenderer.invoke('edi:composio-configured:get');
+    return result === true;
+  },
   onConnectors: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = connectorListSchema.safeParse(value);

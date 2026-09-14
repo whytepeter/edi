@@ -118,6 +118,15 @@
   background: linear-gradient(var(--glass-edge-fill) 45%, transparent);
   backdrop-filter: blur(14px);
 }
+/*
+ * Menus floating over a glass window's content: the in-page blur doesn't soften the text behind
+ * them there, so they take the thick fill of a floating window and keep their sheen, rim and
+ * shadow. The character menu is its own window and stays clear (above).
+ */
+:root[data-surface='workspace'] .ds-menu.ds-glass,
+:root[data-surface='artifact'] .ds-menu.ds-glass {
+  background: var(--glass-sheen), var(--glass-thick-fill);
+}
 :root[data-native-glass] .glass-window .ds-scroll-edge[data-edge='bottom'] {
   background: linear-gradient(transparent, var(--window-tint) 65%);
 }

@@ -58,6 +58,7 @@ interface IpcDependencies {
   schedules(): Schedule[];
   approvalRules(): ApprovalRule[];
   connectors(): Connector[];
+  composioConfigured(): boolean;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
   fileAccess(): FileAccess;
@@ -83,6 +84,7 @@ export function registerIpc({
   schedules,
   approvalRules,
   connectors,
+  composioConfigured,
   artifact,
   permissions,
   fileAccess,
@@ -137,6 +139,10 @@ export function registerIpc({
   ipcMain.handle('edi:connectors:get', event => {
     authorize(callerOf(event), ['workspace']);
     return connectors();
+  });
+  ipcMain.handle('edi:composio-configured:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return composioConfigured();
   });
   ipcMain.handle('edi:approval-rules:get', event => {
     authorize(callerOf(event), ['workspace']);

@@ -20,6 +20,8 @@ const toolManifestEntrySchema = z
     name: z.string().min(1).max(64),
     description: z.string().min(1).max(2_000),
     inputSchema: z.record(z.string(), z.unknown()),
+    app: z.string().min(1).max(60).optional(),
+    deferred: z.boolean().optional(),
   })
   .strict();
 
@@ -57,8 +59,14 @@ export const workerInputSchema = z
     desktopContext: desktopContextSchema.nullable().default(null),
     /** Trusted, current, non-secret product configuration supplied by main. */
     selfContext: z.string().max(12_000).default(''),
-    // Providers accept up to 128 tools; Edi keeps connected apps within that.
-    tools: z.array(toolManifestEntrySchema).max(128),
+    // Providers accept up to 128 tools per request. Deferred tools are declared but offered only
+    // once found, so the ones sent directly must leave room for those and web search.
+    tools: z
+      .array(toolManifestEntrySchema)
+      .max(400)
+      .refine(tools => tools.filter(entry => !entry.deferred).length <= 90, {
+        message: 'Too many tools sent directly.',
+      }),
   })
   .strict();
 export type WorkerInput = z.infer<typeof workerInputSchema>;

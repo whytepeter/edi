@@ -15,6 +15,9 @@ interface BrokerDependencies {
   id?: () => string;
 }
 
+/** Connected-app tools sent to the model directly; more than this and they are found by search. */
+export const DIRECT_APP_TOOLS = 40;
+
 /** Model-facing names cannot contain dots: `notes.save` → `notes_save`. */
 export const toolNameFor = (capabilityId: string) => capabilityId.replace(/[^a-zA-Z0-9_-]/g, '_');
 
@@ -59,12 +62,21 @@ export class CapabilityBroker {
     return all;
   }
 
+  /**
+   * Every tool, for the model. Past `DIRECT_APP_TOOLS` connected-app tools, all of them are
+   * deferred: the model finds the ones it needs by search, keeping each request small and within
+   * providers' tool limits. Built-in tools are never deferred.
+   */
   manifest(): ToolManifestEntry[] {
-    return [...this.byName].map(([name, capability]) => ({
+    const entries = [...this.byName];
+    const defer = entries.filter(([, capability]) => capability.app).length > DIRECT_APP_TOOLS;
+    return entries.map(([name, capability]) => ({
       name,
       description: capability.description,
       inputSchema:
         capability.inputSchema ?? (z.toJSONSchema(capability.input) as Record<string, unknown>),
+      ...(capability.app ? { app: capability.app } : {}),
+      ...(defer && capability.app ? { deferred: true } : {}),
     }));
   }
 
