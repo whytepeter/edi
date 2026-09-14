@@ -18,7 +18,7 @@ Electron main ─── IPC router ─── domain services
                   │
         bounded worker protocols
                   │
-Agent worker · Pocket TTS · whisper.cpp · native helpers
+Agent worker · MLX speech (Kokoro, Chatterbox Turbo) · whisper.cpp · native helpers
 ```
 
 The renderer is a user interface, not an operating-system service. It never receives filesystem access,
@@ -109,12 +109,13 @@ native adapter, bounded UI copy, denial path, and tests for first ask, denial, d
 
 - Session policy: `packages/contracts/src/voice-session.ts`
 - Main coordinator: `apps/desktop/src/main/voice/voice-controller.ts`
-- Local speech adapter: `apps/desktop/src/main/voice/pocket-process.ts`
-- Pocket worker: `apps/desktop/voice/pocket_worker.py`
+- Local speech adapter: `apps/desktop/src/main/voice/mlx-process.ts` (Kokoro and Chatterbox Turbo)
+- MLX worker: `apps/desktop/voice/mlx_worker.py`
+- Cloud speech: `apps/desktop/src/main/voice/cloud-voice.ts` (Cartesia, ElevenLabs)
 - Renderer capture/playback: `apps/desktop/src/renderer/src/features/voice`
 
 Voice separates transcription, reasoning, synthesis, and playback. Generation tokens prevent old capture or
-audio events from reviving a stopped turn. Pocket runs offline in a supervised process; every PCM frame is
+audio events from reviving a stopped turn. Local speech runs offline in a supervised process; every PCM frame is
 validated and acknowledged to apply backpressure. The host passes the voice ID explicitly and rejects a worker
 that reports a different voice.
 
@@ -124,8 +125,11 @@ local to cloud.
 
 ### Presentation and character
 
-- Character lifecycle and skin guide: `docs/CHARACTER.md`
-- Character interactions: `apps/desktop/src/main/character`
+- Characters, expressions and packages: `docs/CHARACTER.md` (creators: `docs/characters/README.md`)
+- Character interactions and mood: `apps/desktop/src/main/character`
+- Character library and `.edichar` files: `apps/desktop/src/main/characters`
+- Character rendering and motion: `apps/desktop/src/renderer/src/components/character`
+- Built-in characters: `packages/characters`
 - Window placement: `apps/desktop/src/main/windows`
 - Presentation parsing: `packages/contracts/src/presentation.ts`
 - Alignment with recognized text: `packages/contracts/src/screen-grounding.ts`; Vision recognition in `native/screen-capture/ask.m`, read by `recognizedDisplayText` in `apps/desktop/src/main/permissions.ts`
@@ -133,9 +137,10 @@ local to cloud.
 - Renderers: `features/pet` and `features/pointer`
 
 Model output can select only validated point/draw actions. Main maps screenshot pixels to display coordinates;
-the overlay does not move the user's cursor or accept clicks. `CharacterActions` translates lifecycle events into
-a validated semantic expression; the pet renderer alone maps that state to skin artwork and motion. Character
-state, skin assets, voice, and agent state remain separate so one can change without resetting the others.
+the overlay does not move the user's cursor or accept clicks. Main produces a validated expression and mood,
+the voice adds audio-timed cues, and the pet renderer alone maps that state to a character's variants and
+motion. Character state, character packages, voice, and agent state remain separate so one can change without
+resetting the others.
 
 ### Card navigation and Settings
 
@@ -215,7 +220,6 @@ type checking cannot.
 
 - The app currently supports one foreground conversation and one SQLite writer.
 - Agent code stays under the desktop app while its worker and lifecycle are desktop-specific.
-- Voice providers are not yet selectable in Settings; Pocket is the only wired provider.
 - Remote media and third-party extension UI are not loaded into trusted renderers.
 - A custom application protocol and Electron fuse hardening remain release work; changing either affects
   packaging and must be verified in the signed app.

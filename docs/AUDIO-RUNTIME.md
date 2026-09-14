@@ -1,6 +1,6 @@
 # Local audio runtime
 
-Local transcription provisioning and screening are complete: whisper.cpp base.en with Silero VAD, CPU-only baseline, 14 runs over six Pocket samples and silence. Median speech-file process time with VAD was 0.732 seconds including model load; peak RSS was 298 MiB. Plain Whisper hallucinated “You” on digital silence; VAD returned empty text. See [transcription evidence](../benchmarks/voice/TRANSCRIPTION.md). The capture-to-transcript-to-agent-to-Pocket path is wired in development; subjective listening, physical-device checks, and hands-free silence/follow-up behavior remain open.
+Local transcription provisioning and screening are complete: whisper.cpp base.en with Silero VAD, CPU-only baseline, 14 runs over six Pocket samples and silence. Median speech-file process time with VAD was 0.732 seconds including model load; peak RSS was 298 MiB. Plain Whisper hallucinated “You” on digital silence; VAD returned empty text. See [transcription evidence](../benchmarks/voice/TRANSCRIPTION.md). The capture-to-transcript-to-agent-to-speech path is wired in development; subjective listening, physical-device checks, and hands-free silence/follow-up behavior remain open.
 
 ## Capture adapter
 
@@ -24,7 +24,7 @@ Milestone 0 is closed. The development voice path is connected; packaged runtime
 
 ## Ownership and lifecycle
 
-`PcmPlayer` owns one audio context and accepts decoded mono Float32 PCM. It has no provider credentials, filesystem access, download logic, or model dependencies. Pocket, Chatterbox Turbo, ElevenLabs, and Cartesia adapters normalize into this boundary; encoded MP3 bytes must be decoded first.
+`PcmPlayer` owns one audio context and accepts decoded mono Float32 PCM. It has no provider credentials, filesystem access, download logic, or model dependencies. Kokoro, Chatterbox Turbo, ElevenLabs, and Cartesia adapters normalize into this boundary; encoded MP3 bytes must be decoded first.
 
 Call `begin()` from a user gesture and retain its returned token. Send ordered chunks using `push(token, samples, sampleRate)`. `finish(token)` closes input while allowing queued audio to drain. Stop invalidates the token, stops and disconnects queued sources, and clears the queue. Late chunks and late completion messages cannot affect a newer run. `dispose()` also closes the device; create a new player after disposal.
 
@@ -32,11 +32,11 @@ Input limits: 8–48 kHz, finite samples between -1 and 1, at most one second pe
 
 Each chunk uses a one-shot Web Audio source, scheduled contiguously on the audio clock. Initial playback and recovery from starvation use a 40 ms lead. The gap counter tracks late scheduling, not measured speaker dropouts. Long-running/background stress tests will determine whether to replace this initial scheduler with an AudioWorklet ring buffer. See [Web Audio source behavior](https://developer.mozilla.org/en-US/docs/Web/API/AudioBufferSourceNode).
 
-Main cancels model generation separately from renderer playback. The Pocket supervisor bounds output, enforces timeouts, detects crashes, and unloads the warm model after five idle minutes. Sleep and Stop cancel both layers before hiding Edi; the renderer is not the only cancellation path.
+Main cancels model generation separately from renderer playback. The MLX speech supervisor bounds output, enforces timeouts, detects crashes, and unloads a warm model after it sits idle. Sleep and Stop cancel both layers before hiding Edi; the renderer is not the only cancellation path.
 
 ## Verification
 
-Run `pnpm test:audio` for deterministic lifecycle and validation tests. Run `pnpm test:audio:native` after provisioning the Pocket benchmark samples for the real Electron check. Native execution needs desktop access. It uses a temporary app profile, no keys or provider calls, and a muted output graph. No product test screen or runtime test endpoint is added.
+Run `pnpm test:audio` for deterministic lifecycle and validation tests. Run `pnpm test:audio:native` for the real Electron check; it plays a saved greeting sample from `benchmarks/voice/results`. Native execution needs desktop access. It uses a temporary app profile, no keys or provider calls, and a muted output graph. No product test screen or runtime test endpoint is added.
 
 Native result on M2 Pro / 16 GB:
 
@@ -46,24 +46,3 @@ Native result on M2 Pro / 16 GB:
 - Disposal closed the audio context.
 
 Evidence: [local raw report](../benchmarks/voice/results/playback-DPiRxO/results.json). The test rechunks a WAV into 80 ms pieces with 20 ms delivery spacing; it does not reproduce Pocket's original streaming timing. Silence is polled at 10 ms intervals. One short test cannot establish sustained playback reliability, acoustic stop latency, or resource budgets.
-
-## Supervised Pocket process
-
-`main/voice/pocket-process.ts` now supervises `voice/pocket_worker.py`. It accepts trusted native runtime paths, sends text through stdin rather than command-line arguments, and starts Python with an explicit environment that excludes provider keys and Python injection variables. Hugging Face offline mode uses only the provisioned cache. Library logs are excluded from the PCM protocol and not sent to the renderer.
-
-The worker selects Pocket’s `jane` voice as Edi’s local female default. Fantine replaced Alba during the first fix,
-but the user still heard a male voice; Jane replaces it. The TypeScript host now passes the provider-specific voice
-ID explicitly and rejects the worker's ready message if it reports another voice. Provider and voice selection belong
-in Settings later.
-
-The worker sends mono 24 kHz Float32 little-endian frames encoded as bounded JSON/base64 lines. Each frame requires an acknowledgement after the consumer accepts it. The supervisor validates sample values, frame size, sample rate, frame count, and total duration. Requests are limited to 2,000 characters and 120 seconds. Abort and timeout terminate the worker, escalating to a forced exit after one second if necessary. The caller must also stop its PCM player when cancelling.
-
-The worker is now long-lived: it loads the model once, reports `ready`, then serves one utterance at a time. After each frame the host replies `ack` to continue or `cancel` to stop that utterance; the model stays loaded. The host sends exactly one credit per frame (a spare credit would be read as the next request, which the tests caught). A worker that does not acknowledge a cancel within two seconds, crashes, times out or breaks the protocol is killed and replaced on the next reply. `PocketVoice` unloads the process after five idle minutes, and hold-to-talk calls `warm()` the moment a hold starts so the model loads while the person is still speaking.
-
-Measured on the M2 Pro with the real model, offline, no audio output (2026-09-11): cold load plus first reply 5,791 ms to first PCM; warm replies 52 ms and 71 ms to first PCM; a warm reply stopped after its first frame settled in 78 ms and the next reply still came from the loaded model. `speakPocket()` remains as a one-shot wrapper for the live harness.
-
-`pnpm test:audio` covers playback plus worker protocol, crash, invalid output, timeout, and cancellation during a blocked consumer. `pnpm test:audio:live` uses the installed offline Pocket model and a muted Electron graph, with an isolated profile and a developer-only transport. It tests actual generation rather than saved WAV delivery. Build the desktop app first with `pnpm build`.
-
-Latest live result on the same M2 Pro with Jane: 50 frames, zero scheduling gaps, and no pending sources after drain. First PCM arrived after 4.441 seconds including cold process/model startup; Stop completed in 1.14 ms. Output was muted, so this is not an acoustic latency or subjective quality result. [Local raw result](../benchmarks/voice/results/live-UtAUpF/results.json). The earlier cancellation run remains at [live-Qag5PM](../benchmarks/voice/results/live-Qag5PM/results.json).
-
-Next: complete hands-free silence/follow-up behavior, subjective Jane listening and physical-device checks, then package the local runtimes and expose provider/voice selection in Settings. Chatterbox Turbo needs a separate download/benchmark decision; cloud calls still require credentials and paid-use approval.
