@@ -98,13 +98,14 @@ try {
     .poll(() => app.windows().filter(page => page.url().includes('surface=')).length)
     .toBe(2);
   const workspace = app.windows().find(page => page.url().includes('surface=workspace'));
+  // A closed artifact window can linger in the list for a moment; only an open one counts.
+  const openArtifactPage = () =>
+    app.windows().find(page => page.url().includes('surface=artifact') && !page.isClosed());
   const artifactWindow = async () => {
-    await expect
-      .poll(() => app.windows().some(page => page.url().includes('surface=artifact')))
-      .toBe(true);
-    return app.windows().find(page => page.url().includes('surface=artifact'));
+    await expect.poll(() => Boolean(openArtifactPage())).toBe(true);
+    return openArtifactPage();
   };
-  const artifactOpen = () => app.windows().some(page => page.url().includes('surface=artifact'));
+  const artifactOpen = () => Boolean(openArtifactPage());
 
   // 1. From the conversation: the page stays put and the artifact opens beside the card.
   await workspace.evaluate(() =>
@@ -117,6 +118,15 @@ try {
   for (const name of ['Copy', 'Download', 'Show in Finder', 'Close'])
     await expect(artifact.getByRole('button', { name })).toBeVisible();
   await expect(artifact.getByRole('button', { name: /Back/ })).toHaveCount(0);
+  // Copy uses the real system clipboard; put the person's clipboard back afterwards.
+  const savedClipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
+  try {
+    await artifact.getByRole('button', { name: 'Copy' }).click();
+    await expect(artifact.getByRole('button', { name: 'Copied' })).toBeVisible();
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toContain('<');
+  } finally {
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard);
+  }
   expect(
     await workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view),
   ).toBe('conversations');
@@ -168,7 +178,7 @@ try {
 
   // 4. From Library: the same artifact is listed and opens in the window.
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace', view: 'library' }));
-  const row = workspace.getByRole('button', { name: /Sandbox probe/ });
+  const row = workspace.getByRole('button', { name: /^Sandbox probe/ });
   await expect(row).toBeVisible();
   await row.click();
   artifact = await artifactWindow();
@@ -176,7 +186,8 @@ try {
   expect(
     await workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view),
   ).toBe('library');
-  await artifact.keyboard.press('Escape');
+  // Escape closes the window mid-keypress, so the press itself may report the page closed.
+  await artifact.keyboard.press('Escape').catch(() => {});
   await expect.poll(artifactOpen).toBe(false);
 
   // 5. Library Delete asks first; Cancel keeps the item, Move to Trash removes it everywhere.

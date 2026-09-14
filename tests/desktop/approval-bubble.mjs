@@ -30,8 +30,9 @@ try {
   const opened = new Promise(resolvePage => app.once('window', resolvePage));
   await app.evaluate(({ BrowserWindow }) => {
     const preview = new BrowserWindow({
-      width: 340,
-      height: 220,
+      // The approval bubble's window size (factory.ts statusBubbleSize.approval, tail included).
+      width: 308,
+      height: 155,
       show: true,
       transparent: true,
       frame: false,
@@ -45,6 +46,7 @@ try {
     const approval = {
       callId: '00000000-0000-4000-8000-000000000010',
       runId: '00000000-0000-4000-8000-000000000001',
+      capability: { id: 'notes.save', title: 'Save a note' },
       preview: {
         title: 'Save a note',
         action: 'Save Note',
@@ -69,14 +71,21 @@ try {
   });
   await page.goto(renderer.href);
 
-  await expect(page.getByRole('heading', { name: 'Save a note' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'View details' })).toBeVisible();
+  // Claude-like: the question, one detail line, Deny and the action, then quieter options.
+  await expect(page.getByRole('heading', { name: 'Save this note for later.' })).toBeVisible();
+  await expect(
+    page.getByText('/Users/example/Documents/Edi/Notes/project-direction.md'),
+  ).toBeVisible();
+  for (const name of ['Deny', 'Always allow in this chat', 'Details'])
+    await expect(page.getByRole('button', { name })).toBeVisible();
   const approve = page.getByRole('button', { name: 'Save Note' });
   await expect(approve).toBeDisabled();
   await expect(approve).toBeEnabled({ timeout: 2_000 });
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight))
     .toBe(true);
+  // Always allow arms with the action; a response then locks the bubble until main replaces it.
+  await expect(page.getByRole('button', { name: 'Always allow in this chat' })).toBeEnabled();
   await approve.click();
   await expect.poll(() => page.evaluate(() => window.__approvalAction)).toBe('approve');
   const screenshot = join(profile, 'approval-bubble.png');

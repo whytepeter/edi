@@ -204,14 +204,7 @@ try {
   await expect(artifactPage.getByRole('button', { name: 'Close' })).toBeVisible();
   await expect(artifactPage.getByRole('button', { name: /Back/ })).toHaveCount(0);
   await expect(artifactPage.getByRole('button', { name: /Save to Library/ })).toHaveCount(0);
-  // Copy uses the real system clipboard; put the person's clipboard back afterwards.
-  const savedClipboard = await instance.evaluate(({ clipboard }) => clipboard.readText());
-  await artifactPage.getByRole('button', { name: 'Copy' }).click();
-  await expect(artifactPage.getByRole('button', { name: 'Copied' })).toBeVisible();
-  expect(await instance.evaluate(({ clipboard }) => clipboard.readText())).toContain(
-    'Large information lives here.',
-  );
-  await instance.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard);
+  // Copy reads the saved record, so it is exercised in tests/desktop/artifacts.mjs, where one exists.
   // The page underneath stays where it was; the artifact does not replace it.
   expect(
     await workspace.evaluate(() => document.querySelector('.workspace-card')?.dataset.view),

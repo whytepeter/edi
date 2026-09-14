@@ -39,7 +39,9 @@ try {
     'screen-recording',
   ]);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
-  await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
+  await expect(
+    workspace.getByRole('heading', { name: /^(Good (morning|afternoon|evening)\.|Still up\?)$/ }),
+  ).toBeVisible();
   await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   expect(errors).toEqual([]);
   console.log(
