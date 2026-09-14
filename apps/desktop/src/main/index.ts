@@ -967,7 +967,7 @@ async function start() {
         version: app.getVersion(),
         voice: {
           available: selected.available,
-          name: `${spokenVoiceName(speaking)} · ${selected.name}`,
+          name: `${spokenVoiceName(speaking)} · ${selected.name}`.slice(0, 120),
           models: voiceModels(),
         },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },

@@ -298,7 +298,8 @@ export const systemInfoSchema = z
     voice: z
       .object({
         available: z.boolean(),
-        name: z.string().max(60),
+        /** "Voice · Model": a cloud voice name alone can be 60 characters. */
+        name: z.string().max(120),
         models: z
           .array(
             z

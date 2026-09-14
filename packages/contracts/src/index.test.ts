@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  systemInfoSchema,
+  cloudVoiceOptionSchema,
   assistantName,
   agentStateSchema,
   characterExpressionSchema,
@@ -603,4 +605,26 @@ test('the companion is named by the person, or by its character until then', () 
   }
   assert.equal(commandSchema.safeParse({ type: 'set-name', name: 'Mary-Jane' }).success, true);
   assert.equal(commandSchema.safeParse({ type: 'set-name', name: null }).success, true);
+});
+
+test('system info accepts the longest cloud voice name with its model', () => {
+  const voice = cloudVoiceOptionSchema.parse({
+    id: 'D9xwB6HNBJ9h4YvQFWuE',
+    name: 'V'.repeat(60),
+    description: '',
+    gender: null,
+    accent: null,
+  });
+  const model = (id: string) => ({ id, name: id, available: true, expressions: false, detail: '' });
+  const info = {
+    version: '0.1.0',
+    voice: {
+      available: true,
+      name: `${voice.name} · ElevenLabs`,
+      models: ['kokoro', 'pocket', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
+    },
+    pushToTalk: { status: 'ready', label: '⌥ Space' },
+    notesFolder: '/Users/me/Documents/Edi',
+  };
+  assert.equal(systemInfoSchema.safeParse(info).success, true);
 });
