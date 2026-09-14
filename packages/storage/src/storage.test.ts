@@ -306,7 +306,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
@@ -434,7 +434,7 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
   db.exec(
-    'DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
   );
   db.exec('PRAGMA user_version = 4');
@@ -633,4 +633,39 @@ test('approval rules: saved once per action and scope, newest first, removable',
   assert.equal(repos.approvalRules.remove(uuid(301)), true);
   assert.equal(repos.approvalRules.remove(uuid(301)), false);
   assert.equal(repos.approvalRules.list().length, 1);
+});
+
+test('failures keep only a safe summary, newest first, capped', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  for (let n = 0; n < 503; n++)
+    repos.failures.add(
+      {
+        runId: null,
+        model: 'google/gemini-3.8-flash',
+        kind: 'temporary',
+        status: 502,
+        step: n % 3,
+      },
+      n,
+    );
+  const recent = repos.failures.recent(600);
+  assert.equal(recent.length, 500);
+  assert.equal(recent[0]!.at, 502);
+  assert.deepEqual({ ...recent[0] }, {
+    at: 502,
+    runId: null,
+    model: 'google/gemini-3.8-flash',
+    kind: 'temporary',
+    status: 502,
+    provider: null,
+    code: null,
+    message: null,
+    step: 1,
+  });
+  assert.throws(() =>
+    repos.failures.add(
+      { runId: null, model: 'm', kind: 'unknown', message: 'x'.repeat(300), step: 0 },
+      1,
+    ),
+  );
 });

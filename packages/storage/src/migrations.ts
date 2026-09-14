@@ -233,6 +233,25 @@ export const migrations: readonly { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    // Why model calls failed: status, provider, code and a cleaned short message. No content.
+    version: 10,
+    sql: `
+      CREATE TABLE failures (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        at       INTEGER NOT NULL,
+        run_id   TEXT    REFERENCES runs (id) ON DELETE CASCADE,
+        model    TEXT    NOT NULL,
+        kind     TEXT    NOT NULL,
+        status   INTEGER,
+        provider TEXT,
+        code     TEXT,
+        message  TEXT,
+        step     INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX failures_at ON failures (at);
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   approvalRuleSchema,
+  providerFailureSchema,
   runStatusSchema,
   toolCallStatusSchema,
   scheduleNotifySchema,
@@ -10,6 +11,7 @@ import {
   usageProviderSchema,
   type Activity,
   type ApprovalRule,
+  type ProviderFailure,
   type UsageEntry,
   type UsagePeriod,
   type UsageSummary,
@@ -846,6 +848,66 @@ const localDay = (at: number) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
+/** Safe summaries of failed model calls, kept to the most recent 500. */
+export class FailureRepository {
+  constructor(private readonly db: Database) {}
+
+  add(
+    failure: ProviderFailure & { runId: string | null; model: string; kind: string },
+    at: number,
+  ) {
+    const valid = providerFailureSchema.parse({
+      ...(failure.status === undefined ? {} : { status: failure.status }),
+      ...(failure.provider ? { provider: failure.provider } : {}),
+      ...(failure.code ? { code: failure.code } : {}),
+      ...(failure.message ? { message: failure.message } : {}),
+      step: failure.step,
+    });
+    transaction(this.db, () => {
+      this.db
+        .prepare(
+          `INSERT INTO failures (at, run_id, model, kind, status, provider, code, message, step)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          at,
+          failure.runId,
+          failure.model.slice(0, 160),
+          failure.kind.slice(0, 40),
+          valid.status ?? null,
+          valid.provider ?? null,
+          valid.code ?? null,
+          valid.message ?? null,
+          valid.step,
+        );
+      this.db
+        .prepare(
+          `DELETE FROM failures WHERE id NOT IN (SELECT id FROM failures ORDER BY id DESC LIMIT 500)`,
+        )
+        .run();
+    });
+  }
+
+  recent(limit: number) {
+    return this.db
+      .prepare(
+        `SELECT at, run_id AS runId, model, kind, status, provider, code, message, step
+         FROM failures ORDER BY id DESC LIMIT ?`,
+      )
+      .all(limit) as {
+      at: number;
+      runId: string | null;
+      model: string;
+      kind: string;
+      status: number | null;
+      provider: string | null;
+      code: string | null;
+      message: string | null;
+      step: number;
+    }[];
+  }
+}
+
 export class UsageRepository {
   constructor(private readonly db: Database) {}
 
@@ -936,6 +998,7 @@ export interface Repositories {
   notes: NoteRepository;
   artifacts: ArtifactRepository;
   usage: UsageRepository;
+  failures: FailureRepository;
   conversations: ConversationRepository;
   tasks: TaskRepository;
   schedules: ScheduleRepository;
@@ -957,6 +1020,7 @@ export function createRepositories(db: Database): Repositories {
     notes: new NoteRepository(db),
     artifacts: new ArtifactRepository(db),
     usage: new UsageRepository(db),
+    failures: new FailureRepository(db),
     conversations: new ConversationRepository(db),
     tasks: new TaskRepository(db),
     schedules: new ScheduleRepository(db),

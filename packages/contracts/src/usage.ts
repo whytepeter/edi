@@ -80,3 +80,20 @@ export const usageSummarySchema = z
   })
   .strict();
 export type UsageSummary = z.infer<typeof usageSummarySchema>;
+
+/**
+ * Why a model call failed, kept on this Mac so failures can be explained: the HTTP status, the
+ * provider OpenRouter used, its error code and a short message with links, addresses, quoted
+ * text and long numbers removed. Never the request, the reply or the key.
+ */
+export const providerFailureSchema = z
+  .object({
+    status: z.number().int().min(0).max(999).optional(),
+    provider: z.string().max(80).optional(),
+    code: z.string().max(80).optional(),
+    message: z.string().max(240).optional(),
+    /** How many model steps had finished before it failed. */
+    step: z.number().int().min(0).max(100),
+  })
+  .strict();
+export type ProviderFailure = z.infer<typeof providerFailureSchema>;

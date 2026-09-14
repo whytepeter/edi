@@ -13,7 +13,7 @@ import {
 } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { ToolOutcome } from '@edi/capabilities';
-import { describeDesktopContext } from '@edi/contracts';
+import { describeDesktopContext, type ProviderFailure } from '@edi/contracts';
 import { workerInputSchema, type HostMessage, type WorkerMessage } from './worker-protocol';
 
 // The worker is a process boundary. Reject malformed or unexpectedly large startup data
@@ -245,6 +245,85 @@ function failureKind(error: unknown): FailureKind {
   return 'unknown';
 }
 
+/** Links, addresses, quoted text, long numbers and the key removed; short. */
+function cleaned(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const text = value
+    .split(input.apiKey)
+    .join('[key]')
+    .replace(/https?:\/\/\S+/g, '[link]')
+    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email]')
+    .replace(/\b(sk|key|token|bearer)[-_ ][\w.-]{8,}/gi, '[secret]')
+    .replace(/"[^"]*"|“[^”]*”|'[^']{2,}'/g, '"…"')
+    .replace(/\b\d{7,}\b/g, '[number]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text ? text.slice(0, 240) : undefined;
+}
+
+/**
+ * A safe summary of why a call failed: status, provider, error code and a cleaned message from
+ * OpenRouter's JSON error body. Deeper errors (the provider's own) win over wrappers. Request
+ * bodies, prompts and headers are never read.
+ */
+function failureDetail(error: unknown, step: number): ProviderFailure {
+  const detail: ProviderFailure = { step };
+  const seen = new Set<unknown>();
+  let value = error;
+  for (
+    let depth = 0;
+    value && typeof value === 'object' && depth < 6 && !seen.has(value);
+    depth++
+  ) {
+    seen.add(value);
+    const record = value as {
+      statusCode?: unknown;
+      responseBody?: unknown;
+      name?: unknown;
+      cause?: unknown;
+      lastError?: unknown;
+      error?: unknown;
+      code?: unknown;
+      message?: unknown;
+    };
+    const status = Number(record.statusCode);
+    if (Number.isInteger(status) && status > 0 && status < 1000) detail.status = status;
+    if (typeof record.name === 'string' && !detail.code) detail.code = record.name.slice(0, 80);
+    // A streamed error chunk arrives as { error: { code, message, metadata } }.
+    const body = (() => {
+      if (typeof record.responseBody === 'string') {
+        try {
+          return (JSON.parse(record.responseBody) as { error?: unknown }).error;
+        } catch {
+          return undefined;
+        }
+      }
+      return record.error && typeof record.error === 'object' ? record.error : undefined;
+    })() as
+      | { code?: unknown; message?: unknown; metadata?: { provider_name?: unknown; raw?: unknown } }
+      | undefined;
+    if (body) {
+      if (typeof body.code === 'string' || typeof body.code === 'number')
+        detail.code = String(body.code).slice(0, 80);
+      if (typeof body.metadata?.provider_name === 'string')
+        detail.provider = body.metadata.provider_name.slice(0, 80);
+      // The provider's own words say more than "Provider returned error".
+      let raw = body.metadata?.raw;
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw) as { error?: { message?: unknown; status?: unknown } };
+          raw = parsed.error?.message ?? parsed.error?.status ?? raw;
+        } catch {
+          // Plain text from the provider.
+        }
+      }
+      detail.message = cleaned(raw) ?? cleaned(body.message) ?? detail.message;
+    }
+    value = record.cause ?? record.lastError;
+  }
+  return detail;
+}
+
 parentPort?.on('message', (message: HostMessage) => {
   if (message.type === 'stop') controller.abort();
   if (message.type === 'wrap-up') wrapUp.abort();
@@ -448,6 +527,8 @@ function conversation(): ModelMessage[] {
 async function run() {
   try {
     let failure: FailureKind | undefined;
+    let failed: ProviderFailure | undefined;
+    let steps = 0;
     let searched = false;
     /** What OpenRouter searched and cited during the current step. */
     let stepSearch: { query: string; pages: { url: string; title: string }[] } | undefined;
@@ -501,12 +582,14 @@ async function run() {
       maxRetries: 2,
       providerOptions: { openrouter: { provider: { allow_fallbacks: true } } },
       onStepEnd: step => {
+        steps++;
         reportUsage('answer', input.model, step.usage, step.providerMetadata);
         if (stepSearch) send({ type: 'web-search', ...stepSearch });
         stepSearch = undefined;
       },
       onError: ({ error }) => {
         failure = failureKind(error);
+        failed = failureDetail(error, steps);
       },
       // Search results arrive as sources and provider tool results; their links become readable.
       onChunk: ({ chunk }) => {
@@ -539,10 +622,14 @@ async function run() {
       abortSignal: controller.signal,
     });
     for await (const text of result.textStream) send({ type: 'text', text });
-    send(failure ? { type: 'error', kind: failure } : { type: 'done' });
+    send(
+      failure
+        ? { type: 'error', kind: failure, ...(failed ? { detail: failed } : {}) }
+        : { type: 'done' },
+    );
   } catch (error) {
     // Provider exceptions can contain request metadata. Never forward or log them.
-    send({ type: 'error', kind: failureKind(error) });
+    send({ type: 'error', kind: failureKind(error), detail: failureDetail(error, 0) });
   } finally {
     parentPort?.close();
   }

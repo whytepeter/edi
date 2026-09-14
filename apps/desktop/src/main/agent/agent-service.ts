@@ -30,6 +30,7 @@ import type { ApprovalRules } from './approval-rules';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import {
+  recordFailure,
   recordWebSearch,
   workerMessageSchema,
   type HostMessage,
@@ -467,6 +468,7 @@ export class AgentService {
             : 'No text was returned. Try a text-capable model.',
         );
     } else if (message.type === 'error') {
+      recordFailure(this.options.repositories, run.id, this.options.credentials.model, message);
       const errors = {
         auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
         credits: 'OpenRouter has no available credits. Add credits, then try again.',

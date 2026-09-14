@@ -52,7 +52,7 @@ function launch(mode, tools = [], context = {}) {
       if (testMode === 'error') return new Response('test-only-secret must not escape', { status: 401 });
       if (testMode === 'malformed')
         return new Response(JSON.stringify({ error: { code: 502, message: 'Provider returned error',
-          metadata: { raw: 'finish_reason: MALFORMED_FUNCTION_CALL' } } }), { status: 502 });
+          metadata: { provider_name: 'Google AI Studio', raw: 'finish_reason: MALFORMED_FUNCTION_CALL' } } }), { status: 502 });
       if (testMode === 'wait') return new Promise((resolve, reject) => {
         options.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
       });
@@ -182,6 +182,7 @@ test('real SDK worker streams mocked OpenRouter text', async () => {
 test('provider errors do not expose request metadata', async () => {
   const { messages } = await collect(launch('error'));
   assert.equal(JSON.stringify(messages).includes('test-only-secret'), false);
+  assert.equal(messages.at(-1).detail.status, 401);
   assert.equal(messages.at(-1).type, 'error');
 });
 
@@ -386,5 +387,13 @@ test('what the user has open reaches the model as marked context, and its page i
 
 test('a model that cannot write out its actions gets a specific error, not a generic retry one', async () => {
   const { messages } = await collect(launch('malformed'));
-  assert.deepEqual(messages.at(-1), { type: 'error', kind: 'tools' });
+  assert.equal(messages.at(-1).kind, 'tools');
+  // A safe summary explains it later: status, provider, code and the provider's own words.
+  assert.deepEqual(messages.at(-1).detail, {
+    step: 0,
+    status: 502,
+    code: '502',
+    provider: 'Google AI Studio',
+    message: 'finish_reason: MALFORMED_FUNCTION_CALL',
+  });
 });

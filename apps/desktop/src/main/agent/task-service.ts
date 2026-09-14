@@ -22,6 +22,7 @@ import type { ApprovalRules } from './approval-rules';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
 import {
+  recordFailure,
   recordWebSearch,
   workerMessageSchema,
   type HostMessage,
@@ -330,6 +331,12 @@ export class TaskService {
     } else if (message.type === 'done') {
       this.finish(active, 'done');
     } else if (message.type === 'error') {
+      recordFailure(
+        this.options.repositories,
+        active.runId,
+        this.options.credentials.model,
+        message,
+      );
       this.finish(active, 'failed', failures[message.kind]);
     }
   }

@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { ToolCallRecorder, ToolOutcome } from '@edi/capabilities';
+import type { Repositories } from '@edi/storage';
 import {
   assistantNameSchema,
   desktopContextSchema,
   modelIdSchema,
+  providerFailureSchema,
   usageEntrySchema,
 } from '@edi/contracts';
 
@@ -95,6 +97,7 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
       kind: z
         .enum(['auth', 'credits', 'model', 'tools', 'temporary', 'unknown'])
         .default('unknown'),
+      detail: providerFailureSchema.optional(),
     })
     .strict(),
 ]);
@@ -133,4 +136,19 @@ export function recordWebSearch(
         : 'Found nothing to cite.'),
     output: search,
   });
+}
+
+/** Keeps a failed call's safe summary for diagnosis; best effort, never blocks the run. */
+export function recordFailure(
+  repositories: Pick<Repositories, 'failures'>,
+  runId: string,
+  model: string,
+  failure: Extract<WorkerMessage, { type: 'error' }>,
+) {
+  if (!failure.detail) return;
+  try {
+    repositories.failures.add({ runId, model, kind: failure.kind, ...failure.detail }, Date.now());
+  } catch {
+    // Diagnostics never get in the way of telling the person what happened.
+  }
 }
