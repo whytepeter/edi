@@ -48,7 +48,7 @@ try {
       preview: {
         title: 'Save a note',
         action: 'Save Note',
-        summary: 'Edi wants to save this note for later.',
+        summary: 'Save this note for later.',
         fields: [
           { label: 'Title', value: 'Project direction' },
           { label: 'Location', value: '/Users/example/Documents/Edi/Notes/project-direction.md' },

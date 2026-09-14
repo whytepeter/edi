@@ -20,6 +20,7 @@ import {
   TextField,
 } from '../../components/ui';
 import './settings.css';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 interface VoiceSettingsProps {
   system: SystemInfo | null;
@@ -34,32 +35,32 @@ interface VoiceSettingsProps {
   onKeysChanged(): void;
 }
 
-const modelHelp: Record<VoiceModelId, string> = {
-  kokoro: 'Choose who Edi sounds like. Play a sample before you pick.',
+const modelHelp = (assistant: string): Record<VoiceModelId, string> => ({
+  kokoro: `Choose who ${assistant} sounds like. Play a sample before you pick.`,
   pocket: 'Pocket offers Jane, a clear American voice.',
-  'chatterbox-turbo':
-    'Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when Edi means to.',
-  cartesia: 'Voices from your Cartesia account, including ones you created there.',
-  elevenlabs: 'Voices from your ElevenLabs account, including ones you added there.',
-};
+  'chatterbox-turbo': `Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when ${assistant} means to.`,
+  cartesia: 'Voices on your Cartesia account: ones you created, cloned or saved there.',
+  elevenlabs: 'Voices on your ElevenLabs account: ones you created, cloned or saved there.',
+});
 const providerName: Record<CloudProviderId, string> = {
   cartesia: 'Cartesia',
   elevenlabs: 'ElevenLabs',
 };
 
 /** One line on what the provider is, and where to get a key. */
-const providerInfo: Record<CloudProviderId, { about: string; keyUrl: string }> = {
-  cartesia: {
-    about: 'Fast, natural voices, including ones you design or clone in Cartesia.',
-    keyUrl: 'https://play.cartesia.ai/keys',
-  },
-  elevenlabs: {
-    about: 'Expressive voices, including ones you add to your ElevenLabs account.',
-    keyUrl: 'https://elevenlabs.io/app/settings/api-keys',
-  },
-};
-
-const MAX_CLOUD_VOICES = 4;
+const providerInfo: Record<CloudProviderId, { about: string; keyUrl: string; voicesUrl: string }> =
+  {
+    cartesia: {
+      about: 'Fast, natural voices. Only the voices on your Cartesia account are offered.',
+      keyUrl: 'https://play.cartesia.ai/keys',
+      voicesUrl: 'https://play.cartesia.ai/voices',
+    },
+    elevenlabs: {
+      about: 'Expressive voices. Only the voices on your ElevenLabs account are offered.',
+      keyUrl: 'https://elevenlabs.io/app/settings/api-keys',
+      voicesUrl: 'https://elevenlabs.io/app/voice-lab',
+    },
+  };
 
 type VoiceType = 'Female' | 'Male';
 const voiceTypes: readonly VoiceType[] = ['Female', 'Male'];
@@ -87,6 +88,7 @@ export function VoiceSettings({
   onSpeakReplies,
   onKeysChanged,
 }: VoiceSettingsProps) {
+  const assistant = useAssistantName();
   // The model being looked at; a cloud model is only selected once it has a key and a voice.
   const [viewing, setViewing] = useState<VoiceModelId>(voiceModel);
   const [voiceType, setVoiceType] = useState<VoiceType>('Female');
@@ -97,6 +99,8 @@ export function VoiceSettings({
     null,
   );
   const [cloudError, setCloudError] = useState('');
+  // Bumped by "Check again" after the person adds a voice on the provider's site.
+  const [cloudReload, setCloudReload] = useState(0);
   const [apiKey, setApiKey] = useState('');
   const [savingKey, setSavingKey] = useState(false);
   const [keyError, setKeyError] = useState('');
@@ -121,10 +125,7 @@ export function VoiceSettings({
           voices: list.map(voice => ({
             id: voice.id,
             name: voice.name,
-            detail:
-              [voice.mine ? 'Your voice' : null, voice.accent, voice.description]
-                .filter(Boolean)
-                .join(' · ') || 'Voice',
+            detail: [voice.accent, voice.description].filter(Boolean).join(' · ') || 'Voice',
             gender: voice.gender,
           })),
         });
@@ -133,7 +134,7 @@ export function VoiceSettings({
     return () => {
       alive = false;
     };
-  }, [provider, hasKey]);
+  }, [provider, hasKey, cloudReload]);
 
   const local: ListedVoice[] = provider
     ? []
@@ -144,15 +145,9 @@ export function VoiceSettings({
         gender: voice.gender,
       }));
   const chosen = voiceModel === viewing ? voices[viewing] : null;
-  // Cloud accounts can list hundreds of voices; offer four, the person's own first, and keep
-  // the chosen one even when it falls outside them.
+  // Cloud lists hold only the account's own voices, so all of them are offered.
   const cloudVoices = cloud?.provider === provider ? cloud.voices : [];
-  const saved = cloudVoices.slice(MAX_CLOUD_VOICES).find(voice => voice.id === voices[viewing]);
-  const all = provider
-    ? saved
-      ? [...cloudVoices.slice(0, MAX_CLOUD_VOICES - 1), saved]
-      : cloudVoices.slice(0, MAX_CLOUD_VOICES)
-    : local;
+  const all = provider ? cloudVoices : local;
   const splitByType =
     !provider &&
     all.some(voice => voice.gender === 'Female') &&
@@ -184,7 +179,7 @@ export function VoiceSettings({
     try {
       await onPreview(select(voice));
     } catch {
-      setMessage('Couldn’t play that sample. Try again when Edi isn’t speaking.');
+      setMessage(`Couldn’t play that sample. Try again when ${assistant} isn’t speaking.`);
     } finally {
       setPreviewing(null);
     }
@@ -218,7 +213,7 @@ export function VoiceSettings({
     <div className="settings-page">
       <GroupedList
         title="Speech model"
-        footer="Local models run on this Mac. Cloud voices use your own account and receive only the words Edi speaks."
+        footer={`Local models run on this Mac. Cloud voices use your own account and receive only the words ${assistant} speaks.`}
       >
         <div className="voice-model-list" role="radiogroup" aria-label="Speech model">
           {models.map(entry => {
@@ -341,7 +336,7 @@ export function VoiceSettings({
       {model && (model.available || provider) && (!provider || hasKey) && (
         <GroupedList
           title={`${model.name} voice`}
-          footer={message || cloudError || modelHelp[viewing]}
+          footer={message || cloudError || modelHelp(assistant)[viewing]}
         >
           {(splitByType || all.length > 12) && (
             <div className="voice-filter">
@@ -365,6 +360,31 @@ export function VoiceSettings({
           )}
           {provider && !cloud && !cloudError && (
             <p className="settings-prose">Loading your voices…</p>
+          )}
+          {provider && cloud?.provider === provider && cloudVoices.length === 0 && (
+            <div className="voice-cloud-empty">
+              <p className="settings-prose">
+                There are no voices on your {providerName[provider]} account yet. Create, clone or
+                save one there, then check again.
+              </p>
+              <span className="settings-actions">
+                <Button
+                  size="small"
+                  trailingIcon="arrow-up-right"
+                  onClick={() =>
+                    void window.edi?.command({
+                      type: 'open-link',
+                      url: providerInfo[provider].voicesUrl,
+                    })
+                  }
+                >
+                  Open {providerName[provider]}
+                </Button>
+                <Button size="small" onClick={() => setCloudReload(count => count + 1)}>
+                  Check again
+                </Button>
+              </span>
+            </div>
           )}
           <div className="voice-list" role="radiogroup" aria-label={`${model.name} voice`}>
             {shown.map(option => (

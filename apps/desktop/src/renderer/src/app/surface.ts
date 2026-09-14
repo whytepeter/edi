@@ -1,4 +1,5 @@
 import {
+  assistantNameSchema,
   artifactRefSchema,
   artifactSummarySchema,
   bubbleNoticeSchema,
@@ -41,6 +42,7 @@ export const bubbleParams = {
   state: statusBubbleStateSchema.catch('unavailable').parse(params.get('state')),
   side: bubbleSideSchema.catch('right').parse(params.get('side')),
   skin: skinSchema.catch('edi').parse(params.get('skin')),
+  name: assistantNameSchema.catch('Edi').parse(params.get('name')),
   text: bubbleNoticeSchema.catch('').parse(params.get('text')),
   artifact: (() => {
     try {
@@ -49,6 +51,11 @@ export const bubbleParams = {
       return null;
     }
   })(),
+};
+
+/** The character menu's labels use the companion's name. */
+export const menuParams = {
+  name: assistantNameSchema.catch('Edi').parse(params.get('name')),
 };
 
 const coordinate = (name: string) => {

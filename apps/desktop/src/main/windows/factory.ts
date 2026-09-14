@@ -169,6 +169,8 @@ export interface StatusBubbleOptions {
   state: StatusBubbleState;
   side: BubbleSide;
   skin: SkinId;
+  /** The companion's name; validated again by the renderer. */
+  name: string;
   /** Only for `notice`; validated again by the renderer. */
   text?: string;
   /** Only for `artifact`: the compact preview. */
@@ -179,6 +181,7 @@ export function createStatusBubbleWindow({
   state,
   side,
   skin,
+  name,
   text,
   artifact,
 }: StatusBubbleOptions) {
@@ -199,12 +202,13 @@ export function createStatusBubbleWindow({
     state,
     side,
     skin,
+    name,
     ...(text ? { text } : {}),
     ...(artifact ? { artifact: JSON.stringify(artifact) } : {}),
   });
 }
 
-export function createCharacterMenuWindow() {
+export function createCharacterMenuWindow(name: string) {
   const win = new BrowserWindow({
     ...floating,
     ...characterMenuSize,
@@ -212,7 +216,7 @@ export function createCharacterMenuWindow() {
     skipTaskbar: true,
     webPreferences: withBridge,
   });
-  return loadSurface(win, 'character-menu');
+  return loadSurface(win, 'character-menu', { name });
 }
 
 /**

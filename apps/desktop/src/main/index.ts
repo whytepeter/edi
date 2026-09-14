@@ -42,6 +42,7 @@ import {
 import {
   artifactExport,
   artifactPreview,
+  assistantName,
   isCloudVoiceModel,
   voiceCatalog,
   voiceName,
@@ -51,6 +52,8 @@ import {
   type Artifact,
   type ArtifactRef,
   type ArtifactSummary,
+  type CloudProviderId,
+  type CloudVoiceOption,
   type LibraryItem,
   type SystemInfo,
   type WorkspaceView,
@@ -62,7 +65,7 @@ import { shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { PocketVoice } from './voice/pocket-process';
 import { MlxVoice } from './voice/mlx-process';
-import { listCloudVoices, preferredCloudVoice, speakCloud } from './voice/cloud-voice';
+import { listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
@@ -208,6 +211,25 @@ async function start() {
   ];
   const voiceKeys = new VoiceKeys();
   await voiceKeys.load();
+  // The last listing of each cloud account, so a chosen voice reads as its name ("Edi"), not its
+  // id, in Settings and in what the agent knows. Refreshed at launch and whenever Settings lists.
+  const cloudVoiceLists: Partial<Record<CloudProviderId, CloudVoiceOption[]>> = {};
+  const loadCloudVoices = async (provider: CloudProviderId) => {
+    const list = await listCloudVoices(
+      provider,
+      voiceKeys.get(provider),
+      AbortSignal.timeout(15_000),
+    );
+    if (voiceKeys.has(provider)) cloudVoiceLists[provider] = list;
+    return list;
+  };
+  for (const provider of ['cartesia', 'elevenlabs'] as const)
+    if (voiceKeys.has(provider)) void loadCloudVoices(provider).catch(() => {});
+  const spokenVoiceName = ({ model, voice }: VoiceSelection) => {
+    if (!isCloudVoiceModel(model)) return voiceName(model, voice);
+    const listed = cloudVoiceLists[model]?.find(entry => entry.id === voice);
+    return listed?.name ?? `Your ${model === 'cartesia' ? 'Cartesia' : 'ElevenLabs'} voice`;
+  };
   /** The chosen model and voice; a cloud model without a key or voice falls back to Kokoro. */
   const selectedVoice = (): VoiceSelection => {
     const chosen = voiceSelectionSchema.safeParse({
@@ -273,7 +295,12 @@ async function start() {
     const items = libraryItems();
     const notes = items.filter(item => item.kind === 'note');
     return {
-      identity: { name: 'Edi', version: app.getVersion() },
+      identity: {
+        name: assistantName(settings.current),
+        customName: settings.current.name !== null,
+        app: 'Edi',
+        version: app.getVersion(),
+      },
       location: { page: currentView, cardOpen: cardOpen(), pinned: settings.current.pinned },
       workspace: {
         root: workspaceFolder,
@@ -322,7 +349,7 @@ async function start() {
         voice: {
           id: selectedModel.id,
           name: selectedModel.name,
-          speakingVoice: { id: speaking.voice, name: voiceName(speaking.model, speaking.voice) },
+          speakingVoice: { id: speaking.voice, name: spokenVoiceName(speaking) },
           available: selectedModel.available,
           expressions: selectedModel.expressions,
           detail: selectedModel.detail,
@@ -353,7 +380,14 @@ async function start() {
         available,
         expressions,
         detail,
-        voices: voiceCatalog[id].map(voice => ({ ...voice })),
+        voices: isCloudVoiceModel(id)
+          ? (cloudVoiceLists[id] ?? []).map(({ id: voice, name: voiceLabel, gender, accent }) => ({
+              id: voice,
+              name: voiceLabel,
+              gender,
+              accent,
+            }))
+          : voiceCatalog[id].map(voice => ({ ...voice })),
       })),
     };
   };
@@ -436,6 +470,7 @@ async function start() {
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
     selfContext: () => JSON.stringify(setupSnapshot()),
+    assistantName: () => assistantName(settings.current),
   });
   await agent.load();
 
@@ -553,7 +588,8 @@ async function start() {
       }),
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
-    transcribe: transcribePcm,
+    transcribe: (runtime, pcm, signal) =>
+      transcribePcm(runtime, pcm, signal, undefined, assistantName(settings.current)),
     speak: async (text, signal, consume) => {
       warmSelected();
       const selected = selectedVoice();
@@ -583,15 +619,17 @@ async function start() {
   // Engines take seconds to load. Start now, not after the reply is on screen.
   warmSelected();
   const previewVoice = async (selection: VoiceSelection) => {
-    const name = voiceName(selection.model, selection.voice);
+    const name = spokenVoiceName(selection);
+    const self = assistantName(settings.current);
     const sample =
       selection.model === 'chatterbox-turbo'
-        ? `Hi, I'm Edi. [chuckle] This is how I sound with ${name}.`
-        : `Hi, I'm Edi. This is how I sound as ${name}.`;
+        ? `Hi, I'm ${self}. [chuckle] This is how I sound with ${name}.`
+        : `Hi, I'm ${self}. This is how I sound as ${name}.`;
     const played = await voice.preview((signal, consume) =>
       speakWith(selection, sample, signal, consume),
     );
-    if (!played) throw new Error('Edi is using its voice right now.');
+    if (!played)
+      throw new Error(`${assistantName(settings.current)} is using its voice right now.`);
   };
 
   const mediaPermissions = createMacMediaPermissions({
@@ -607,6 +645,7 @@ async function start() {
     pet,
     card: workspace,
     skin: () => settings.current.skin,
+    name: () => assistantName(settings.current),
     startVoice: mode => voice.start(mode),
     showContent: () => placement.show(),
     openSettings: () => {
@@ -691,7 +730,12 @@ async function start() {
     const speakingVoice = patch.speakingVoice
       ? voiceSelectionSchema.safeParse({ model, voice: patch.speakingVoice })
       : null;
-    if (speakingVoice && !speakingVoice.success)
+    if (
+      (speakingVoice && !speakingVoice.success) ||
+      (speakingVoice?.success &&
+        isCloudVoiceModel(model) &&
+        !cloudVoiceLists[model]?.some(entry => entry.id === speakingVoice.data.voice))
+    )
       throw new Error(`That voice is not one of ${model}'s voices. Check availableVoices.`);
     if (patch.size !== undefined) {
       const skin = patch.character ?? settings.current.skin;
@@ -699,6 +743,7 @@ async function start() {
       await settings.update({ petScale: patch.size, petPosition: { x: bounds.x, y: bounds.y } });
     }
     await settings.update({
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.character ? { skin: patch.character } : {}),
       ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
       ...(patch.speakReplies !== undefined ? { speakReplies: patch.speakReplies } : {}),
@@ -854,13 +899,12 @@ async function start() {
           ? await listCloudVoices(provider, apiKey, AbortSignal.timeout(15_000))
           : [];
         await voiceKeys.set(provider, apiKey);
-        // The person's own voice named "Edi" becomes Edi's voice straight away.
-        const preferred = preferredCloudVoice(listed);
-        if (preferred && !settings.current.voices[provider])
-          await settings.update({
-            voices: { ...settings.current.voices, [provider]: preferred.id },
-            ...(/^edi\b/i.test(preferred.name) ? { voiceModel: provider } : {}),
-          });
+        if (apiKey) cloudVoiceLists[provider] = listed;
+        else delete cloudVoiceLists[provider];
+        // The first voice on the account is ready to use; switching to it stays the person's call.
+        const first = listed[0];
+        if (first && !settings.current.voices[provider])
+          await settings.update({ voices: { ...settings.current.voices, [provider]: first.id } });
         if (!apiKey && settings.current.voiceModel === provider)
           await settings.update({ voiceModel: 'kokoro' });
         broadcast([workspace], 'edi:settings', settings.current);
@@ -893,7 +937,7 @@ async function start() {
         version: app.getVersion(),
         voice: {
           available: selected.available,
-          name: `${voiceName(speaking.model, speaking.voice)} · ${selected.name}`,
+          name: `${spokenVoiceName(speaking)} · ${selected.name}`,
           models: voiceModels(),
         },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },
@@ -903,20 +947,29 @@ async function start() {
     models: () => modelCatalog.list(),
     cloudVoices: provider => {
       if (!voiceKeys.has(provider)) return Promise.resolve([]);
-      return listCloudVoices(provider, voiceKeys.get(provider), AbortSignal.timeout(15_000));
+      return loadCloudVoices(provider);
     },
     artifact: resolveArtifact,
     permissions: () => permissions.snapshot(),
   });
 
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      { label: 'Edi', submenu: character.menuItems() },
-      { role: 'editMenu' },
-      { role: 'viewMenu' },
-      { role: 'windowMenu' },
-    ]),
-  );
+  // The app menu is still called Edi; its items use the companion's name and follow a rename.
+  const applicationMenu = () =>
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { label: 'Edi', submenu: character.menuItems() },
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' },
+      ]),
+    );
+  applicationMenu();
+  let menuName = assistantName(settings.current);
+  settings.onChange(value => {
+    if (assistantName(value) === menuName) return;
+    menuName = assistantName(value);
+    applicationMenu();
+  });
   // Hands-free listening starts only from Edi → Listen; reopening Edi shows it instead.
   const reopen = () => {
     pet.showInactive();

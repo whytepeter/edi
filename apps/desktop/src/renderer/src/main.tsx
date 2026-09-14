@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/index.css';
-import { artifactParams, bubbleParams, pointerParams, surface } from './app/surface';
+import { artifactParams, bubbleParams, menuParams, pointerParams, surface } from './app/surface';
 import { ArtifactWindow } from './components/artifacts/Artifact';
 import { WorkspaceCard } from './app/WorkspaceCard';
 import { PetSurface } from './features/pet/PetSurface';
@@ -35,7 +35,7 @@ const view = {
   workspace: <WorkspaceCard />,
   artifact: <ArtifactWindow {...artifactParams} />,
   pet: <PetSurface />,
-  'character-menu': <CharacterMenu />,
+  'character-menu': <CharacterMenu {...menuParams} />,
   'voice-status': <StatusBubble {...bubbleParams} />,
   pointer: <PointerSurface {...pointerParams} />,
 }[surface];

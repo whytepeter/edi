@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ArtifactRef, LibraryItem } from '@edi/contracts';
 import { Button, EmptyState, GroupedList, Icon, IconButton } from '../../components/ui';
 import './library.css';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 const icon = {
   note: 'notes',
@@ -33,6 +34,7 @@ export function LibraryView({
   refreshKey: string;
   onOpen(ref: ArtifactRef): void;
 }) {
+  const assistant = useAssistantName();
   // Outside Electron there is nothing saved to load.
   const [items, setItems] = useState<LibraryItem[] | null>(() => (window.edi ? null : []));
   const [error, setError] = useState('');
@@ -77,7 +79,8 @@ export function LibraryView({
       {items?.length === 0 && (
         <EmptyState icon="library" title="Nothing saved yet.">
           <p className="ds-body ds-secondary">
-            Ask Edi to make a report, checklist or table, or to save a note. It will show up here.
+            Ask {assistant} to make a report, checklist or table, or to save a note. It will show up
+            here.
           </p>
         </EmptyState>
       )}

@@ -63,7 +63,29 @@
   gap: var(--space-2);
   margin-top: var(--space-5);
 }
+/* Name: the field and Save share a row; the hint sits under both. */
+.appearance-name {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-5);
+}
+.appearance-name .ds-field {
+  min-width: 0;
+}
+/* Matches the "Size on your desktop" heading below it. */
+.appearance-name .ds-field-label {
+  font: var(--text-headline);
+  letter-spacing: var(--tracking-headline);
+  color: var(--label);
+}
+.appearance-name-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
 [data-expanded] .appearance-size,
+[data-expanded] .appearance-name,
 [data-expanded] .appearance-apply {
   max-width: 460px;
   margin-inline: auto;

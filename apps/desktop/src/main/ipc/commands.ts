@@ -141,6 +141,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
         placement.place({ x: 0, y: 0, ...(expanded ? cardSize.expanded : cardSize.compact) }),
     },
     'apply-skin': { from: fromWorkspace, handle: ({ skin }) => updateLayout({ skin }) },
+    'set-name': { from: fromWorkspace, handle: ({ name }) => settings.update({ name }) },
     'set-pinned': { from: fromWorkspace, handle: ({ pinned }) => updateLayout({ pinned }) },
     'set-speak-replies': {
       from: fromWorkspace,

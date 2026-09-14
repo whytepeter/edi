@@ -4,9 +4,11 @@
  * 24 kHz PCM and is handed to the same player as local voices, one second at a time.
  *
  * Endpoints (checked 2026-09-14):
- * - Cartesia: POST /tts/bytes (Cartesia-Version 2026-08-14, model sonic-3.6), GET /voices.
+ * - Cartesia: POST /tts/bytes (Cartesia-Version 2026-08-14, model sonic-3.6),
+ *   GET /voices?is_owner=true.
  * - ElevenLabs: POST /v1/text-to-speech/{voice}/stream?output_format=pcm_24000 with
- *   eleven_flash_v2_5 (lowest latency; v3 is too slow for conversation), GET /v2/voices.
+ *   eleven_flash_v2_5 (lowest latency; v3 is too slow for conversation),
+ *   GET /v2/voices?voice_type=non-default.
  */
 import type { CloudProviderId, CloudVoiceOption } from '@edi/contracts';
 
@@ -60,7 +62,11 @@ const gender = (value: unknown): CloudVoiceOption['gender'] => {
 };
 const idPattern = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** The account's voices, most useful first; also a cheap way to check a key. */
+/**
+ * Only the voices on the person's account, never the provider's public library; also a cheap
+ * way to check a key. Cartesia: voices the account owns. ElevenLabs: everything except its
+ * default voices (ones they created, cloned or saved from the community library).
+ */
 export async function listCloudVoices(
   provider: CloudProviderId,
   key: string,
@@ -69,36 +75,31 @@ export async function listCloudVoices(
 ): Promise<CloudVoiceOption[]> {
   const request = deps.fetch ?? fetch;
   const base = deps.baseUrl?.[provider] ?? bases[provider];
-  const load = async (url: string) => {
-    const response = await request(url, {
+  const response = await request(
+    provider === 'cartesia'
+      ? `${base}/voices?limit=100&is_owner=true`
+      : `${base}/v2/voices?page_size=100&voice_type=non-default`,
+    {
       headers: headers(provider, key),
       signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-    });
-    if (!response.ok) throw cloudError(provider, response.status);
-    const body = (await response.json()) as { data?: unknown[]; voices?: unknown[] };
-    return (provider === 'cartesia' ? body.data : body.voices) ?? [];
-  };
-  // Cartesia lists the account's own voices separately; ElevenLabs marks them by category.
-  const owned = provider === 'cartesia' ? await load(`${base}/voices?limit=100&is_owner=true`) : [];
-  const listed = await load(
-    provider === 'cartesia' ? `${base}/voices?limit=100` : `${base}/v2/voices?page_size=100`,
+    },
   );
-  const ownedIds = new Set(owned.map(entry => (entry as { id?: unknown })?.id));
+  if (!response.ok) throw cloudError(provider, response.status);
+  const body = (await response.json()) as { data?: unknown[]; voices?: unknown[] };
+  const listed = (provider === 'cartesia' ? body.data : body.voices) ?? [];
   const seen = new Set<string>();
   const voices: CloudVoiceOption[] = [];
-  for (const raw of [...owned, ...listed].slice(0, 300)) {
+  for (const raw of listed.slice(0, 200)) {
     if (!raw || typeof raw !== 'object') continue;
     const entry = raw as Record<string, unknown>;
+    // The filter is the provider's; this guards against a default voice slipping through.
+    if (provider === 'cartesia' ? entry.is_owner === false : entry.category === 'premade') continue;
     const labels = (entry.labels ?? {}) as Record<string, unknown>;
     const id = text(provider === 'cartesia' ? entry.id : entry.voice_id, 64);
     const name = text(entry.name, 60).trim();
     if (!idPattern.test(id) || !name || seen.has(id)) continue;
     seen.add(id);
     voices.push({
-      mine:
-        provider === 'cartesia'
-          ? ownedIds.has(id) || entry.is_owner === true
-          : typeof entry.category === 'string' && entry.category !== 'premade',
       id,
       name,
       description: text(entry.description ?? labels.description, 200).trim(),
@@ -106,17 +107,7 @@ export async function listCloudVoices(
       accent: text(labels.accent, 40).trim() || null,
     });
   }
-  // The person's own voices first, then the provider's library in its order.
-  return [...voices.filter(voice => voice.mine), ...voices.filter(voice => !voice.mine)].slice(
-    0,
-    200,
-  );
-}
-
-/** A voice named after Edi on the person's account becomes Edi's voice when the key is added. */
-export function preferredCloudVoice(voices: CloudVoiceOption[]) {
-  const mine = voices.filter(voice => voice.mine);
-  return mine.find(voice => /^edi\b/i.test(voice.name)) ?? mine[0] ?? null;
+  return voices;
 }
 
 /**

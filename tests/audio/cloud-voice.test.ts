@@ -6,7 +6,6 @@ import {
   CARTESIA_VERSION,
   ELEVENLABS_MODEL,
   listCloudVoices,
-  preferredCloudVoice,
   speakCloud,
 } from '../../apps/desktop/src/main/voice/cloud-voice';
 
@@ -122,67 +121,70 @@ test('Cartesia sends its version header, model and raw PCM request; errors never
   }
 });
 
-test('voice lists put the person’s own voices first and prefer one named Edi', async () => {
+test('voice lists hold only the person’s own account voices, never the public library', async () => {
+  const urls: string[] = [];
   const { server, base } = await serve((request, _body, response) => {
+    urls.push(String(request.url));
     response.writeHead(200, { 'content-type': 'application/json' });
     if (request.url === '/voices?limit=100&is_owner=true')
       return response.end(
         JSON.stringify({
           data: [
             { id: 'whyte-1', name: 'Whyte', gender: 'masculine', description: 'Warm' },
-            { id: 'edi-1', name: 'Edi', gender: 'feminine', description: 'Default' },
-          ],
-        }),
-      );
-    if (request.url === '/voices?limit=100')
-      return response.end(
-        JSON.stringify({
-          data: [
-            { id: 'lib-1', name: 'Library Lady', gender: 'feminine' },
-            { id: 'edi-1', name: 'Edi', gender: 'feminine' },
+            { id: 'edi-1', name: 'Edi', gender: 'feminine', is_owner: true },
+            { id: 'lib-1', name: 'Library Lady', gender: 'feminine', is_owner: false },
             { id: 'bad id!', name: 'Broken' },
           ],
         }),
       );
-    response.end(
-      JSON.stringify({
-        voices: [
-          {
-            voice_id: 'pre1',
-            name: 'Rachel',
-            category: 'premade',
-            labels: { gender: 'female', accent: 'american' },
-          },
-          { voice_id: 'mine1', name: 'My Clone', category: 'cloned', labels: { gender: 'male' } },
-        ],
-      }),
-    );
+    if (request.url === '/v2/voices?page_size=100&voice_type=non-default')
+      return response.end(
+        JSON.stringify({
+          voices: [
+            {
+              voice_id: 'pre1',
+              name: 'Rachel',
+              category: 'premade',
+              labels: { gender: 'female', accent: 'american' },
+            },
+            { voice_id: 'mine1', name: 'My Clone', category: 'cloned', labels: { gender: 'male' } },
+            {
+              voice_id: 'saved1',
+              name: 'Saved',
+              category: 'professional',
+              labels: { accent: 'british' },
+            },
+          ],
+        }),
+      );
+    response.end(JSON.stringify({ data: [], voices: [] }));
   });
   try {
     const cartesia = await listCloudVoices('cartesia', 'key', live(), {
       baseUrl: { cartesia: base },
     });
     assert.deepEqual(
-      cartesia.map(voice => [voice.id, voice.mine, voice.gender]),
+      cartesia.map(voice => [voice.id, voice.gender]),
       [
-        ['whyte-1', true, 'Male'],
-        ['edi-1', true, 'Female'],
-        ['lib-1', false, 'Female'],
+        ['whyte-1', 'Male'],
+        ['edi-1', 'Female'],
       ],
     );
-    assert.equal(preferredCloudVoice(cartesia)?.id, 'edi-1');
     const eleven = await listCloudVoices('elevenlabs', 'key', live(), {
       baseUrl: { elevenlabs: base },
     });
     assert.deepEqual(
-      eleven.map(voice => [voice.id, voice.mine, voice.accent]),
+      eleven.map(voice => [voice.id, voice.accent]),
       [
-        ['mine1', true, null],
-        ['pre1', false, 'american'],
+        ['mine1', null],
+        ['saved1', 'british'],
       ],
     );
-    assert.equal(preferredCloudVoice(eleven)?.id, 'mine1');
-    assert.equal(preferredCloudVoice([]), null);
+    // One request per provider, both filtered to the account.
+    assert.deepEqual(urls, [
+      '/voices?limit=100&is_owner=true',
+      '/v2/voices?page_size=100&voice_type=non-default',
+    ]);
   } finally {
     server.close();
   }

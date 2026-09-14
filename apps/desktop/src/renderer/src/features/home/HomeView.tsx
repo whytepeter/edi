@@ -10,6 +10,7 @@ import {
 import { GroupedList, GroupedRow, Icon } from '../../components/ui';
 import { Pet } from '../../components/Pet';
 import './home.css';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 interface HomeViewProps {
   skin: SkinId;
@@ -33,6 +34,7 @@ const clip = (text: string, length = 90) =>
 
 /** Where the card opens: ask something, pick up where you left off, or finish setup. */
 export function HomeView({ skin, agent, system, refreshKey, onOpen, onAsk }: HomeViewProps) {
+  const assistant = useAssistantName();
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [saved, setSaved] = useState<LibraryItem[]>([]);
@@ -76,14 +78,16 @@ export function HomeView({ skin, agent, system, refreshKey, onOpen, onAsk }: Hom
       {agent.configured ? (
         <form className="home-composer ds-glass" onSubmit={submit}>
           <label htmlFor="home-draft" className="ds-visually-hidden">
-            Ask Edi
+            Ask {assistant}
           </label>
           <input
             id="home-draft"
             className="home-input"
             value={draft}
             maxLength={8000}
-            placeholder={running ? 'Edi is still answering…' : 'Ask Edi anything…'}
+            placeholder={
+              running ? `${assistant} is still answering…` : `Ask ${assistant} anything…`
+            }
             disabled={running || sending}
             onChange={event => setDraft(event.target.value)}
           />

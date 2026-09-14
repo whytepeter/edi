@@ -6,6 +6,7 @@ import {
   type SkinId,
 } from '@edi/contracts';
 import { Pet } from '../../components/Pet';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 interface Gesture {
   pointerId: number;
@@ -25,6 +26,7 @@ export function DesktopPet({
   color: string;
   expression: CharacterExpression;
 }) {
+  const assistant = useAssistantName();
   const gesture = useRef<Gesture | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -36,7 +38,7 @@ export function DesktopPet({
     try {
       await window.edi?.command(command);
     } catch {
-      setError('Edi couldn’t complete that action. Try again.');
+      setError(`${assistant} couldn’t complete that action. Try again.`);
     }
   }
 
@@ -91,7 +93,7 @@ export function DesktopPet({
     <button
       ref={button}
       className={`desktop-pet${dragging ? ' is-dragging' : ''}`}
-      aria-label="Edi"
+      aria-label={assistant}
       aria-haspopup="menu"
       title={error || 'Hold to talk. Drag to move. Right-click for options.'}
       onContextMenu={event => {

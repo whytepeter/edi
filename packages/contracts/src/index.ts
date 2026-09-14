@@ -11,6 +11,7 @@ export * from './voice-session';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 import { permissionIdSchema, type PermissionSnapshot } from './permissions';
 import { petScaleSchema } from './skin-geometry';
+import type { UsagePeriod, UsageSummary } from './usage';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -19,6 +20,7 @@ import {
   type ArtifactRef,
 } from './artifacts';
 export * from './artifacts';
+export * from './usage';
 export {
   placeArtifact,
   placeCard,
@@ -120,6 +122,16 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
 
 export const skinSchema = z.enum(['edi', 'mochi']);
 export type SkinId = z.infer<typeof skinSchema>;
+/**
+ * The name the person gives their companion. It starts with a letter and holds only letters,
+ * digits, spaces, apostrophes, periods and hyphens, so it is safe in copy, menus and prompts.
+ */
+export const assistantNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(24)
+  .regex(/^\p{L}[\p{L}\p{M}\p{N} '’.-]*$/u);
 import {
   cloudProviderSchema,
   voiceChoicesSchema,
@@ -196,6 +208,8 @@ export const settingsSchema = z.preprocess(
     /** The chosen voice within each speech model. */
     voices: voiceChoicesSchema,
     petScale: petScaleSchema.default(1),
+    /** The companion's name; null means the character's own name (Edi, Mochi). */
+    name: assistantNameSchema.nullable().catch(null).default(null),
   }),
 );
 export type Settings = z.infer<typeof settingsSchema>;
@@ -213,7 +227,13 @@ export const defaultSettings: Settings = {
     elevenlabs: null,
   },
   petScale: 1,
+  name: null,
 };
+
+/** What the companion is called: the person's chosen name, otherwise its character's name. */
+export function assistantName(settings: Pick<Settings, 'name' | 'skin'>): string {
+  return settings.name ?? skins.find(skin => skin.id === settings.skin)?.name ?? 'Edi';
+}
 /**
  * Every place the card can show, as a stable, versioned destination list. Edi's
  * own navigation targets these IDs; there are no arbitrary routes.
@@ -230,6 +250,7 @@ export const workspaceSections = [
 export const settingsPages = [
   'settings.ai',
   'settings.voice',
+  'settings.usage',
   'settings.keyboard',
   'settings.privacy',
   'settings.activity',
@@ -348,6 +369,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('permission-dismiss'), permission: permissionIdSchema }).strict(),
   z.object({ type: z.literal('hide-workspace') }).strict(),
   z.object({ type: z.literal('apply-skin'), skin: skinSchema }).strict(),
+  /** Name the companion, or null to go back to the character's own name. */
+  z.object({ type: z.literal('set-name'), name: assistantNameSchema.nullable() }).strict(),
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
   z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
   z.object({ type: z.literal('set-speak-replies'), enabled: z.boolean() }).strict(),
@@ -432,6 +455,8 @@ export interface DesktopBridge {
   system(): Promise<SystemInfo>;
   /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
   models(): Promise<ModelOption[]>;
+  /** What Edi used over the last 1, 7 or 30 days. */
+  usage(days: UsagePeriod): Promise<UsageSummary>;
   /** Voices on the person's Cartesia or ElevenLabs account; needs that key. */
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   onAgent(callback: (state: AgentState) => void): () => void;

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  assistantName,
   agentStateSchema,
   characterExpressionSchema,
   commandSchema,
@@ -586,4 +587,20 @@ test('presentations resolve onto the right display, and bad targets are rejected
     localizeActions([{ type: 'point', x: -960, y: 540, label: '' }], { x: -1920, y: 0 }),
     [{ type: 'point', x: 960, y: 540, label: '' }],
   );
+});
+
+test('the companion is named by the person, or by its character until then', () => {
+  const saved = settingsSchema.parse({ skin: 'mochi', pinned: false });
+  assert.equal(saved.name, null);
+  assert.equal(assistantName(saved), 'Mochi');
+  assert.equal(assistantName({ ...saved, skin: 'edi' }), 'Edi');
+  assert.equal(assistantName({ skin: 'mochi', name: 'Luna' }), 'Luna');
+  assert.equal(settingsSchema.parse({ skin: 'edi', pinned: false, name: '  Zoë ' }).name, 'Zoë');
+  // Names are copy, menu labels and prompt text: markup, paths and empty names are refused.
+  for (const name of ['', '<b>Edi</b>', '../x', '1Edi', 'A'.repeat(25)]) {
+    assert.equal(settingsSchema.parse({ skin: 'edi', pinned: false, name }).name, null);
+    assert.equal(commandSchema.safeParse({ type: 'set-name', name }).success, false);
+  }
+  assert.equal(commandSchema.safeParse({ type: 'set-name', name: 'Mary-Jane' }).success, true);
+  assert.equal(commandSchema.safeParse({ type: 'set-name', name: null }).success, true);
 });

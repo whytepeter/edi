@@ -14,9 +14,13 @@ Meaningful product and architecture changes are recorded here. The format follow
   a shorter slice of the page is returned. Up to 10 steps per answer.
 - Cloud voices: Cartesia (Sonic 3.6) and ElevenLabs (Flash v2.5) with separate keys, checked with the provider
   before they are saved and encrypted with the keychain. Settings → Voice explains each provider, links to where
-  keys are made, lists the account's voices (your own first) with previews, and a voice named "Edi" becomes
-  Edi's voice when the key is added. Only the words Edi speaks are sent; a failed cloud reply falls back to a
-  local voice.
+  keys are made, and lists only the voices on your account (created, cloned or saved there, never the public
+  library) with previews and a prompt to add one when there are none. Adding a key pre-selects your first
+  voice but never switches providers by itself. Only the words Edi speaks are sent; a failed cloud reply falls
+  back to a local voice.
+- Name your companion in Appearance. Until you do, it goes by its character's name (Edi, Mochi); your name
+  applies to every character and is used in its prompt, bubbles, menus, voice samples and card copy. The app,
+  its windows and the Documents › Edi folder keep the Edi name. It can also rename itself when you ask.
 - Calm Chatterbox delivery (default), Liquid Glass toolbar and section menu, a warm acknowledgement ("On it")
   and short progress lines in the bubble when Conversations is not open.
 
@@ -138,6 +142,9 @@ Meaningful product and architecture changes are recorded here. The format follow
   proactivity, computer use, and community extensions without making post-alpha ideas private-alpha gates.
 
 ### Fixed
+
+- The agent reported a cloud voice by its id (and fell back on earlier conversation, e.g. "Heart") instead of
+  its name; cloud voice names now come from the account, and the live setup outranks earlier messages.
 
 - Edi looked like it was speaking before any audio existed. The speaking state now starts with the first
   synthesized samples. Measured on the M2 Pro: warm Chatterbox Turbo runs 1.3–1.9× slower than real time, with a

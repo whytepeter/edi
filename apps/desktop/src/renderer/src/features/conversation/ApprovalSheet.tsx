@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApprovalRequest } from '@edi/contracts';
 import { Button } from '../../components/ui';
 import './approval.css';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 /** Guards against a click or keystroke that was already in flight when the sheet appeared. */
 const ARM_DELAY_MS = 600;
@@ -11,6 +12,7 @@ const ARM_DELAY_MS = 600;
  * dimmed and inert until the person decides. Escape declines.
  */
 export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
+  const assistant = useAssistantName();
   const [armed, setArmed] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +58,7 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
         tabIndex={-1}
         onKeyDown={onKeyDown}
       >
-        <p className="ds-eyebrow">Edi needs your OK</p>
+        <p className="ds-eyebrow">{assistant} needs your OK</p>
         <h2 id={titleId} className="ds-title">
           {preview.title}
         </h2>

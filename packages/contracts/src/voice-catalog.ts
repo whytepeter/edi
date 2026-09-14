@@ -14,7 +14,10 @@ export const voiceModelSchema = z.enum([
 ]);
 export type VoiceModelId = z.infer<typeof voiceModelSchema>;
 
-/** Cloud speech with the person's own key; their voices come from their account. */
+/**
+ * Cloud speech with the person's own key. Only voices on their account are offered (ones they
+ * created, cloned or saved there), never the provider's public library.
+ */
 export const cloudProviderSchema = z.enum(['cartesia', 'elevenlabs']);
 export type CloudProviderId = z.infer<typeof cloudProviderSchema>;
 export const isCloudVoiceModel = (model: VoiceModelId): model is CloudProviderId =>
@@ -27,8 +30,6 @@ export const cloudVoiceOptionSchema = z
     description: z.string().max(200),
     gender: z.enum(['Female', 'Male']).nullable(),
     accent: z.string().max(40).nullable(),
-    /** A voice the person created or cloned on their account, listed first. */
-    mine: z.boolean(),
   })
   .strict();
 export type CloudVoiceOption = z.infer<typeof cloudVoiceOptionSchema>;

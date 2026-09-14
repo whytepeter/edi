@@ -17,16 +17,15 @@ import {
 import { accentFor } from '../../lib/bridge';
 import './pet.css';
 
-const announcement: Record<
-  Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>,
-  string
-> = {
+const announcement = (
+  name: string,
+): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>, string> => ({
   unavailable: 'voice coming soon',
-  thinking: 'Edi is thinking',
+  thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.
   listening: 'I’m listening',
-  speaking: 'Edi is speaking',
-};
+  speaking: `${name} is speaking`,
+});
 
 interface ApprovalBubbleBridge {
   approval(): Promise<ApprovalRequest | null>;
@@ -44,12 +43,14 @@ export function StatusBubble({
   state,
   side,
   skin,
+  name,
   text: notice,
   artifact,
 }: {
   state: StatusBubbleState;
   side: BubbleSide;
   skin: SkinId;
+  name: string;
   text: string;
   artifact: ArtifactSummary | null;
 }) {
@@ -123,7 +124,8 @@ export function StatusBubble({
         ) : null}
       </div>
     );
-  const staticText = state === 'notice' ? notice : state === 'approval' ? '' : announcement[state];
+  const staticText =
+    state === 'notice' ? notice : state === 'approval' ? '' : announcement(name)[state];
   return (
     <div
       className="status-bubble-surface"
@@ -145,7 +147,7 @@ export function StatusBubble({
         {state === 'approval' ? (
           approval ? (
             <section className="bubble-approval" aria-labelledby="bubble-approval-title">
-              <p className="ds-eyebrow">Edi needs your OK</p>
+              <p className="ds-eyebrow">{name} needs your OK</p>
               <h2 id="bubble-approval-title">{approval.preview.title}</h2>
               <p>{approval.preview.summary}</p>
               {approval.preview.fields.slice(0, 2).map(field => (

@@ -1,9 +1,16 @@
 import { z } from 'zod';
-import { petScaleSchema, skinSchema, voiceModelSchema, workspaceViewSchema } from '@edi/contracts';
+import {
+  assistantNameSchema,
+  petScaleSchema,
+  skinSchema,
+  voiceModelSchema,
+  workspaceViewSchema,
+} from '@edi/contracts';
 import { defineCapability } from '../types';
 
 export interface EdiSetupSnapshot {
-  identity: { name: 'Edi'; version: string };
+  /** `name` is what the person calls their companion; `app` is the product. */
+  identity: { name: string; customName: boolean; app: 'Edi'; version: string };
   /** Where the person is in Edi right now. */
   location: { page: string; cardOpen: boolean; pinned: boolean };
   current: {
@@ -44,7 +51,8 @@ export interface EdiSetupSnapshot {
     available: boolean;
     expressions: boolean;
     detail: string;
-    voices: { id: string; name: string; accent: string; gender: string }[];
+    /** Cloud providers list the person's account voices; gender and accent may be unknown. */
+    voices: { id: string; name: string; accent: string | null; gender: string | null }[];
   }[];
   /** Things Edi can do right now, and whether each asks the person first. */
   abilities: { name: string; asksFirst: boolean }[];
@@ -55,6 +63,12 @@ export interface EdiSetupSnapshot {
 /** Edi's own reversible preferences. Secrets and connections are deliberately absent. */
 export const ediPreferencesSchema = z
   .object({
+    name: assistantNameSchema
+      .nullable()
+      .optional()
+      .describe(
+        'Your name, only when the user asks to call you something else; null returns to the character’s own name',
+      ),
     character: skinSchema.optional().describe('Character id from availableCharacters'),
     size: petScaleSchema
       .optional()
@@ -153,7 +167,7 @@ export function ediSetupCapabilities(deps: {
     id: 'edi.change_preferences',
     title: 'Change Edi’s preferences',
     description:
-      'Change Edi’s own reversible preferences: character, desktop size, pin, whether spoken ' +
+      'Change Edi’s own reversible preferences: your name, character, desktop size, pin, whether spoken ' +
       'answers are read aloud, and voice. Only use values listed by edi_inspect_setup. It cannot ' +
       'change the AI key, permissions or connections; send the user to that page instead.',
     effect: 'read',
@@ -162,7 +176,7 @@ export function ediSetupCapabilities(deps: {
     prepare(patch) {
       const fields = Object.entries(patch).map(([label, value]) => ({
         label,
-        value: String(value),
+        value: value === null ? 'character’s own name' : String(value),
       }));
       return {
         preview: {

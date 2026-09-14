@@ -461,7 +461,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
         preview: {
           title: 'Update content',
           action: 'Update',
-          summary: `Edi wants to replace “${record.title}” with a new version.`,
+          summary: `Replace “${record.title}” with a new version.`,
           fields: [
             { label: 'Title', value: content.title },
             { label: 'Location', value: path },
@@ -511,8 +511,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
         preview: {
           title: 'Move to Trash',
           action: 'Move to Trash',
-          summary:
-            'Edi wants to move this to the Trash. You can put it back from the Trash in Finder.',
+          summary: 'Move this to the Trash. You can put it back from the Trash in Finder.',
           fields: [
             { label: 'Title', value: target.title },
             { label: 'Location', value: target.path },

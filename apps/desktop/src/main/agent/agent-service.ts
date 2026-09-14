@@ -47,6 +47,8 @@ interface AgentServiceOptions {
   point?: (target: PointTarget) => void;
   /** Live, non-secret Edi configuration for identity and setup questions. */
   selfContext?: () => string;
+  /** The companion's current name (the person's choice, or its character's). */
+  assistantName?: () => string;
   /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
   readerModel?: () => string | null;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
@@ -186,6 +188,7 @@ export class AgentService {
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model: credentials.model,
+      name: this.options.assistantName?.() ?? 'Edi',
       prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),

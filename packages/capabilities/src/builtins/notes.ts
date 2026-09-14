@@ -193,7 +193,7 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
         preview: {
           title: 'Save a note',
           action: 'Save Note',
-          summary: 'Edi wants to create a new Markdown file. Existing files are never replaced.',
+          summary: 'Create a new Markdown file. Existing files are never replaced.',
           fields: [
             { label: 'Title', value: title },
             { label: 'Location', value: path },
@@ -304,7 +304,7 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
         preview: {
           title: 'Edit a note',
           action: 'Update Note',
-          summary: 'Edi wants to replace this note’s content. The file path stays the same.',
+          summary: 'Replace this note’s content. The file path stays the same.',
           fields: [
             { label: 'Title', value: title === note.title ? title : `${note.title} → ${title}` },
             { label: 'Location', value: path },
@@ -352,7 +352,7 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
         preview: {
           title: 'Delete a note',
           action: 'Delete Note',
-          summary: 'Edi wants to permanently delete this Markdown file.',
+          summary: 'Permanently delete this Markdown file.',
           fields: [
             { label: 'Title', value: note.title },
             { label: 'Location', value: path },

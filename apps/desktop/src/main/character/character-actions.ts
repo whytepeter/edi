@@ -23,13 +23,15 @@ interface CharacterActionsOptions {
   pet: BrowserWindow;
   card: BrowserWindow;
   skin: () => SkinId;
+  /** The companion's current name, for menus and bubbles. */
+  name: () => string;
   /** Start real capture; false means the local voice runtime is unavailable. */
   startVoice: (mode: 'conversation' | 'push-to-talk') => boolean;
   showContent: () => void;
   openSettings: () => void;
   stopWork: () => void;
   createBubble: (options: StatusBubbleOptions) => BrowserWindow;
-  createMenu: () => BrowserWindow;
+  createMenu: (name: string) => BrowserWindow;
   /** Narrow main-to-renderer state channel; artwork remains renderer-owned. */
   showExpression: (expression: CharacterExpression) => void;
   quit: () => void;
@@ -188,6 +190,7 @@ export class CharacterActions {
       text,
       artifact,
       skin: this.options.skin(),
+      name: this.options.name(),
     });
     this.bubble = { window, state, side };
     this.bubbleReady = false;
@@ -302,14 +305,15 @@ export class CharacterActions {
   };
 
   menuItems(): MenuItemConstructorOptions[] {
+    const name = this.options.name();
     return [
       { label: 'Listen', click: () => this.requestListening() },
-      { label: 'Open Edi', click: () => this.showContent() },
+      { label: `Open ${name}`, click: () => this.showContent() },
       { label: 'Settings…', accelerator: 'CommandOrControl+,', click: this.options.openSettings },
       { label: 'Stop', click: this.stop },
       { type: 'separator' },
-      { label: 'Sleep Edi', click: this.sleep },
-      { label: 'Quit Edi', click: this.options.quit },
+      { label: `Sleep ${name}`, click: this.sleep },
+      { label: `Quit ${name}`, click: this.options.quit },
     ];
   }
 
@@ -352,7 +356,7 @@ export class CharacterActions {
       point.y >= pet.y &&
       point.y <= pet.y + pet.height;
     const origin = onPet ? point : { x: pet.x + pet.width * 0.8, y: pet.y + pet.height * 0.35 };
-    const menu = this.options.createMenu();
+    const menu = this.options.createMenu(this.options.name());
     this.menu = menu;
     menu.setBounds(
       placeContextMenu(

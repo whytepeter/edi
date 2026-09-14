@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ToolOutcome } from '@edi/capabilities';
-import { modelIdSchema } from '@edi/contracts';
+import { assistantNameSchema, modelIdSchema } from '@edi/contracts';
 
 const bytesWithin = (limit: number) =>
   z.custom<Uint8Array>(
@@ -20,6 +20,8 @@ export const workerInputSchema = z
   .object({
     apiKey: z.string().min(10).max(4_096),
     model: modelIdSchema,
+    /** What the person calls their companion. */
+    name: assistantNameSchema.default('Edi'),
     /** A fast model that reads fetched pages and answers Edi's question; defaults to `model`. */
     readerModel: modelIdSchema.optional(),
     prompt: z.string().min(1).max(8_000),

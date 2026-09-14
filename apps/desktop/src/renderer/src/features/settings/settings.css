@@ -114,6 +114,12 @@
     transition: none;
   }
 }
+/* A connected account with no voices of its own yet. */
+.voice-cloud-empty {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
 .voice-cloud-connected {
   display: flex;
   flex-wrap: wrap;
