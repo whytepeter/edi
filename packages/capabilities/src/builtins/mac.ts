@@ -23,6 +23,7 @@ export interface ReminderItem {
 }
 
 export interface CalendarEvent {
+  id: string;
   title: string;
   start: number;
   end: number;
@@ -61,6 +62,17 @@ export interface EventStore {
     notes: string;
     calendar?: string;
   }): Promise<{ calendar: string }>;
+  updateEvent(event: {
+    eventId: string;
+    title?: string;
+    start?: number;
+    end?: number;
+    allDay?: boolean;
+    location?: string;
+    notes?: string;
+    calendar?: string;
+  }): Promise<{ calendar: string }>;
+  deleteEvent(eventId: string): Promise<{ deleted: boolean }>;
 }
 
 export interface MacDependencies {
@@ -413,6 +425,7 @@ export function macCapabilities(deps: MacDependencies) {
             summary: events.length === 1 ? 'Found 1 event.' : `Found ${events.length} events.`,
             output: {
               events: events.map(event => ({
+                id: event.id,
                 title: event.title,
                 start: when(event.start, !event.allDay),
                 end: when(event.end, !event.allDay),
@@ -490,6 +503,89 @@ export function macCapabilities(deps: MacDependencies) {
     },
   });
 
+  const updateEvent = defineCapability({
+    id: 'calendar.update',
+    title: 'Update an event',
+    description:
+      'Update an existing calendar event by its id (from calendar_events). Only the fields provided ' +
+      'are changed; omitted fields stay as they are. The user reviews the change.',
+    effect: 'write',
+    timeoutMs: 20_000,
+    input: z
+      .object({
+        eventId: z.string().min(1).max(200),
+        title: z.string().trim().min(1).max(300).optional(),
+        start: localTime.optional(),
+        end: localTime.optional(),
+        allDay: z.boolean().optional(),
+        location: z.string().max(300).optional(),
+        notes: z.string().max(2000).optional(),
+        calendar: z.string().trim().min(1).max(120).optional(),
+      })
+      .strict(),
+    prepare(input) {
+      const fields: { label: string; value: string }[] = [];
+      if (input.title) fields.push({ label: 'Title', value: input.title });
+      if (input.start) fields.push({ label: 'Start', value: input.start });
+      if (input.end) fields.push({ label: 'End', value: input.end });
+      if (input.location) fields.push({ label: 'Where', value: input.location });
+      if (input.calendar) fields.push({ label: 'Calendar', value: input.calendar });
+      return {
+        scope: { kind: 'any', value: '', label: 'Calendar', covers: [] },
+        preview: {
+          title: 'Update an event',
+          action: 'Update Event',
+          summary: `Update "${input.title || 'event'}".`,
+          fields,
+          ...(input.notes ? { body: input.notes } : {}),
+        },
+        async execute() {
+          const patch: Parameters<EventStore['updateEvent']>[0] = { eventId: input.eventId };
+          if (input.title) patch.title = input.title;
+          if (input.start) patch.start = parseLocalTime(input.start).at;
+          if (input.end) patch.end = parseLocalTime(input.end).at;
+          if (input.allDay !== undefined) patch.allDay = input.allDay;
+          if (input.location !== undefined) patch.location = input.location;
+          if (input.notes !== undefined) patch.notes = input.notes;
+          if (input.calendar) patch.calendar = input.calendar;
+          const saved = await (await store('events')).updateEvent(patch);
+          return { summary: `Updated event in ${saved.calendar}.` };
+        },
+      };
+    },
+  });
+
+  const deleteEvent = defineCapability({
+    id: 'calendar.delete',
+    title: 'Delete an event',
+    description:
+      'Delete an existing calendar event by its id (from calendar_events). The user reviews before ' +
+      'it is removed.',
+    effect: 'write',
+    timeoutMs: 20_000,
+    input: z
+      .object({
+        eventId: z.string().min(1).max(200),
+        title: z.string().max(300).optional().describe('Shown in the review for clarity'),
+      })
+      .strict(),
+    prepare(input) {
+      return {
+        scope: { kind: 'any', value: '', label: 'Calendar', covers: [] },
+        preview: {
+          title: 'Delete an event',
+          action: 'Delete Event',
+          summary: `Delete "${input.title || 'event'}".`,
+          fields: [],
+        },
+        async execute() {
+          await (await store('events')).deleteEvent(input.eventId);
+          return { summary: `Deleted "${input.title || 'the event'}".` };
+        },
+      };
+    },
+  });
+
   return [
     openApp,
     openUrl,
@@ -499,5 +595,7 @@ export function macCapabilities(deps: MacDependencies) {
     createReminders,
     listEvents,
     createEvent,
+    updateEvent,
+    deleteEvent,
   ] as const;
 }

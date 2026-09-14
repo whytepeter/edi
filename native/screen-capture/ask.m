@@ -420,6 +420,7 @@ static id edi_eventkit_do(NSDictionary *request) {
     for (EKEvent *event in events) {
       if (items.count >= 200) break;
       [items addObject:@{
+        @"id" : edi_string(event.eventIdentifier, 200),
         @"title" : edi_string(event.title, 300),
         @"start" : edi_ms(event.startDate),
         @"end" : edi_ms(event.endDate),
@@ -452,6 +453,47 @@ static id edi_eventkit_do(NSDictionary *request) {
       return @{@"error" : error.localizedDescription ?: @"Could not save the event."};
     return @{@"calendar" : edi_string(event.calendar.title, 200)};
   }
+
+  if ([op isEqualToString:@"events.update"]) {
+    NSString *eventId = edi_string(request[@"eventId"], 200);
+    if (!eventId.length) return @{@"error" : @"Missing event id."};
+    EKEvent *event = [store eventWithIdentifier:eventId];
+    if (!event) return @{@"error" : @"Event not found."};
+    if (request[@"title"]) event.title = edi_string(request[@"title"], 300);
+    if (request[@"location"]) event.location = edi_string(request[@"location"], 300);
+    if (request[@"notes"]) event.notes = edi_string(request[@"notes"], 2000);
+    if (request[@"start"]) {
+      NSDate *start = edi_date(request[@"start"]);
+      if (!start) return @{@"error" : @"Invalid start date."};
+      event.startDate = start;
+    }
+    if (request[@"end"]) {
+      NSDate *end = edi_date(request[@"end"]);
+      if (!end) return @{@"error" : @"Invalid end date."};
+      event.endDate = end;
+    }
+    if (request[@"allDay"]) event.allDay = [request[@"allDay"] boolValue];
+    if (request[@"calendar"]) {
+      EKCalendar *calendar = edi_calendar_named(store, EKEntityTypeEvent, edi_string(request[@"calendar"], 200));
+      if (calendar) event.calendar = calendar;
+    }
+    NSError *error = nil;
+    if (![store saveEvent:event span:EKSpanThisEvent commit:YES error:&error])
+      return @{@"error" : error.localizedDescription ?: @"Could not update the event."};
+    return @{@"calendar" : edi_string(event.calendar.title, 200)};
+  }
+
+  if ([op isEqualToString:@"events.delete"]) {
+    NSString *eventId = edi_string(request[@"eventId"], 200);
+    if (!eventId.length) return @{@"error" : @"Missing event id."};
+    EKEvent *event = [store eventWithIdentifier:eventId];
+    if (!event) return @{@"error" : @"Event not found."};
+    NSError *error = nil;
+    if (![store removeEvent:event span:EKSpanThisEvent commit:YES error:&error])
+      return @{@"error" : error.localizedDescription ?: @"Could not delete the event."};
+    return @{@"deleted" : @YES};
+  }
+
   return @{@"error" : @"Unknown request."};
 }
 

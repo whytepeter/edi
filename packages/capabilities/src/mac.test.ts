@@ -47,6 +47,14 @@ async function harness(access: 'granted' | 'not-determined' | 'denied' = 'grante
       saved.push(event);
       return { calendar: 'Work' };
     },
+    updateEvent: async event => {
+      saved.push(event);
+      return { calendar: 'Work' };
+    },
+    deleteEvent: async eventId => {
+      saved.push({ deleted: eventId });
+      return { deleted: true };
+    },
   };
   const tools = macCapabilities({
     files: {

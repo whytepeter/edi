@@ -32,7 +32,7 @@ const permissionCopy: Record<PermissionId, { title: string; detail: string; icon
   },
   calendar: {
     title: 'Calendar',
-    detail: 'To check your schedule and add events when you ask',
+    detail: 'To check, add, change and remove events when you ask',
     icon: 'calendar',
   },
 };
