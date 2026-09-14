@@ -55,7 +55,7 @@ export function StatusBubble({
   artifact: ArtifactSummary | null;
 }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  // Thinking starts with the acknowledgement or progress from the URL; updates arrive in place.
+  // Thinking starts with any progress from the URL; updates arrive in place.
   const [progress, setProgress] = useState(state === 'thinking' ? notice : '');
   useEffect(() => {
     if (state !== 'thinking') return;

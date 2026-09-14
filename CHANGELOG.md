@@ -32,8 +32,9 @@ Meaningful product and architecture changes are recorded here. The format follow
 - Name your companion in Appearance. Until you do, it goes by its character's name (Edi, Mochi); your name
   applies to every character and is used in its prompt, bubbles, menus, voice samples and card copy. The app,
   its windows and the Documents › Edi folder keep the Edi name. It can also rename itself when you ask.
-- Calm Chatterbox delivery (default), Liquid Glass toolbar and section menu, a warm acknowledgement ("On it")
-  and short progress lines in the bubble when Conversations is not open.
+- Calm Chatterbox delivery (default), Liquid Glass toolbar and section menu, a happy nod when asked to do something,
+  and short progress lines in the bubble (only for real work, such as "Searching the web") when Conversations
+  is not open.
 
 - Web fetch (`web.fetch`): Edi can read a public page from a link you gave, search results or a page it
   already read. Following Anthropic's web fetch tool, Claude Code's WebFetch and the MCP fetch server: the

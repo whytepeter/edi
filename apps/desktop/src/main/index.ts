@@ -804,9 +804,7 @@ async function start() {
     warmSelected();
   });
   let previousAgentStatus = agent.state.status;
-  const acknowledgements = ['On it', 'Okay, one sec', 'Sure, let me look', 'Got it', 'Okay, on it'];
-  let acknowledged = 0;
-  /** Short, human progress for the bubble, from the running step or the model's own work. */
+  /** Short progress for the bubble, only for real work (a step or a web search); else just dots. */
   const stepLabels: Record<string, string> = {
     'workspace.show': 'Putting it together',
     'workspace.search': 'Looking through your workspace',
@@ -830,7 +828,6 @@ async function start() {
       .find(item => item.status === 'running' || item.status === 'awaiting-approval');
     if (step) return stepLabels[step.capability] ?? step.title.slice(0, 40);
     if (state.activity === 'searching-web') return 'Searching the web';
-    if (state.text) return 'Writing';
     return undefined;
   };
   agent.onChange(state => {
@@ -838,10 +835,9 @@ async function start() {
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     character.showApproval(state.approval);
     const running = state.status === 'running' && !state.approval;
-    // A new request gets a warm acknowledgement; progress follows unless the person is
-    // already watching the conversation, where the steps are shown in full.
-    if (state.status === 'running' && previousAgentStatus !== 'running')
-      character.acknowledge(acknowledgements[acknowledged++ % acknowledgements.length]!);
+    // A new request gets a warm nod; progress follows unless the person is already watching
+    // the conversation, where the steps are shown in full.
+    if (state.status === 'running' && previousAgentStatus !== 'running') character.acknowledge();
     const watching = cardOpen() && currentView === 'conversations';
     character.setThinking(running, running && !watching ? progressLabel(state) : undefined);
     if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();

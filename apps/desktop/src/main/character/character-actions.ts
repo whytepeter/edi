@@ -44,7 +44,6 @@ export class CharacterActions {
   private bubble?: { window: BrowserWindow; state: StatusBubbleState; side: BubbleSide };
   /** The thinking bubble's current progress line. */
   private bubbleText?: string;
-  private ackUntil = 0;
   private ackTimer?: ReturnType<typeof setTimeout>;
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
@@ -75,31 +74,22 @@ export class CharacterActions {
   setThinking = (thinking: boolean, text?: string) => {
     if (!thinking) {
       clearTimeout(this.ackTimer);
-      this.ackUntil = 0;
       if (this.bubble?.state === 'thinking') this.hideBubble();
       return;
     }
     const busy = this.bubble?.state;
     if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
-    // An acknowledgement stays readable for a moment before progress replaces it.
-    const wait = this.ackUntil - Date.now();
-    if (wait > 0) {
-      clearTimeout(this.ackTimer);
-      this.ackTimer = setTimeout(() => this.setThinking(true, text), wait);
-      return;
-    }
     this.showThinking(text);
   };
 
   /**
-   * Warm, brief acknowledgement when Edi is asked to do something ("On it"): a small happy nod
-   * and the phrase in the bubble, which then settles into progress or thinking dots.
+   * Warm, brief acknowledgement when Edi is asked to do something: a small happy nod with the
+   * thinking dots, which then settle into thinking. No filler words in the bubble.
    */
-  acknowledge = (phrase: string) => {
+  acknowledge = () => {
     const busy = this.bubble?.state;
     if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
-    this.showThinking(phrase);
-    this.ackUntil = Date.now() + 1400;
+    this.showThinking();
     this.setExpression('happy');
     clearTimeout(this.ackTimer);
     this.ackTimer = setTimeout(() => {
