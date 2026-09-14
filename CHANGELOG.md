@@ -7,6 +7,12 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Files outside Edi's workspace. Edi can search (Spotlight, with a bounded name search as fallback), list and read
+  files in Desktop, Documents, Downloads and folders you add, or everywhere in your home folder with Full Disk
+  Access. Text, code, CSV/JSON and Word/RTF/HTML documents are read; PDFs are not yet. Renaming, moving, creating
+  folders and moving to the Trash always show a review first. Settings → Privacy & Permissions has a Files & Folders
+  section with each folder's status, Allow, Add a folder… and a Full Disk Access link. Edi's workspace and ~/Library
+  cannot be changed by these tools, and symlinks cannot reach outside allowed folders.
 - Character packages. A character is `character.json` plus `art.svg`, zipped as `.edichar`. Edi and Mochi
   now ship as packages in `packages/characters` and pass the same check as installed ones. Appearance is a
   character library: add a package (choose it or drop it on the page), see it in every mood before

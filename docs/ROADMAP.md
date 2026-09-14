@@ -96,8 +96,8 @@ Build Skills and Connectors with curated discovery, details, setup forms, instal
 The Edi workspace is one folder, Documents › Edi, owned by Edi: Notes today; Documents, Diagrams, Reports and Exports
 folders as those artifact types ship. Library shows everything in it. Turn the scoped artifact foundation into Edi Workspace: notes, diagrams, reports, and exports with semantic types,
 stable IDs, provenance, temporary-versus-saved state, search, update, and deletion. Library is the user-facing home for these artifacts. A follow-up such as “add the MCP layer” updates
-the existing diagram instead of generating an unrelated one. Saving inside Edi must not grant
-arbitrary filesystem access. Keep connector architecture provider-neutral; Composio may be tested as an adapter but
+the existing diagram instead of generating an unrelated one. Saving inside Edi never widens file access: the
+person's own files are reached only through the file tools, scoped to folders they allow (2026-09-14). Keep connector architecture provider-neutral; Composio may be tested as an adapter but
 must not replace Edi's capability broker, approval policy, or secure credential boundary.
 
 **Exit:** install a skill, connect an account, add a remote MCP server, and use them in a task. Create, reopen, update,
@@ -205,7 +205,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Private custom voices with consent | 8 | Planned |
 | Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Character packages: install from a .edichar file, every mood previewed; community library planned |
 | Skill vs skin communities; creator profiles | 8 | Planned; formats kept compatible |
-| Edi Workspace with a scoped local folder, no arbitrary filesystem access | 2–3 | Started: Documents › Edi with Notes; Library lists it |
+| Edi Workspace with a scoped local folder; the person's files only through allowed folders | 2–3 | Workspace done (Documents › Edi, Library). File tools for Desktop, Documents, Downloads, added folders and Full Disk Access; changes need approval |
 | Dynamic content area renders rich artifacts | 2 | Documents, checklists, tables, notes and sandboxed interactive HTML in the artifact window; composition blocks planned |
 | Artifact lifecycle: show → save → revisit → export | 2–3 | Show, auto-save, Library, copy, download (md/csv/html) done; rename, pin, regenerate planned |
 | Semantic artifact types, with HTML only sandboxed | 2 | Four structured types plus `html`, isolated from Edi (CSP sandbox, private scheme, isolated session) |
