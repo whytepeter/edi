@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRepositories, latestVersion, migrate, openDatabase } from './index';
+import { createRepositories, ftsQuery, latestVersion, migrate, openDatabase } from './index';
 
 const run = (id: string, startedAt = 1) => ({
   id,
@@ -306,7 +306,8 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
+    'DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+      'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
   migrate(db);
@@ -432,7 +433,10 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.start({ ...run(uuid(n), at), prompt: `question ${n}` });
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
-  db.exec('DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;');
+  db.exec(
+    'DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+      'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
+  );
   db.exec('PRAGMA user_version = 4');
   migrate(db);
   assert.deepEqual(
@@ -442,4 +446,42 @@ test('existing history splits into conversations at two-hour gaps', () => {
       ['question 1', 2, hour + 1],
     ],
   );
+});
+
+test('conversation search matches words by prefix across turns, stays in step and respects dates', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'palette', title: 'Brand colors', at: 100 });
+  repos.conversations.create({ id: 'trip', title: 'Lisbon plans', at: 200 });
+  const turn = (n: number, thread: string, prompt: string, text: string, at: number) => {
+    repos.runs.start({ ...run(uuid(n), at), prompt, threadId: thread });
+    repos.runs.finish(uuid(n), { status: 'done', text, error: '', at: at + 1 });
+  };
+  turn(
+    1,
+    'palette',
+    'Make a warm colour palette',
+    'Here are five terracotta and sand swatches.',
+    1_000,
+  );
+  turn(2, 'palette', 'Darker please', 'Swapped sand for umber.', 2_000);
+  turn(3, 'trip', 'Plan three days in Lisbon', 'Día uno: Alfama; a pastel de nata stop.', 5_000);
+
+  assert.deepEqual(
+    repos.conversations
+      .search('terracotta palet', { limit: 5 })
+      .map(match => [match.id, match.runId]),
+    [['palette', uuid(1)]],
+  );
+  const lisbon = repos.conversations.search('dia pastel', { limit: 5 });
+  assert.deepEqual(
+    lisbon.map(match => match.id),
+    ['trip'],
+  );
+  assert.match(lisbon[0]!.excerpt, /pastel/);
+  assert.deepEqual(repos.conversations.search('sand', { limit: 5, after: 4_000 }), []);
+  assert.deepEqual(repos.conversations.search('"); DROP TABLE runs; --', { limit: 5 }), []);
+  assert.equal(ftsQuery('  ?! '), null);
+
+  repos.conversations.remove('palette');
+  assert.deepEqual(repos.conversations.search('umber', { limit: 5 }), []);
 });

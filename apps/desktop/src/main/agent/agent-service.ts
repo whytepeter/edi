@@ -312,10 +312,20 @@ export class AgentService {
     }
   }
 
-  conversations(limit = 100): ConversationSummary[] {
-    return this.options.repositories.conversations
-      .list(limit)
-      .map(({ id, title, updatedAt, turns }) => ({ id, title, updatedAt, turns }));
+  /** Most recent first; with a query, the best matches with what matched. */
+  conversations(query = '', limit = 100): ConversationSummary[] {
+    const { conversations } = this.options.repositories;
+    if (!query.trim())
+      return conversations
+        .list(limit)
+        .map(({ id, title, updatedAt, turns }) => ({ id, title, updatedAt, turns }));
+    return conversations.search(query, { limit: 50 }).map(match => ({
+      id: match.id,
+      title: match.title,
+      updatedAt: match.updatedAt,
+      turns: conversations.get(match.id)?.turns ?? 0,
+      excerpt: match.excerpt,
+    }));
   }
 
   private assertIdle() {

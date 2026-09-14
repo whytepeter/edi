@@ -155,6 +155,13 @@ export interface WorkspaceDependencies {
   notes: { store: NoteStore; directory: () => string };
   /** Move a file to the system Trash (recoverable), never unlink it. */
   trash(path: string): Promise<void>;
+  /** Past conversations, searched alongside the workspace; absent in hosts without history. */
+  conversations?: {
+    search(
+      query: string,
+      options: { limit: number; after?: number; before?: number },
+    ): { id: string; title: string; at: number; excerpt: string }[];
+  };
   now?: () => number;
 }
 
@@ -245,7 +252,13 @@ export async function readWorkspaceItem(deps: WorkspaceDependencies, id: string)
 /** Every query word must appear in the title or content; newest first. */
 export async function searchWorkspace(
   deps: WorkspaceDependencies,
-  options: { query?: string; kind?: WorkspaceKind | 'note'; limit: number },
+  options: {
+    query?: string;
+    kind?: WorkspaceKind | 'note';
+    limit: number;
+    after?: number;
+    before?: number;
+  },
 ) {
   const terms = (options.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
   const candidates = [
@@ -277,6 +290,7 @@ export async function searchWorkspace(
     })),
   ]
     .filter(item => !options.kind || item.kind === options.kind)
+    .filter(item => item.at >= (options.after ?? 0) && item.at <= (options.before ?? Infinity))
     .sort((a, b) => b.at - a.at);
 
   const results: { id: string; kind: string; title: string; updated: string; snippet: string }[] =
@@ -372,9 +386,11 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     title: 'Search the workspace',
     description:
       'Find things in the Edi workspace (Documents/Edi): saved notes and generated documents, ' +
-      'checklists, tables and interactive pages. Matches every word of the query in the title or ' +
-      'content; with no query, lists the most recent items. Returns ids for workspace.read, ' +
-      'workspace.update, workspace.delete, notes.edit and notes.show.',
+      'checklists, tables and interactive pages, plus past conversations that mention the words. ' +
+      'Matches every word of the query in the title or content; with no query, lists the most ' +
+      'recent items. For “last week” or “in March”, pass after/before dates. Returns ids for ' +
+      'workspace.read, workspace.update, workspace.delete, notes.edit and notes.show; for a ' +
+      'conversation, tell the user its title and when, and quote what was said.',
     effect: 'read',
     timeoutMs: 10_000,
     input: z
@@ -385,9 +401,19 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           .optional()
           .describe('Only this kind'),
         limit: z.number().int().min(1).max(50).optional().describe('At most this many (20)'),
+        after: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Only from this date on (YYYY-MM-DD, local)'),
+        before: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Only up to and including this date (YYYY-MM-DD, local)'),
       })
       .strict(),
-    prepare({ query, kind, limit }) {
+    prepare({ query, kind, limit, after, before }) {
       return {
         preview: {
           title: 'Search the workspace',
@@ -396,10 +422,36 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           fields: [],
         },
         async execute() {
-          const results = await searchWorkspace(deps, { query, kind, limit: limit ?? 20 });
+          const day = (value: string | undefined, end: boolean) => {
+            if (!value) return undefined;
+            const [year, month, date] = value.split('-').map(Number) as [number, number, number];
+            return end
+              ? new Date(year, month - 1, date, 23, 59, 59, 999).getTime()
+              : new Date(year, month - 1, date).getTime();
+          };
+          const range = { after: day(after, false), before: day(before, true) };
+          const results = await searchWorkspace(deps, {
+            query,
+            kind,
+            limit: limit ?? 20,
+            ...range,
+          });
+          const conversations =
+            query && !kind && deps.conversations
+              ? deps.conversations.search(query, { limit: 5, ...range }).map(match => ({
+                  conversation: match.title,
+                  when: new Date(match.at).toISOString(),
+                  excerpt: match.excerpt,
+                }))
+              : [];
+          const found = results.length + conversations.length;
           return {
-            summary: results.length === 1 ? 'Found 1 item.' : `Found ${results.length} items.`,
-            output: { results },
+            summary:
+              (results.length === 1 ? 'Found 1 item' : `Found ${results.length} items`) +
+              (conversations.length
+                ? ` and ${conversations.length} ${conversations.length === 1 ? 'conversation' : 'conversations'}.`
+                : '.'),
+            output: { results, ...(conversations.length ? { conversations } : {}), found },
           };
         },
       };

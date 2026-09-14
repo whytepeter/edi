@@ -590,3 +590,53 @@ test('Edi can open every page, including Settings itself, and change only its ow
   assert.equal(change.input.safeParse({ apiKey: 'x' }).success, false);
   assert.equal(change.input.safeParse({ size: 3 }).success, false);
 });
+
+test('workspace search includes matching conversations and understands date ranges', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-search-'));
+  const asked: { query: string; after?: number; before?: number }[] = [];
+  const [, search] = workspaceCapabilities({
+    directory: () => folder,
+    shown: () => {},
+    artifacts: memoryArtifacts(),
+    notes: { store: emptyStore(), directory: () => join(folder, 'Notes') },
+    trash: async () => {},
+    conversations: {
+      search: (query, options) => {
+        asked.push({ query, after: options.after, before: options.before });
+        return [
+          {
+            id: 'c1',
+            title: 'Brand colors',
+            at: new Date(2026, 8, 9, 15).getTime(),
+            excerpt: '…five terracotta and sand swatches…',
+          },
+        ];
+      },
+    },
+  });
+  const run = async (input: Record<string, unknown>) =>
+    (await (await search.prepare(input as never, { callId: runId, runId })).execute(live())) as {
+      summary: string;
+      output: { conversations?: { conversation: string; excerpt: string }[] };
+    };
+  const runId = '00000000-0000-4000-8000-000000000041';
+  const result = await run({ query: 'palette', after: '2026-09-07', before: '2026-09-13' });
+  assert.equal(result.summary, 'Found 0 items and 1 conversation.');
+  assert.deepEqual(result.output.conversations?.[0], {
+    conversation: 'Brand colors',
+    when: new Date(2026, 8, 9, 15).toISOString(),
+    excerpt: '…five terracotta and sand swatches…',
+  });
+  assert.deepEqual(asked, [
+    {
+      query: 'palette',
+      after: new Date(2026, 8, 7).getTime(),
+      before: new Date(2026, 8, 13, 23, 59, 59, 999).getTime(),
+    },
+  ]);
+  // Listing recent items or asking for one kind leaves conversations out.
+  assert.equal((await run({})).output.conversations, undefined);
+  assert.equal((await run({ query: 'palette', kind: 'note' })).output.conversations, undefined);
+  // Dates come as YYYY-MM-DD; the broker refuses anything else before the tool runs.
+  assert.equal(search.input.safeParse({ query: 'x', after: 'last week' }).success, false);
+});

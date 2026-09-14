@@ -71,8 +71,8 @@ const bridge: DesktopBridge = {
     cloudVoiceListSchema.parse(
       await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),
     ),
-  conversations: async () =>
-    conversationListSchema.parse(await ipcRenderer.invoke('edi:conversations:get')),
+  conversations: async query =>
+    conversationListSchema.parse(await ipcRenderer.invoke('edi:conversations:get', query ?? '')),
   usage: async days =>
     usageSummarySchema.parse(
       await ipcRenderer.invoke('edi:usage:get', usagePeriodSchema.parse(days)),

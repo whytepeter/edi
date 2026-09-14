@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import {
   commandSchema,
@@ -48,7 +49,7 @@ interface IpcDependencies {
   models(): Promise<ModelOption[]>;
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   usage(days: UsagePeriod): Promise<UsageSummary>;
-  conversations(): ConversationSummary[];
+  conversations(query: string): ConversationSummary[];
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
   fileAccess(): FileAccess;
@@ -121,9 +122,9 @@ export function registerIpc({
     authorize(callerOf(event), ['workspace']);
     return cloudVoices(cloudProviderSchema.parse(provider));
   });
-  ipcMain.handle('edi:conversations:get', event => {
+  ipcMain.handle('edi:conversations:get', (event, query: unknown) => {
     authorize(callerOf(event), ['workspace']);
-    return conversations();
+    return conversations(z.string().max(200).optional().parse(query) ?? '');
   });
   ipcMain.handle('edi:usage:get', (event, days: unknown) => {
     authorize(callerOf(event), ['workspace']);

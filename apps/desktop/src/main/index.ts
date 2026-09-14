@@ -276,6 +276,7 @@ async function start() {
     notes: { store: repositories.notes, directory: notesFolder },
     // Recoverable: files go to the Trash, never straight to deletion.
     trash: path => shell.trashItem(path),
+    conversations: repositories.conversations,
   };
   const libraryItems = (): LibraryItem[] => {
     const notes: LibraryItem[] = repositories.notes
@@ -1040,7 +1041,7 @@ async function start() {
       };
     },
     models: () => modelCatalog.list(),
-    conversations: () => agent.conversations(),
+    conversations: query => agent.conversations(query),
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),

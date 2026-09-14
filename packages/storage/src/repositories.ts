@@ -189,6 +189,29 @@ const conversationRow = z.object({
 });
 export type ConversationRecord = z.infer<typeof conversationRow>;
 
+const matchRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  updatedAt: z.number(),
+  runId: z.string(),
+  at: z.number(),
+  excerpt: z.string(),
+});
+export type ConversationMatch = z.infer<typeof matchRow>;
+
+/**
+ * Words become prefix terms that must all match ("palet warm" finds "warm terracotta palette").
+ * Punctuation and FTS syntax are dropped, so any text is safe to pass. Null when nothing is left.
+ */
+export function ftsQuery(text: string): string | null {
+  const words =
+    text
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.slice(0, 12) ?? [];
+  return words.length ? words.map(word => `"${word}"*`).join(' ') : null;
+}
+
 /** Conversations: each run belongs to one. Deleting one removes its runs and their tool calls. */
 export class ConversationRepository {
   constructor(private readonly db: Database) {}
@@ -225,6 +248,39 @@ export class ConversationRepository {
       )
       .all(limit)
       .map(row => conversationRow.parse(row));
+  }
+
+  /**
+   * Conversations whose title or turns match, best match first, one entry each with the turn
+   * that matched and a short excerpt. `after`/`before` bound the matching turn's time (ms).
+   */
+  search(
+    query: string,
+    options: { limit: number; after?: number; before?: number },
+  ): ConversationMatch[] {
+    const match = ftsQuery(query);
+    if (!match) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.title, t.updated_at AS updatedAt, r.id AS runId, r.started_at AS at,
+                snippet(runs_search, -1, '', '', '…', 14) AS excerpt
+         FROM runs_search
+         JOIN runs r ON r.rowid = runs_search.rowid
+         JOIN threads t ON t.id = r.thread_id
+         WHERE runs_search MATCH ? AND r.started_at >= ? AND r.started_at <= ?
+         ORDER BY bm25(runs_search) LIMIT 200`,
+      )
+      .all(match, options.after ?? 0, options.before ?? Number.MAX_SAFE_INTEGER)
+      .map(row => matchRow.parse(row));
+    const seen = new Set<string>();
+    const best: ConversationMatch[] = [];
+    for (const row of rows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      best.push({ ...row, excerpt: row.excerpt.replace(/\s+/g, ' ').trim().slice(0, 200) });
+      if (best.length >= options.limit) break;
+    }
+    return best;
   }
 
   remove(id: string) {

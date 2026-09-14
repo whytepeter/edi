@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConversationSummary } from '@edi/contracts';
-import { Button, EmptyState, Icon, IconButton } from '../../components/ui';
+import { Button, EmptyState, Icon, IconButton, TextField } from '../../components/ui';
 
 function when(at: number, now = Date.now()) {
   const date = new Date(at);
@@ -34,6 +34,26 @@ export function ConversationList({
   onDelete(id: string): void;
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [matches, setMatches] = useState<ConversationSummary[] | null>(null);
+  const searching = query.trim().length > 0;
+
+  // Search every turn of every conversation, a moment after typing stops.
+  useEffect(() => {
+    if (!searching) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      void window.edi
+        ?.conversations(query)
+        .then(found => alive && setMatches(found))
+        .catch(() => alive && setMatches([]));
+    }, 160);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, searching, conversations]);
+  const shown = searching ? matches : conversations;
 
   return (
     <div className="conversation-list" role="region" aria-label="Conversations">
@@ -41,15 +61,30 @@ export function ConversationList({
         <Icon name="compose" size={15} />
         New conversation
       </Button>
-      {conversations === null ? (
-        <p className="ds-footnote ds-secondary">Loading…</p>
-      ) : conversations.length === 0 ? (
+      {(conversations?.length ?? 0) > 0 && (
+        <TextField
+          label="Search conversations"
+          hideLabel
+          icon="search"
+          placeholder="Search conversations"
+          value={query}
+          maxLength={200}
+          onChange={event => setQuery(event.target.value)}
+        />
+      )}
+      {shown === null ? (
+        <p className="ds-footnote ds-secondary">{searching ? 'Searching…' : 'Loading…'}</p>
+      ) : searching && shown.length === 0 ? (
+        <p className="ds-footnote ds-secondary conversation-no-match">
+          No conversations mention “{query.trim()}”.
+        </p>
+      ) : shown.length === 0 ? (
         <EmptyState icon="chat" title="No conversations yet.">
           <p className="ds-body ds-secondary">Your conversations will appear here.</p>
         </EmptyState>
       ) : (
         <ul className="conversation-items">
-          {conversations.map(conversation => {
+          {shown.map(conversation => {
             const current = conversation.id === currentId;
             return (
               <li
@@ -90,6 +125,9 @@ export function ConversationList({
                       onClick={() => onOpen(conversation.id)}
                     >
                       <span className="conversation-title">{conversation.title}</span>
+                      {conversation.excerpt && (
+                        <span className="conversation-excerpt">{conversation.excerpt}</span>
+                      )}
                       <span className="conversation-detail">
                         {when(conversation.updatedAt)} · {conversation.turns}{' '}
                         {conversation.turns === 1 ? 'question' : 'questions'}

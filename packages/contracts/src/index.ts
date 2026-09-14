@@ -111,6 +111,8 @@ export const conversationSummarySchema = z
     title: z.string().max(80),
     updatedAt: z.number().int().nonnegative(),
     turns: z.number().int().nonnegative(),
+    /** When listed by a search: the words that matched, in context. */
+    excerpt: z.string().max(200).optional(),
   })
   .strict();
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
@@ -487,7 +489,7 @@ export interface DesktopBridge {
   /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
   models(): Promise<ModelOption[]>;
   /** Saved conversations, most recently active first. */
-  conversations(): Promise<ConversationSummary[]>;
+  conversations(query?: string): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */
   usage(days: UsagePeriod): Promise<UsageSummary>;
   /** Voices on the person's Cartesia or ElevenLabs account; needs that key. */

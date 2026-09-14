@@ -427,3 +427,16 @@
 .agent-turn .artifact-card-preview {
   -webkit-line-clamp: 2;
 }
+
+.conversation-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.conversation-no-match {
+  margin: 0;
+  padding: var(--space-2) var(--space-1);
+}

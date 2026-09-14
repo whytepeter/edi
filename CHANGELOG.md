@@ -7,6 +7,10 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Search across conversations. Every question and answer is in a full-text index (SQLite FTS5, accent- and
+  prefix-insensitive, kept in step by triggers, so deleted conversations drop out). Edi's workspace search now also
+  returns matching conversations with an excerpt and takes date ranges ("last week"), and All conversations has a
+  search field that shows what matched.
 - Approvals that don't nag. File changes come as one batch (move, create folders or move to the Trash for up to
   50 items) reviewed once with the full list, and every review offers "Always allow … in this chat". The bubble
   review is now Claude-like: the question, one detail line, Deny and the action, with Always allow and Details

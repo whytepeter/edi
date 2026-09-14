@@ -147,6 +147,31 @@ export const migrations: readonly { version: number; sql: string }[] = [
       DROP TABLE legacy_turns;
     `,
   },
+  {
+    // Full-text search over conversation turns, kept in step with runs by triggers (deleting a
+    // conversation cascades to its runs, and so out of the index).
+    version: 6,
+    sql: `
+      CREATE VIRTUAL TABLE runs_search USING fts5(
+        prompt, text,
+        content = 'runs', content_rowid = 'rowid',
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+      CREATE TRIGGER runs_search_insert AFTER INSERT ON runs BEGIN
+        INSERT INTO runs_search (rowid, prompt, text) VALUES (new.rowid, new.prompt, new.text);
+      END;
+      CREATE TRIGGER runs_search_delete AFTER DELETE ON runs BEGIN
+        INSERT INTO runs_search (runs_search, rowid, prompt, text)
+          VALUES ('delete', old.rowid, old.prompt, old.text);
+      END;
+      CREATE TRIGGER runs_search_update AFTER UPDATE OF prompt, text ON runs BEGIN
+        INSERT INTO runs_search (runs_search, rowid, prompt, text)
+          VALUES ('delete', old.rowid, old.prompt, old.text);
+        INSERT INTO runs_search (rowid, prompt, text) VALUES (new.rowid, new.prompt, new.text);
+      END;
+      INSERT INTO runs_search (runs_search) VALUES ('rebuild');
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;
