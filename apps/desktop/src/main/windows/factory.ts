@@ -196,8 +196,16 @@ export function createStatusBubbleWindow({
     // The preload exposes only approval response and content-reveal actions.
     webPreferences: { ...isolated, preload: join(__dirname, '../preload/bubble.js') },
   });
-  // Shape once the window is on screen and its glass view has its final size.
-  win.once('show', () => shapeGlassBubble(win, side, 18, bubbleTail));
+  // Shape once the window is on screen and its glass view has its final size. The mask is drawn
+  // for one size, so redraw it whenever the bubble resizes (status text grows or shrinks it);
+  // otherwise macOS stretches the old mask and the corners and tail distort.
+  const shape = () => {
+    if (!win.isDestroyed()) shapeGlassBubble(win, side, 18, bubbleTail);
+  };
+  win.once('show', shape);
+  win.on('resize', () => {
+    if (win.isVisible()) shape();
+  });
   return loadSurface(win, 'voice-status', {
     state,
     side,
