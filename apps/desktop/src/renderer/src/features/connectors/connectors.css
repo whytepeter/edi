@@ -397,3 +397,11 @@
   font: var(--text-caption);
   color: var(--label-secondary);
 }
+.connector-checked {
+  font: var(--text-footnote);
+  color: #34c759;
+}
+.connector-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

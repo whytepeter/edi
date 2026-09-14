@@ -310,6 +310,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ id, tool, enabled }) => connectors.setToolEnabled(id, tool, enabled),
     },
+    'test-connector': { from: fromWorkspace, handle: ({ id }) => connectors.check(id) },
     'use-recommended-tools': {
       from: fromWorkspace,
       handle: ({ id }) => connectors.useRecommendedTools(id),

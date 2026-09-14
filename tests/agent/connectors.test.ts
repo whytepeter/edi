@@ -202,6 +202,10 @@ test('a server’s tools become reviewed Edi actions whose results are marked as
     const remove = await tools[1]!.prepare({ id: 'p1' }, context);
     await assert.rejects(remove.execute(live()), /Team Notes said: Page is locked\./);
 
+    // Test Connection asks the server for its tools again and stays connected.
+    await connectors.check(id);
+    assert.equal(connectors.list()[0]!.status, 'connected');
+
     // Switching a tool off, or the whole app, takes it away from the next run.
     connectors.setToolEnabled(id, 'delete-page', false);
     assert.deepEqual(
@@ -279,15 +283,28 @@ test('without a saved sign-in, launching only marks the app as needing one', asy
 /** Composio's v3.1 API, faked: one managed auth config, one account, two Gmail tools. */
 function fakeComposio(opened: string[]) {
   const requests: { method: string; path: string; key: string | null; body: unknown }[] = [];
+  /** Test controls: the account's status once signed in, and how tool calls answer. */
+  const state: { account: string; execute: 'ok' | 'fail' | 'unauthorized' } = {
+    account: 'ACTIVE',
+    execute: 'ok',
+  };
   const fetch = async (url: string | URL, init?: RequestInit) => {
     const { pathname, searchParams } = new URL(url);
     const path = pathname.replace('/api/v3.1', '');
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
     const key = new Headers(init?.headers).get('x-api-key');
-    requests.push({ method, path: `${path}${searchParams.size ? `?${searchParams}` : ''}`, key, body });
+    requests.push({
+      method,
+      path: `${path}${searchParams.size ? `?${searchParams}` : ''}`,
+      key,
+      body,
+    });
     const json = (value: unknown, status = 200) =>
-      new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+      new Response(JSON.stringify(value), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
     if (key !== 'ak_right_key') return json({ error: { message: 'Invalid API key' } }, 401);
     if (method === 'GET' && path === '/auth_configs') return json({ items: [] });
     if (method === 'POST' && path === '/auth_configs')
@@ -301,7 +318,11 @@ function fakeComposio(opened: string[]) {
         expires_at: '2026-09-15T00:00:00Z',
       });
     if (method === 'GET' && path === '/connected_accounts/ca_1')
-      return json({ id: 'ca_1', toolkit: { slug: 'gmail' }, status: opened.length ? 'ACTIVE' : 'INITIATED' });
+      return json({
+        id: 'ca_1',
+        toolkit: { slug: 'gmail' },
+        status: opened.length ? state.account : 'INITIATED',
+      });
     if (method === 'DELETE' && path === '/connected_accounts/ca_1') return json({ success: true });
     if (method === 'GET' && path === '/tools')
       return json({
@@ -333,11 +354,16 @@ function fakeComposio(opened: string[]) {
         ],
         total_items: 3,
       });
-    if (method === 'POST' && path === '/tools/execute/GMAIL_SEND_EMAIL')
+    if (method === 'POST' && path === '/tools/execute/GMAIL_SEND_EMAIL') {
+      if (state.execute === 'unauthorized')
+        return json({ error: { message: 'Invalid API key' } }, 401);
+      if (state.execute === 'fail')
+        return json({ successful: false, data: null, error: 'Token expired' });
       return json({ successful: true, data: { id: 'm1' }, error: null });
+    }
     return json({ error: { message: 'Not found' } }, 404);
   };
-  return { requests, fetch };
+  return { requests, fetch, state };
 }
 
 test('Composio apps sign in through Composio, run reviewed tools with the saved account, and remove it', async () => {
@@ -416,7 +442,13 @@ test('Composio apps sign in through Composio, run reviewed tools with the saved 
       ],
     );
     const send = connectors.capabilities().find(tool => tool.id.endsWith('.gmail_send_email'));
-    assert.ok(send, connectors.capabilities().map(tool => tool.id).join(', '));
+    assert.ok(
+      send,
+      connectors
+        .capabilities()
+        .map(tool => tool.id)
+        .join(', '),
+    );
     assert.equal(send.effect, 'write');
     const prepared = await send.prepare({ to: 'sam@example.com' }, context);
     const result = await prepared.execute(live());
@@ -437,7 +469,9 @@ test('Composio apps sign in through Composio, run reviewed tools with the saved 
     );
 
     await connectors.remove(id);
-    assert.ok(composio.requests.some(r => r.method === 'DELETE' && r.path === '/connected_accounts/ca_1'));
+    assert.ok(
+      composio.requests.some(r => r.method === 'DELETE' && r.path === '/connected_accounts/ca_1'),
+    );
     assert.deepEqual(connectors.list(), []);
   } finally {
     await connectors.dispose();
@@ -458,5 +492,79 @@ test('the short list names each Composio app’s everyday tools and skips apps C
       entry.tools.every(tool => tool.startsWith(prefix)),
       `${entry.id} lists a tool from another app`,
     );
+  }
+});
+
+test('an expired Composio sign-in or refused key says so, and Test Connection checks the account', async () => {
+  const repositories = createRepositories(openDatabase(':memory:'));
+  const opened: string[] = [];
+  const composio = fakeComposio(opened);
+  const credentials = {
+    apiKey: 'ak_right_key',
+    configured: true,
+    async save() {},
+    async clear() {},
+  };
+  const connectors = new ConnectorManager({
+    repositories,
+    secrets: new MemorySecretStore(),
+    composioCredentials: credentials as never,
+    fetch: composio.fetch,
+    openBrowser: async url => {
+      opened.push(url);
+    },
+  });
+  const status = () => connectors.list()[0]!.status;
+  const until = (wanted: Connector['status']) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Still ${status()}`)), 8_000);
+      const check = () => {
+        if (status() !== wanted) return;
+        clearTimeout(timer);
+        stop();
+        resolve();
+      };
+      const stop = connectors.onChange(check);
+      check();
+    });
+  try {
+    const id = connectors.add({ catalogId: 'gmail' });
+    await until('connected');
+    const send = () =>
+      connectors.capabilities().find(tool => tool.id.endsWith('.gmail_send_email'))!;
+    const run = async () =>
+      (await send().prepare({ to: 'sam@example.com' }, context)).execute(live());
+
+    // Working account: Test Connection keeps it connected.
+    await connectors.check(id);
+    assert.equal(status(), 'connected');
+
+    // A failed call on an account Composio no longer holds active: the app needs signing in,
+    // and the model is told it can offer to reconnect.
+    composio.state.execute = 'fail';
+    composio.state.account = 'EXPIRED';
+    await assert.rejects(run(), /sign-in has expired\. Offer to reconnect it \(edi_connect_app\)/);
+    assert.equal(status(), 'needs-sign-in');
+
+    // A failed call on an active account is just the app's own answer.
+    composio.state.account = 'ACTIVE';
+    await connectors.check(id);
+    assert.equal(status(), 'connected');
+    await assert.rejects(run(), /Gmail said: Token expired/);
+    assert.equal(status(), 'connected');
+
+    // Composio refusing the key points at the key, not the app.
+    composio.state.execute = 'unauthorized';
+    await assert.rejects(run(), /didn’t accept the saved key/);
+    assert.equal(status(), 'needs-key');
+
+    // Test Connection notices an account that expired while Edi wasn't using it.
+    composio.state.execute = 'ok';
+    composio.state.account = 'EXPIRED';
+    await connectors.check(id);
+    assert.equal(status(), 'needs-sign-in');
+    assert.deepEqual(opened.length, 1); // checking never opens a browser
+  } finally {
+    await connectors.dispose();
   }
 });

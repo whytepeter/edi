@@ -463,6 +463,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('use-recommended-tools'), id: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('test-connector'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('remove-connector'), id: z.string().uuid() }).strict(),
   z
     .object({

@@ -428,6 +428,48 @@ export class ConnectorManager {
     this.options.repositories.connectors.update(record.id, { tools });
   }
 
+  /**
+   * The app's sign-in no longer works: it shows "Needs sign-in" in Connectors, and the model is
+   * told it can offer to reconnect in the conversation.
+   */
+  private signInLost(record: ConnectorRecord, cause?: unknown) {
+    this.setStatus(record.id, 'needs-sign-in');
+    return new Error(
+      `${record.name}’s sign-in has expired. Offer to reconnect it (edi_connect_app), or the user ` +
+        'can sign in again in Connectors.',
+      cause === undefined ? undefined : { cause },
+    );
+  }
+
+  /** False only when Composio says the account is gone or no longer active. */
+  private async composioAccountActive(adapter: ComposioAdapter, accountId: string) {
+    try {
+      return (await adapter.account(accountId)).status === 'ACTIVE';
+    } catch (error) {
+      return !(error instanceof ComposioError && error.status === 404);
+    }
+  }
+
+  /**
+   * Check that a connected app still answers, without opening a browser: its tools list for an
+   * MCP server, the account for a Composio app. The app's status shows the result.
+   */
+  async check(id: string) {
+    const record = this.options.repositories.connectors.get(id);
+    if (!record) throw new Error('That app is no longer connected.');
+    if (!record.enabled) throw new Error(`Switch ${record.name} on first.`);
+    if (record.provider === 'composio') return this.connectComposio(record, false);
+    const live = this.live.get(id);
+    if (!live) return this.connectMcp(record, false);
+    try {
+      await this.refreshToolsMcp(id);
+      this.setStatus(id, 'connected');
+    } catch (error) {
+      if (error instanceof UnauthorizedError) this.signInLost(record, error);
+      else this.setStatus(id, 'error', this.explain(error, record.name));
+    }
+  }
+
   private setStatus(id: string, status: ConnectorStatus, error = '') {
     this.status.set(id, { status, error: error.slice(0, 300) });
     this.publish();
@@ -487,7 +529,9 @@ export class ConnectorManager {
       input: z.record(z.string(), z.unknown()),
       inputSchema: this.live.get(record.id)?.schemas.get(tool.name) ?? toolSchema(null),
       prepare: input => {
-        const entries = Object.entries(input).filter(([, v]) => v !== null && v !== undefined && v !== '');
+        const entries = Object.entries(input).filter(
+          ([, v]) => v !== null && v !== undefined && v !== '',
+        );
         const headline =
           entries.length <= 4
             ? entries
@@ -524,10 +568,7 @@ export class ConnectorManager {
                 },
               );
             } catch (error) {
-              if (error instanceof UnauthorizedError) {
-                this.setStatus(record.id, 'needs-sign-in');
-                throw new Error(`Sign in to ${record.name} again in Connectors.`, { cause: error });
-              }
+              if (error instanceof UnauthorizedError) throw this.signInLost(record, error);
               throw error;
             }
             const parts = Array.isArray(result.content) ? result.content : [];
@@ -563,11 +604,7 @@ export class ConnectorManager {
     });
   }
 
-  private composioCapability(
-    record: ConnectorRecord,
-    tool: ConnectorTool,
-    id: string,
-  ): Capability {
+  private composioCapability(record: ConnectorRecord, tool: ConnectorTool, id: string): Capability {
     const label = tool.title || tool.name;
     return defineCapability({
       id,
@@ -581,7 +618,9 @@ export class ConnectorManager {
       input: z.record(z.string(), z.unknown()),
       inputSchema: this.composioTools.get(tool.name)?.schema ?? toolSchema(null),
       prepare: input => {
-        const entries = Object.entries(input).filter(([, v]) => v !== null && v !== undefined && v !== '');
+        const entries = Object.entries(input).filter(
+          ([, v]) => v !== null && v !== undefined && v !== '',
+        );
         const headline =
           entries.length <= 4
             ? entries
@@ -605,22 +644,44 @@ export class ConnectorManager {
           },
           execute: async signal => {
             const adapter = this.getComposio();
-            if (!adapter || !record.composioConnectionId)
+            const accountId = record.composioConnectionId;
+            if (!adapter || !accountId)
               throw new Error(`${record.name} isn't connected. Reconnect it in Connectors.`);
-            const result = await adapter.execute(
-              { slug: tool.name, version: this.composioTools.get(tool.name)?.version },
-              input as Record<string, unknown>,
-              record.composioConnectionId,
-              signal,
-            );
-            if (!result.successful)
+            let result;
+            try {
+              result = await adapter.execute(
+                { slug: tool.name, version: this.composioTools.get(tool.name)?.version },
+                input as Record<string, unknown>,
+                accountId,
+                signal,
+              );
+            } catch (error) {
+              if (error instanceof ComposioError && error.status === 401) {
+                this.setStatus(
+                  record.id,
+                  'needs-key',
+                  `Composio didn’t accept the saved key (${error.message}).`,
+                );
+                throw new Error('Composio didn’t accept the saved key. Replace it in Connectors.', {
+                  cause: error,
+                });
+              }
+              if (!(await this.composioAccountActive(adapter, accountId)))
+                throw this.signInLost(record, error);
+              throw error;
+            }
+            if (!result.successful) {
+              // A failed call is often an expired sign-in; Composio says so on the account.
+              if (!(await this.composioAccountActive(adapter, accountId)))
+                throw this.signInLost(record);
               throw new Error(
                 `${record.name} said: ${(result.error ?? "it couldn't do that.").slice(0, 260)}`,
               );
+            }
             const text =
               typeof result.data === 'string'
                 ? result.data
-                : JSON.stringify(result.data, null, 2) ?? '';
+                : (JSON.stringify(result.data, null, 2) ?? '');
             return {
               summary: `Used ${label} on ${record.name}.`,
               output: {

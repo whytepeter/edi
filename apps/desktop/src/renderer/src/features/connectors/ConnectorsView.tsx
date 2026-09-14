@@ -395,6 +395,8 @@ function ConnectedApp({
   composioConfigured?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checked, setChecked] = useState(false);
   const enabledTools = connector.tools.filter(tool => tool.enabled).length;
   const recommended = new Set(
     connectorCatalog.find(entry => entry.id === connector.catalogId)?.tools ?? [],
@@ -524,9 +526,34 @@ function ConnectedApp({
             ) : (
               <>
                 {connector.status === 'connected' && (
-                  <button type="button" className="connector-link" onClick={connect}>
-                    Reconnect
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="connector-link"
+                      disabled={checking}
+                      onClick={() => {
+                        setChecking(true);
+                        setChecked(false);
+                        void send(
+                          { type: 'test-connector', id: connector.id },
+                          `Couldn’t check ${connector.name}.`,
+                        ).then(ok => {
+                          setChecking(false);
+                          setChecked(ok);
+                        });
+                      }}
+                    >
+                      {checking ? 'Checking…' : 'Test Connection'}
+                    </button>
+                    <button type="button" className="connector-link" onClick={connect}>
+                      Reconnect
+                    </button>
+                  </>
+                )}
+                {checked && connector.status === 'connected' && (
+                  <span className="connector-checked" role="status">
+                    Works
+                  </span>
                 )}
                 <button
                   type="button"
