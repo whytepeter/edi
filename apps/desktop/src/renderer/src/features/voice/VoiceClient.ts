@@ -1,4 +1,4 @@
-import type { DesktopBridge } from '@edi/contracts';
+import type { DesktopBridge, SpeechCue } from '@edi/contracts';
 import { decodeRecording } from './DecodeRecording';
 import { openMicrophone, type CapturedTurn } from './MicrophoneCapture';
 import { PcmPlayer } from './PcmPlayer';
@@ -18,6 +18,8 @@ const MOUTH_ATTACK = 0.55;
 const MOUTH_RELEASE = 0.22;
 /** Silence after the last queued chunk before the mouth hands back to the expression. */
 const MOUTH_IDLE_MS = 300;
+/** A tag that ends a clip sounds over roughly its last this-many seconds of audio. */
+const CUE_END_LEAD: Record<SpeechCue, number> = { laugh: 1.2, chuckle: 0.8 };
 
 interface Capture {
   generation: number;
@@ -36,6 +38,8 @@ export function startVoiceClient(
   options: {
     /** 0–1 loudness of Edi's own speech while it plays; null when playback ends. */
     onSpeechLevel?: (level: number | null) => void;
+    /** A laugh or chuckle is audible now: perform it. */
+    onCue?: (cue: SpeechCue) => void;
   } = {},
 ): () => void {
   let capture: Capture | undefined;
@@ -43,6 +47,23 @@ export function startVoiceClient(
   let output: AnalyserNode | undefined;
   let mouthFrame = 0;
   let playback: { generation: number; token: number | null } | undefined;
+  // A `next` cue waits for its audio chunk to be scheduled; timers fire as that audio plays.
+  let pendingCue: { generation: number; cue: SpeechCue } | undefined;
+  const cueTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  function performIn(seconds: number, cue: SpeechCue) {
+    const timer = setTimeout(() => {
+      cueTimers.delete(timer);
+      options.onCue?.(cue);
+    }, seconds * 1000);
+    cueTimers.add(timer);
+  }
+
+  function clearCues() {
+    pendingCue = undefined;
+    for (const timer of cueTimers) clearTimeout(timer);
+    cueTimers.clear();
+  }
 
   const report = (generation: number, event: 'capture-ready' | 'speech-detected' | 'failed') =>
     void bridge.command({ type: 'voice-event', generation, event }).catch(() => {});
@@ -143,6 +164,10 @@ export function startVoiceClient(
       const result = player.push(token, samples, rate);
       if (result === 'stale') return;
       if (result === 'accepted') {
+        if (pendingCue?.generation === generation) {
+          performIn(player.timing().untilLastStart, pendingCue.cue);
+          pendingCue = undefined;
+        }
         followSpeech();
         await bridge.command({ type: 'voice-played', generation }).catch(() => {});
         return;
@@ -157,15 +182,22 @@ export function startVoiceClient(
     else if (event.type === 'cancel' && capture?.generation === event.generation) cancelCapture();
     else if (event.type === 'pcm')
       void play(event.generation, event.samples, event.rate).catch(() => {});
-    else if (event.type === 'stop-audio') {
+    else if (event.type === 'cue') {
+      if (event.at === 'next') pendingCue = { generation: event.generation, cue: event.cue };
+      else if (player && playback?.generation === event.generation)
+        // The tag's sound closes the clip: start slightly before the queued audio ends.
+        performIn(Math.max(0, player.timing().untilEnd - CUE_END_LEAD[event.cue]), event.cue);
+    } else if (event.type === 'stop-audio') {
       player?.stop();
       playback = undefined;
+      clearCues();
       stopFollowing();
     }
   });
 
   return () => {
     unsubscribe();
+    clearCues();
     stopFollowing();
     cancelCapture();
     void player?.dispose();

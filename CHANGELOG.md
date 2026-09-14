@@ -23,6 +23,12 @@ Meaningful product and architecture changes are recorded here. The format follow
   library) with previews and a prompt to add one when there are none. Adding a key pre-selects your first
   voice but never switches providers by itself. Only the words Edi speaks are sent; a failed cloud reply falls
   back to a local voice.
+- Edi's new look: a soft-shaded chibi with a faded buzz cut, winged liner and lashes, feathered brows, glossy
+  full lips, rosy cheeks, ears and gold hoops. She rests her chin on her hand while thinking.
+- Laughs and chuckles in time with the voice: an expressive reply splits at `[laugh]` or `[chuckle]` so that
+  sound starts its own utterance, and a cue scheduled against the audio clock closes Edi's eyes into smiles,
+  opens her smile with the voice's loudness and bounces her for as long as the laugh lasts. A tag at the end of
+  a clip plays just before its audio ends. Voice previews do the same.
 - Name your companion in Appearance. Until you do, it goes by its character's name (Edi, Mochi); your name
   applies to every character and is used in its prompt, bubbles, menus, voice samples and card copy. The app,
   its windows and the Documents › Edi folder keep the Edi name. It can also rename itself when you ask.

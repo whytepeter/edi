@@ -70,6 +70,16 @@
   transform: translate(12px, 14px) rotate(-18deg);
   animation: edi-hand-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
+/* Edi rests her chin on a hand while thinking. Hidden (and never hit) otherwise. */
+.pet-chin-hand {
+  visibility: hidden;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.pet-art[data-expression='thinking'] .pet-chin-hand {
+  visibility: visible;
+  animation: edi-chin-rest 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 .pet-eyes-happy {
   opacity: 0;
 }
@@ -85,6 +95,36 @@
 .pet-art[data-expression='listening'] .pet-brows,
 .pet-art[data-expression='attention'] .pet-brows {
   transform: translateY(-3px);
+}
+
+/* ---------- Laughing in time with the voice ---------- */
+/* Main cues a laugh or chuckle as its sound starts; the pet window sets data-laugh on the root
+   for about as long as it lasts. Eyes close into smiles, the smile opens with the voice's
+   loudness, and the body bounces. It overrides speaking and every other expression. */
+:root[data-laugh] .pet-art[data-expression] .pet-eyes-happy {
+  opacity: 1;
+}
+:root[data-laugh] .pet-art[data-expression]:has(.pet-eyes-happy) .pet-eyes {
+  opacity: 0;
+}
+:root[data-laugh] .pet-art[data-expression] .pet-mouth-neutral,
+:root[data-laugh] .pet-art[data-expression] .pet-mouth-talk {
+  opacity: 0;
+}
+:root[data-laugh] .pet-art[data-expression] .pet-mouth-happy {
+  opacity: 1;
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  transform: scaleY(calc(0.8 + var(--edi-mouth, 0.5) * 0.35));
+}
+:root[data-laugh] .pet-art[data-expression] .pet-brows {
+  transform: translateY(-2px);
+}
+:root[data-laugh='laugh'] .desktop-pet .pet-body {
+  animation: edi-laugh 280ms ease-in-out 5;
+}
+:root[data-laugh='chuckle'] .desktop-pet .pet-body {
+  animation: edi-chuckle 300ms ease-in-out 3;
 }
 
 /* ---------- Character expression ---------- */
@@ -193,6 +233,36 @@
   stroke: currentColor;
   stroke-width: 3;
   stroke-linecap: round;
+}
+
+@keyframes edi-laugh {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  30% {
+    transform: translateY(-3px) rotate(-2deg);
+  }
+  65% {
+    transform: translateY(1px) rotate(1.5deg);
+  }
+}
+
+@keyframes edi-chuckle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-1.8px);
+  }
+}
+
+@keyframes edi-chin-rest {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 
 @keyframes edi-appear {
@@ -458,6 +528,7 @@
   .desktop-pet .pet-pupils,
   .desktop-pet .pet-pupils circle,
   .desktop-pet .pet-hand,
+  .desktop-pet .pet-chin-hand,
   .desktop-pet .pet-mouth-talk,
   .desktop-pet .pet-attention {
     /* Accessibility preference wins over every expression-specific selector. */

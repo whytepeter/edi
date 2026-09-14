@@ -8,7 +8,11 @@ import {
   type VoiceDependencies,
   type VoiceStatus,
 } from '../../apps/desktop/src/main/voice/voice-controller';
-import type { AgentState, VoiceHostEvent } from '../../packages/contracts/src/index';
+import {
+  cueSegments,
+  type AgentState,
+  type VoiceHostEvent,
+} from '../../packages/contracts/src/index';
 
 const runtime = {
   transcription: { executable: 'whisper', model: 'model', vadModel: 'vad' },
@@ -316,7 +320,7 @@ test('transcripts and replies are cleaned for listening', () => {
 test('a voice preview plays through the speaker only while idle, and Stop cancels it', async () => {
   const h = harness();
   let aborted = false;
-  const playing = h.voice.preview(async (signal, consume) => {
+  const playing = h.voice.preview('Hi.', async (_text, signal, consume) => {
     signal.addEventListener('abort', () => (aborted = true));
     await consume(new Float32Array(4).fill(0.1), 24000);
   });
@@ -326,7 +330,8 @@ test('a voice preview plays through the speaker only while idle, and Stop cancel
   assert.equal(await playing, true);
 
   const long = h.voice.preview(
-    (signal, consume) =>
+    'Hi.',
+    (_text, signal, consume) =>
       new Promise((_, reject) => {
         void consume(new Float32Array(4), 24000).catch(() => {});
         signal.addEventListener('abort', () => reject(new Error('stopped')));
@@ -334,7 +339,7 @@ test('a voice preview plays through the speaker only while idle, and Stop cancel
   );
   await tick();
   // A second preview while one plays is refused; Stop ends the first.
-  assert.equal(await h.voice.preview(async () => {}), false);
+  assert.equal(await h.voice.preview('Hi.', async () => {}), false);
   h.voice.stop();
   await assert.rejects(long);
   assert.equal(h.voice.phase, 'idle');
@@ -342,5 +347,53 @@ test('a voice preview plays through the speaker only while idle, and Stop cancel
 
   // During a voice turn, no preview starts.
   h.voice.start('push-to-talk');
-  assert.equal(await h.voice.preview(async () => {}), false);
+  assert.equal(await h.voice.preview('Hi.', async () => {}), false);
+});
+
+test('laughs and chuckles start their own utterance, with a cue just ahead of their audio', async () => {
+  assert.deepEqual(cueSegments('Oh wow [laugh] that is funny.'), [
+    { text: 'Oh wow', lead: null, trailing: null },
+    { text: '[laugh] that is funny.', lead: 'laugh', trailing: null },
+  ]);
+  assert.deepEqual(cueSegments('[chuckle] Sure. [sigh] Fine.'), [
+    { text: '[chuckle] Sure. [sigh] Fine.', lead: 'chuckle', trailing: null },
+  ]);
+  // Nothing to say after the tag: it ends the clip and plays near the end of that audio.
+  assert.deepEqual(cueSegments('That worked [LAUGH]'), [
+    { text: 'That worked [LAUGH]', lead: null, trailing: 'laugh' },
+  ]);
+
+  const h = harness();
+  const spoken: string[] = [];
+  const preview = h.voice.preview(
+    'Hi, I am Edi. [chuckle] This is how I sound. Great [laugh]',
+    async (text, _signal, consume) => {
+      spoken.push(text);
+      await consume(new Float32Array(4).fill(0.1), 24000);
+    },
+    true,
+  );
+  for (let i = 0; i < 2; i++) {
+    await tick();
+    h.voice.played(0);
+  }
+  assert.equal(await preview, true);
+  assert.deepEqual(spoken, ['Hi, I am Edi.', '[chuckle] This is how I sound. Great [laugh]']);
+  const events = h.sent
+    .filter(event => event.type !== 'stop-audio')
+    .map(event => (event.type === 'cue' ? `${event.cue}@${event.at}` : event.type));
+  assert.deepEqual(events, ['pcm', 'chuckle@next', 'pcm', 'laugh@end']);
+
+  // A voice without expressions speaks the clip as one, with no cues.
+  const plain = harness();
+  const once: string[] = [];
+  const done = plain.voice.preview('Ha [laugh] okay.', async (text, _signal, consume) => {
+    once.push(text);
+    await consume(new Float32Array(4), 24000);
+  });
+  await tick();
+  plain.voice.played(0);
+  await done;
+  assert.deepEqual(once, ['Ha [laugh] okay.']);
+  assert.ok(!plain.types().includes('cue'));
 });

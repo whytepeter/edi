@@ -17,6 +17,7 @@ if (glassSurfaces.includes(surface)) document.documentElement.dataset.nativeGlas
 
 // The pet window owns the microphone and speaker for voice turns; main drives them.
 // Edi's mouth follows the loudness of its own speech through one CSS variable.
+let laughTimer: ReturnType<typeof setTimeout> | undefined;
 if (surface === 'pet' && window.edi)
   startVoiceClient(window.edi, {
     onSpeechLevel: level => {
@@ -28,6 +29,15 @@ if (surface === 'pet' && window.edi)
         root.dataset.lipSync = '';
         root.style.setProperty('--edi-mouth', String(level));
       }
+    },
+    // The laugh plays for about as long as the sound; a newer cue restarts it.
+    onCue: cue => {
+      const root = document.documentElement;
+      clearTimeout(laughTimer);
+      delete root.dataset.laugh;
+      void root.offsetWidth;
+      root.dataset.laugh = cue;
+      laughTimer = setTimeout(() => delete root.dataset.laugh, cue === 'laugh' ? 1400 : 900);
     },
   });
 

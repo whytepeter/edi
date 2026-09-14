@@ -88,13 +88,13 @@ export const skinGeometry = {
     decorationPath:
       'M62 48C54 36 62 21 79 20C94 19 103 28 99 37C93 31 83 31 76 38C71 43 66 46 62 48ZM80 41C80 31 91 26 101 29C100 38 91 43 80 41Z',
   }),
-  // Hoop earrings hang outside the head; resting hands are hidden by the skin but keep
-  // their shared anchors for gestures and the pointer.
+  // A round head with full cheeks. Ears and hoop earrings sit outside it, and a hand rests
+  // under the chin while thinking; resting hands keep their shared anchors for gestures.
   edi: skinGeometrySchema.parse({
     ...base,
-    paintedBounds: { x: 7, y: 22, width: 147, height: 127 },
+    paintedBounds: { x: 1, y: 20, width: 158, height: 146 },
     bodyPath:
-      'M80 24C118 24 141 52 141 88C141 119 115 147 80 147C45 147 19 119 19 88C19 52 42 24 80 24Z',
+      'M80 22C116 22 140 47 141 82C142 106 135 125 121 137C109 146 95 149 80 149C65 149 51 146 39 137C25 125 18 106 19 82C20 47 44 22 80 22Z',
     decorationPath: '',
   }),
 } satisfies Record<string, SkinGeometry>;

@@ -36,12 +36,15 @@ async function checkGeometry(pet, skin) {
   expect(result.shadowHit).toBe(false);
   expect(result.left).toBe('translate(30 99)');
   expect(result.right).toBe('translate(132 112)');
-  expect(result.box.x - 2).toBeGreaterThanOrEqual(8);
-  const expectedTop = { mochi: 17, edi: 22 }[skin];
-  expect(result.box.y - 2).toBeGreaterThanOrEqual(expectedTop);
-  expect(result.box.right + 2).toBeLessThanOrEqual(154);
-  const expectedBottom = { mochi: 148, edi: 149 }[skin];
-  expect(result.box.bottom + 2).toBeLessThanOrEqual(expectedBottom);
+  // Edi's hoops reach the canvas sides and her thinking hand rests below the chin.
+  const expected = {
+    mochi: { left: 8, top: 17, right: 154, bottom: 148 },
+    edi: { left: 1, top: 20, right: 159, bottom: 167 },
+  }[skin];
+  expect(result.box.x - 2).toBeGreaterThanOrEqual(expected.left);
+  expect(result.box.y - 2).toBeGreaterThanOrEqual(expected.top);
+  expect(result.box.right + 2).toBeLessThanOrEqual(expected.right);
+  expect(result.box.bottom + 2).toBeLessThanOrEqual(expected.bottom);
 }
 async function launch() {
   instance = await electron.launch({

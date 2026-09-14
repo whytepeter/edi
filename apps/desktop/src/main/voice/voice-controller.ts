@@ -1,4 +1,5 @@
 import {
+  cueSegments,
   initialVoiceSession,
   transitionVoice,
   type AgentState,
@@ -46,6 +47,12 @@ export interface VoiceDependencies<Screens> {
   /** Whether the selected speech engine understands paralinguistic tags. */
   expressiveVoice?(): boolean;
 }
+
+type Speak = (
+  text: string,
+  signal: AbortSignal,
+  consume: (pcm: Float32Array, sampleRate: number) => Promise<void>,
+) => Promise<void>;
 
 /** The player must accept each chunk within this time, backpressure included. */
 const PLAYBACK_ACK_MS = 5000;
@@ -180,14 +187,10 @@ export class VoiceController<Screens> {
 
   /**
    * Play a short voice sample (Settings → Voice) through the same speaker path as replies. Only
-   * while voice is idle; Stop or a new hold cancels it like any reply.
+   * while voice is idle; Stop or a new hold cancels it like any reply. An expressive sample's
+   * laugh or chuckle is performed in time, like a reply's.
    */
-  async preview(
-    speak: (
-      signal: AbortSignal,
-      consume: (pcm: Float32Array, sampleRate: number) => Promise<void>,
-    ) => Promise<void>,
-  ) {
+  async preview(text: string, speak: Speak, expressive = false) {
     if (!this.available || this.session.phase !== 'idle' || this.turn) return false;
     const turn = new AbortController();
     this.turn = turn;
@@ -195,9 +198,7 @@ export class VoiceController<Screens> {
     // A fresh playback token, so the sample never queues behind the end of an older reply.
     this.deps.send({ type: 'stop-audio' });
     try {
-      await speak(turn.signal, (samples, rate) =>
-        this.play(generation, samples, rate, turn.signal),
-      );
+      await this.speakClip(generation, text, turn.signal, speak, expressive);
       return true;
     } finally {
       if (this.turn === turn) this.turn = undefined;
@@ -244,15 +245,20 @@ export class VoiceController<Screens> {
         started = true;
         speechQueue = speechQueue.then(() => {
           if (turn.signal.aborted) return;
-          return this.deps.speak(text, turn.signal, (samples, rate) => {
-            // Edi looks like it is speaking only once there is sound. Synthesis can take seconds,
-            // and until the first samples arrive the bubble keeps showing that it is thinking.
-            if (!audible) {
+          return this.speakClip(
+            generation,
+            text,
+            turn.signal,
+            (words, signal, consume) => this.deps.speak(words, signal, consume),
+            expressiveVoice,
+            () => {
+              // Edi looks like it is speaking only once there is sound. Synthesis can take
+              // seconds, and until the first samples arrive the bubble keeps showing thinking.
+              if (audible) return;
               audible = true;
               this.dispatch({ type: 'reply-started', generation });
-            }
-            return this.play(generation, samples, rate, turn.signal);
-          });
+            },
+          );
         });
       };
       const pull = (text: string, final: boolean) => {
@@ -289,6 +295,34 @@ export class VoiceController<Screens> {
       this.dispatch({ type: 'failed', generation });
     } finally {
       if (this.turn === turn) this.turn = undefined;
+    }
+  }
+
+  /**
+   * Speak one clip. With an expressive voice, a laugh or chuckle starts its own utterance and
+   * its cue travels just ahead of that audio, so the character laughs when the voice does.
+   */
+  private async speakClip(
+    generation: number,
+    text: string,
+    signal: AbortSignal,
+    speak: Speak,
+    expressive: boolean,
+    onAudio?: () => void,
+  ) {
+    const segments = expressive ? cueSegments(text) : [{ text, lead: null, trailing: null }];
+    for (const segment of segments) {
+      if (signal.aborted) return;
+      let first = true;
+      await speak(segment.text, signal, (samples, rate) => {
+        onAudio?.();
+        if (first && segment.lead)
+          this.deps.send({ type: 'cue', generation, cue: segment.lead, at: 'next' });
+        first = false;
+        return this.play(generation, samples, rate, signal);
+      });
+      if (segment.trailing && !signal.aborted)
+        this.deps.send({ type: 'cue', generation, cue: segment.trailing, at: 'end' });
     }
   }
 

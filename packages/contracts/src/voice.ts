@@ -16,6 +16,55 @@ const bytes = z.custom<Uint8Array>(value => value instanceof Uint8Array, 'Expect
 /** 16 kHz mono PCM16, at most 61 s: the transcription boundary. */
 export const maxVoicePcmBytes = 16_000 * 2 * 61;
 
+/** Expression tags the character performs in time with the voice. Other tags are only heard. */
+export const speechCueSchema = z.enum(['laugh', 'chuckle']);
+export type SpeechCue = z.infer<typeof speechCueSchema>;
+
+export interface CueSegment {
+  /** Text for the speech engine, tags included. */
+  text: string;
+  /** Plays as this segment's first audio starts. */
+  lead: SpeechCue | null;
+  /** Plays near the end of this segment's audio (a tag with nothing spoken after it). */
+  trailing: SpeechCue | null;
+}
+
+const cueTag = /(\[(?:laugh|chuckle)\])/i;
+const hasWords = (text: string) => /[\p{L}\p{N}]/u.test(text.replace(/\[[^\]]*\]/g, ''));
+
+/**
+ * Splits an expressive clip so each laugh or chuckle starts its own utterance. Streaming
+ * synthesis cannot say where inside a clip a tag's sound lands, but the start of an utterance
+ * is exact, so the character's laugh begins with the audible one.
+ */
+export function cueSegments(text: string): CueSegment[] {
+  const segments: CueSegment[] = [];
+  let current: CueSegment = { text: '', lead: null, trailing: null };
+  for (const part of text.split(cueTag)) {
+    const cue = cueTag.test(part) ? (part.slice(1, -1).toLowerCase() as SpeechCue) : null;
+    if (cue && hasWords(current.text)) {
+      segments.push(current);
+      current = { text: part, lead: cue, trailing: null };
+    } else {
+      if (cue && !current.lead && !current.text.trim()) current.lead = cue;
+      current.text += part;
+    }
+  }
+  segments.push(current);
+  const merged: CueSegment[] = [];
+  for (const segment of segments) {
+    const clean = { ...segment, text: segment.text.replace(/\s+/g, ' ').trim() };
+    if (!clean.text) continue;
+    const previous = merged.at(-1);
+    // A tag with no words after it is too short to synthesize alone; it ends the previous clip.
+    if (previous && !hasWords(clean.text)) {
+      previous.text = `${previous.text} ${clean.text}`;
+      previous.trailing = clean.lead;
+    } else merged.push(clean);
+  }
+  return merged;
+}
+
 /** Main → pet renderer. */
 export const voiceHostEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('open'), generation }).strict(),
@@ -30,6 +79,18 @@ export const voiceHostEventSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('stop-audio') }).strict(),
+  /**
+   * Perform a laugh or chuckle in time with speech: `next` when the next audio chunk starts,
+   * `end` shortly before the audio queued so far finishes.
+   */
+  z
+    .object({
+      type: z.literal('cue'),
+      generation,
+      cue: speechCueSchema,
+      at: z.enum(['next', 'end']),
+    })
+    .strict(),
 ]);
 export type VoiceHostEvent = z.infer<typeof voiceHostEventSchema>;
 

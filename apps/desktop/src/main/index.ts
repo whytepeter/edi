@@ -655,8 +655,10 @@ async function start() {
       selection.model === 'chatterbox-turbo'
         ? `Hi, I'm ${self}. [chuckle] This is how I sound with ${name}.`
         : `Hi, I'm ${self}. This is how I sound as ${name}.`;
-    const played = await voice.preview((signal, consume) =>
-      speakWith(selection, sample, signal, consume),
+    const played = await voice.preview(
+      sample,
+      (words, signal, consume) => speakWith(selection, words, signal, consume),
+      selection.model === 'chatterbox-turbo',
     );
     if (!played)
       throw new Error(`${assistantName(settings.current)} is using its voice right now.`);
