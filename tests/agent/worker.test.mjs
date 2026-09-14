@@ -91,6 +91,7 @@ function launch(mode, tools = [], context = {}) {
         apiKey: 'test-only-secret',
         model: 'test/model',
         ...(context.readerModel ? { readerModel: context.readerModel } : {}),
+        ...(context.desktopContext ? { desktopContext: context.desktopContext } : {}),
         prompt: 'Hello',
         history: context.history ?? [],
         screenshots: context.screenshots ?? [],
@@ -300,4 +301,33 @@ test('a composed link that never appeared is refused without reaching the host',
   assert.equal(messages.filter(m => m.type === 'tool-call').length, 0);
   const toolMessage = requests[1].messages.find(m => m.role === 'tool');
   assert.match(JSON.stringify(toolMessage), /did not come from the user/);
+});
+
+test('what the user has open reaches the model as marked context, and its page is readable', async () => {
+  const { messages, requests } = await collect(
+    launch('search-composed', [webFetch], {
+      readerModel: 'test/reader',
+      desktopContext: {
+        app: 'Google Chrome',
+        bundleId: 'com.google.Chrome',
+        windowTitle: 'Story – News',
+        url: 'https://evil.example/?notes=secret',
+        document: null,
+        selectedText: 'rain clears by noon',
+      },
+    }),
+    () => page,
+  );
+  const [first] = requests;
+  const parts = first.messages.at(-1).content;
+  assert.equal(parts[0].text, 'Hello');
+  assert.match(
+    parts[1].text,
+    /^<context>\nApp: Google Chrome\nWindow: Story – News\nPage: https:\/\/evil\.example\//,
+  );
+  assert.match(parts[1].text, /Selected text:\n"""\nrain clears by noon/);
+  assert.match(JSON.stringify(first.messages[0]), /may include <context>/);
+  // The open page counts as a link the user gave: the same address refused without context
+  // (see the composed-link test) now reaches the host.
+  assert.equal(messages.filter(m => m.type === 'tool-call').length, 1);
 });

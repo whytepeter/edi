@@ -63,6 +63,16 @@ interface ScreenAskLibrary extends KoffiLib {
   shapeBubble: (handle: bigint, radius: number, side: number, tail: number) => void;
   /** Absent in a helper built before it existed; the window then keeps system corners. */
   shapeWindow: ((handle: bigint, radius: number) => void) | null;
+  /** Absent in an older helper; desktop context and Accessibility then report nothing. */
+  frontContext: {
+    async(
+      excludePid: number,
+      dest: Uint8Array,
+      capacity: number,
+      callback: (error: unknown, written: number) => void,
+    ): void;
+  } | null;
+  accessibilityTrusted: ((prompt: boolean) => boolean) | null;
 }
 
 let screenAsk: ScreenAskLibrary | null | undefined;
@@ -109,6 +119,26 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
         'int',
         'double',
       ]) as ScreenAskLibrary['shapeBubble'],
+      frontContext: (() => {
+        try {
+          return loaded.func('edi_front_context', 'int', [
+            'int',
+            'void *',
+            'int',
+          ]) as unknown as NonNullable<ScreenAskLibrary['frontContext']>;
+        } catch {
+          return null;
+        }
+      })(),
+      accessibilityTrusted: (() => {
+        try {
+          return loaded.func('edi_accessibility_trusted', 'bool', ['bool']) as NonNullable<
+            ScreenAskLibrary['accessibilityTrusted']
+          >;
+        } catch {
+          return null;
+        }
+      })(),
       shapeWindow: (() => {
         try {
           return loaded.func('edi_shape_glass_window', 'void', ['uint64', 'double']) as NonNullable<
@@ -272,4 +302,31 @@ function screenAskLibraryPaths() {
     join(process.cwd(), '../native/screen-capture/build', name),
     join(process.cwd(), 'native/screen-capture/build', name),
   ];
+}
+
+/** Accessibility, used for selected text and the focused window's document. `prompt` asks macOS. */
+export function macAccessibilityTrusted(prompt = false): boolean | 'unavailable' {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.accessibilityTrusted) return 'unavailable';
+  try {
+    return lib.accessibilityTrusted(prompt);
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/** Raw JSON describing the front window that is not Edi's, or null. Runs off the main thread. */
+export function frontWindowContextJson(excludePid: number): Promise<string | null> {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.frontContext) return Promise.resolve(null);
+  const buffer = Buffer.alloc(64 * 1024);
+  return new Promise(resolve => {
+    try {
+      lib.frontContext!.async(excludePid, buffer, buffer.length, (error, written) => {
+        resolve(!error && written > 0 ? buffer.subarray(0, written).toString('utf8') : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
 }

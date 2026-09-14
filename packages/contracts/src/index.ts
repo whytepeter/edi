@@ -23,6 +23,7 @@ export * from './screen-context';
 export * from './presentation';
 export * from './screen-grounding';
 export * from './permissions';
+export * from './desktop-context';
 export * from './screen-intent';
 export * from './voice';
 export * from './voice-session';
@@ -203,6 +204,8 @@ export const settingsSchema = z.preprocess(
     petPosition: screenPointSchema.nullable().default(null),
     /** When false, a spoken question is answered in the conversation without speech. */
     speakReplies: z.boolean().default(true),
+    /** Send the app, window, page and selection in front with each question. */
+    shareDesktopContext: z.boolean().default(true),
     /** Speech engine used for spoken replies. */
     voiceModel: voiceModelSchema.default('kokoro'),
     /** The chosen voice within each speech model. */
@@ -218,6 +221,7 @@ export const defaultSettings: Settings = {
   pinned: false,
   petPosition: null,
   speakReplies: true,
+  shareDesktopContext: true,
   voiceModel: 'kokoro',
   voices: {
     kokoro: 'af_heart',
@@ -377,6 +381,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-pinned'), pinned: z.boolean() }).strict(),
   z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
   z.object({ type: z.literal('set-speak-replies'), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal('set-share-desktop-context'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
   /** Choose a voice within a model; the voice must belong to that model. */
   z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),

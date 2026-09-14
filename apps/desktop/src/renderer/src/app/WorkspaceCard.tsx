@@ -236,7 +236,14 @@ export function WorkspaceCard() {
               )}
               {view === 'settings.keyboard' && <KeyboardSettings system={system} />}
               {view === 'settings.privacy' && (
-                <PrivacySettings permissions={permissionSnapshot} onOpen={navigate} />
+                <PrivacySettings
+                  permissions={permissionSnapshot}
+                  shareDesktopContext={settings.shareDesktopContext}
+                  onShareDesktopContext={enabled =>
+                    void send({ type: 'set-share-desktop-context', enabled })
+                  }
+                  onOpen={navigate}
+                />
               )}
               {view === 'settings.usage' && <UsageSettings refreshKey={refreshKey} />}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}

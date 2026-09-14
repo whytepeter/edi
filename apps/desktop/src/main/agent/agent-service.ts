@@ -17,6 +17,7 @@ import {
   type ApprovalRequest,
   type ArtifactSummary,
   type ChatMessage,
+  type DesktopContext,
   type ToolStep,
 } from '@edi/contracts';
 import type { Repositories, ThreadTurn } from '@edi/storage';
@@ -35,6 +36,8 @@ const MAX_TEXT = 32_000;
 const MAX_STEPS_SHOWN = 20;
 /** How long a finished reply waits for on-screen text before pointing without it. */
 const GROUNDING_WAIT_MS = 1500;
+/** The longest a question waits for the app, window, page and selection in front. */
+const CONTEXT_WAIT_MS = 2_000;
 
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
@@ -51,6 +54,8 @@ interface AgentServiceOptions {
   assistantName?: () => string;
   /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
   readerModel?: () => string | null;
+  /** What the person has in front of them, gathered when they ask; null when off or unknown. */
+  desktopContext?: () => Promise<DesktopContext | null>;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
   threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
 }
@@ -159,9 +164,18 @@ export class AgentService {
       artifacts: [],
       approval: null,
     });
-    const { screenshots, access } = await (
-      options.screens ? Promise.resolve(options.screens) : this.options.captureScreens(prompt)
-    ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' }));
+    // Desktop context is gathered alongside screens and never holds a question up for long.
+    const context = Promise.race([
+      (this.options.desktopContext?.() ?? Promise.resolve(null)).catch(() => null),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), CONTEXT_WAIT_MS)),
+    ]);
+    const [{ screenshots, access }, desktopContext] = await Promise.all([
+      (options.screens
+        ? Promise.resolve(options.screens)
+        : this.options.captureScreens(prompt)
+      ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' })),
+      context,
+    ]);
     if (this.starting !== starting) return undefined; // stopped while capturing
     this.starting = undefined;
     if (access !== null && access !== 'granted') {
@@ -195,6 +209,7 @@ export class AgentService {
       spoken: options.spoken ?? false,
       expressiveVoice: options.expressiveVoice ?? false,
       selfContext: this.options.selfContext?.() ?? '',
+      desktopContext,
       ...(readerModel ? { readerModel } : {}),
       tools: this.broker.manifest(),
     };

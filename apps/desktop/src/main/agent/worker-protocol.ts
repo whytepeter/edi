@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import type { ToolOutcome } from '@edi/capabilities';
-import { assistantNameSchema, modelIdSchema, usageEntrySchema } from '@edi/contracts';
+import {
+  assistantNameSchema,
+  desktopContextSchema,
+  modelIdSchema,
+  usageEntrySchema,
+} from '@edi/contracts';
 
 const bytesWithin = (limit: number) =>
   z.custom<Uint8Array>(
@@ -41,6 +46,8 @@ export const workerInputSchema = z
     spoken: z.boolean(),
     /** Selected speech engine supports Chatterbox paralinguistic expression tags. */
     expressiveVoice: z.boolean().default(false),
+    /** What the person had in front of them when they asked; data from other apps. */
+    desktopContext: desktopContextSchema.nullable().default(null),
     /** Trusted, current, non-secret product configuration supplied by main. */
     selfContext: z.string().max(12_000).default(''),
     tools: z.array(toolManifestEntrySchema).max(64),

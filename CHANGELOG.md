@@ -7,6 +7,11 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Desktop context. Each question now carries what you have in front of you: the app and window (not Edi's own), and
+  with Accessibility the page address, open document and selected text, so "this page", "my selection" or "what
+  I'm working on" work without a screenshot. Gathered locally in a few milliseconds, sent only with that question,
+  never stored; password managers and private windows share only the app name. Settings → Privacy & Permissions
+  has a "Share what's in front of you" switch and an Accessibility permission.
 - Files outside Edi's workspace. Edi can search (Spotlight, with a bounded name search as fallback), list and read
   files in Desktop, Documents, Downloads and folders you add, or everywhere in your home folder with Full Disk
   Access. Text, code, CSV/JSON and Word/RTF/HTML documents are read; PDFs are not yet. Renaming, moving, creating

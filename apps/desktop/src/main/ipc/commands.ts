@@ -169,6 +169,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ speakReplies: enabled }),
     },
+    'set-share-desktop-context': {
+      from: fromWorkspace,
+      handle: ({ enabled }) => settings.update({ shareDesktopContext: enabled }),
+    },
     'set-pet-scale': {
       from: fromWorkspace,
       handle: ({ scale, commit }) => {

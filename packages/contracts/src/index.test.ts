@@ -268,6 +268,7 @@ test('permission commands are generic, bounded and typed', () => {
       permissions: [
         { id: 'microphone', status: 'denied', requested: true },
         { id: 'screen-recording', status: 'not-determined', requested: false },
+        { id: 'accessibility', status: 'granted', requested: false },
       ],
     }).success,
     true,

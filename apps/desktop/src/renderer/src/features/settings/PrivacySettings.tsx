@@ -8,7 +8,7 @@ import type {
   PermissionStatus,
   WorkspaceView,
 } from '@edi/contracts';
-import { Button, type IconName, GroupedList, GroupedRow } from '../../components/ui';
+import { Button, type IconName, GroupedList, GroupedRow, Switch } from '../../components/ui';
 import './settings.css';
 
 const permissionCopy: Record<PermissionId, { title: string; detail: string; icon: IconName }> = {
@@ -17,6 +17,11 @@ const permissionCopy: Record<PermissionId, { title: string; detail: string; icon
     title: 'Screen Recording',
     detail: 'Only when a question is about your screen',
     icon: 'window',
+  },
+  accessibility: {
+    title: 'Accessibility',
+    detail: 'Selected text and the open document, when you ask',
+    icon: 'sliders',
   },
 };
 
@@ -39,9 +44,13 @@ const folderStatus: Record<FolderAccessStatus, string> = {
 /** Settings → Privacy & Permissions: OS access, what leaves this Mac, and the activity log. */
 export function PrivacySettings({
   permissions,
+  shareDesktopContext,
+  onShareDesktopContext,
   onOpen,
 }: {
   permissions: PermissionSnapshot;
+  shareDesktopContext: boolean;
+  onShareDesktopContext(enabled: boolean): void;
   onOpen(view: WorkspaceView): void;
 }) {
   const [error, setError] = useState('');
@@ -117,6 +126,24 @@ export function PrivacySettings({
         })}
       </GroupedList>
 
+      <GroupedList
+        title="What you’re working on"
+        footer="With each question Edi includes the app and window in front, and, with Accessibility, the page address, the open document and any text you selected. Password managers and private windows are left out. Nothing is kept."
+      >
+        <GroupedRow
+          icon="window"
+          title="Share what’s in front of you"
+          detail="So “this page” or “my selection” just works"
+          control={
+            <Switch
+              label="Share what’s in front of you"
+              checked={shareDesktopContext}
+              onChange={onShareDesktopContext}
+            />
+          }
+        />
+      </GroupedList>
+
       {files && (
         <GroupedList
           title="Files & Folders"
@@ -188,8 +215,8 @@ export function PrivacySettings({
         <li>
           <ul className="settings-prose">
             <li>
-              Your questions, recent conversation, and any screenshot a question needs go to
-              OpenRouter with your key.
+              Your questions, recent conversation, what you’re working on (when shared) and any
+              screenshot a question needs go to OpenRouter with your key.
             </li>
             <li>
               When Edi reads one of your files to answer, that text goes to OpenRouter too. Your

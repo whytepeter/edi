@@ -74,6 +74,7 @@ import { speakable, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { FileAccessManager } from './platform/file-access';
+import { captureDesktopContext } from './context/desktop-context';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
@@ -327,6 +328,10 @@ async function start() {
       abilities: [
         { name: 'Answer questions, including about what is on screen', asksFirst: false },
         {
+          name: 'Know the app, window, page address, open document and selected text in front when asked (Settings → Privacy & Permissions)',
+          asksFirst: false,
+        },
+        {
           name: 'Search the public web for current information and link the sources it used',
           asksFirst: false,
         },
@@ -434,6 +439,8 @@ async function start() {
       refreshReaderModel();
       return readerModel;
     },
+    desktopContext: async () =>
+      settings.current.shareDesktopContext ? captureDesktopContext() : null,
     credentials: openRouter,
     repositories,
     capabilities: [

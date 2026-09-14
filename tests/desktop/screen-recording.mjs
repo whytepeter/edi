@@ -34,6 +34,7 @@ try {
   const permissions = await workspace.evaluate(() => window.edi.permissions());
   expect(permissions.active).toBeNull();
   expect(permissions.permissions.map(item => item.id).sort()).toEqual([
+    'accessibility',
     'microphone',
     'screen-recording',
   ]);

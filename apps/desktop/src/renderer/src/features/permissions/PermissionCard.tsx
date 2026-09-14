@@ -20,6 +20,13 @@ const copy: Record<
     settings: 'Open Screen Recording Settings',
     privacy: 'Edi captures your screens only when your question needs them.',
   },
+  accessibility: {
+    title: 'Let Edi see what you selected',
+    body: 'With Accessibility, Edi can read the text you selected and which document is open.',
+    allow: 'Allow Accessibility',
+    settings: 'Open Accessibility Settings',
+    privacy: 'Edi reads these only when you ask something, and never controls other apps.',
+  },
 };
 
 /** One state-driven card for every OS permission Edi supports. */

@@ -18,6 +18,19 @@ The main process owns permission status, native requests, Settings links, and th
 
 Screen capture has a second, local privacy gate. `needsScreenContext()` runs before ScreenCaptureKit or Electron capture is touched. A prompt that names something visible — the screen, a window, an error, a button — may capture current displays. While that visual conversation is still active, a short follow-up (“Better?”, “Is it fixed now?”) may capture again. An unrelated request ends the visual context and stays text-only. Captures remain in memory for the active run, are sent only with that run, and are not stored in history. Edi never watches the screen in the background.
 
+## Desktop context and Accessibility
+
+With each question (Settings → Privacy & Permissions → Share what's in front of you, on by default), main gathers
+what the person has open: `edi_front_context` in `native/screen-capture/ask.m` takes the frontmost normal window that
+is not Edi's (so asking from the card still describes the app behind it), and with Accessibility the focused window's
+title and document (browsers report the current tab's address this way) and the selected text. It runs off the main
+thread in about 3 ms (120 ms the first time) and a question waits at most 2 s for it.
+`normalizeDesktopContext` bounds every field, keeps only http(s) addresses without credentials, fragments or
+secret-looking query strings, and shares only the app name for password managers and private or incognito windows.
+The result goes to the worker with that one question as `<context>` marked as data, is never stored, and its page
+address counts as a link the person gave for `web_fetch`. No AppleScript is used, so there are no per-app Automation
+prompts. Accessibility is an ordinary permission in the queue; without it Edi still knows the app and window.
+
 ## Files & Folders
 
 Edi's file tools (`files.search`, `files.list`, `files.read`, and the reviewed `files.move`, `files.create_folder`,

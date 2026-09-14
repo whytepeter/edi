@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#import <ApplicationServices/ApplicationServices.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
@@ -414,4 +415,97 @@ void edi_shape_glass_window(uint64_t handle, double radius) {
     window.hasShadow = YES;
     [window invalidateShadow];
   });
+}
+
+/** Accessibility trust for selected text and focused-window details; `prompt` shows the system ask. */
+bool edi_accessibility_trusted(bool prompt) {
+  if (!prompt) return AXIsProcessTrusted();
+  NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt : @YES};
+  return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+}
+
+static NSString *edi_ax_text(AXUIElementRef element, CFStringRef attribute) {
+  CFTypeRef value = NULL;
+  if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || !value) return nil;
+  NSString *text = nil;
+  if (CFGetTypeID(value) == CFStringGetTypeID()) text = [(__bridge NSString *)value copy];
+  else if (CFGetTypeID(value) == CFURLGetTypeID()) text = [[(__bridge NSURL *)value absoluteString] copy];
+  CFRelease(value);
+  return text;
+}
+
+static AXUIElementRef edi_ax_child(AXUIElementRef element, CFStringRef attribute) {
+  CFTypeRef value = NULL;
+  if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || !value) return NULL;
+  if (CFGetTypeID(value) != AXUIElementGetTypeID()) {
+    CFRelease(value);
+    return NULL;
+  }
+  return (AXUIElementRef)value;
+}
+
+/**
+ * What the person has in front of them, as JSON: the frontmost normal window that is not Edi's
+ * (so asking from Edi's own card still describes the app behind it), its app, and, with
+ * Accessibility, the focused window's title and document and the selected text.
+ * Returns the byte length written, the negative length needed if `capacity` is too small, or 0.
+ */
+int edi_front_context(int exclude_pid, char *dest, int capacity) {
+  @autoreleasepool {
+    CFArrayRef windows = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (!windows) return 0;
+    pid_t pid = 0;
+    NSString *owner = nil;
+    NSString *windowName = nil;
+    for (NSDictionary *info in (__bridge NSArray *)windows) {
+      pid_t candidate = [info[(__bridge NSString *)kCGWindowOwnerPID] intValue];
+      if (candidate == exclude_pid) continue;
+      if ([info[(__bridge NSString *)kCGWindowLayer] intValue] != 0) continue;
+      if ([info[(__bridge NSString *)kCGWindowAlpha] doubleValue] < 0.05) continue;
+      CGRect bounds;
+      if (!CGRectMakeWithDictionaryRepresentation(
+              (__bridge CFDictionaryRef)info[(__bridge NSString *)kCGWindowBounds], &bounds))
+        continue;
+      if (bounds.size.width < 120 || bounds.size.height < 80) continue;
+      pid = candidate;
+      owner = info[(__bridge NSString *)kCGWindowOwnerName];
+      windowName = info[(__bridge NSString *)kCGWindowName];
+      break;
+    }
+    CFRelease(windows);
+    if (!pid) return 0;
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    result[@"app"] = app.localizedName ?: owner ?: @"";
+    if (app.bundleIdentifier) result[@"bundleId"] = app.bundleIdentifier;
+    if (windowName.length) result[@"windowTitle"] = windowName;
+    bool trusted = AXIsProcessTrusted();
+    result[@"accessibility"] = @(trusted);
+    if (trusted) {
+      AXUIElementRef element = AXUIElementCreateApplication(pid);
+      AXUIElementSetMessagingTimeout(element, 0.25f);
+      AXUIElementRef window = edi_ax_child(element, kAXFocusedWindowAttribute);
+      if (window) {
+        NSString *title = edi_ax_text(window, kAXTitleAttribute);
+        if (title.length) result[@"windowTitle"] = title;
+        NSString *document = edi_ax_text(window, kAXDocumentAttribute);
+        if (document.length) result[@"document"] = document;
+        CFRelease(window);
+      }
+      AXUIElementRef focused = edi_ax_child(element, kAXFocusedUIElementAttribute);
+      if (focused) {
+        NSString *selected = edi_ax_text(focused, kAXSelectedTextAttribute);
+        if (selected.length) result[@"selectedText"] = selected;
+        CFRelease(focused);
+      }
+      CFRelease(element);
+    }
+    NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    if (!json) return 0;
+    if ((int)json.length > capacity) return -(int)json.length;
+    memcpy(dest, json.bytes, json.length);
+    return (int)json.length;
+  }
 }
