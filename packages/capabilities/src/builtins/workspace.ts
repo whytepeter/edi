@@ -10,7 +10,15 @@ import {
   type ArtifactSummary,
 } from '@edi/contracts';
 import { defineCapability, OutcomeUnknownError } from '../types';
-import { locate, readLibraryNote, slugify, type NoteStore } from './notes';
+import {
+  formatBytes,
+  locate,
+  noteContent,
+  readLibraryNote,
+  replaceNote,
+  slugify,
+  type NoteStore,
+} from './notes';
 
 /**
  * Tool providers need a plain object at the root of an input schema, so the discriminated
@@ -389,7 +397,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
       'checklists, tables and interactive pages, plus past conversations that mention the words. ' +
       'Matches every word of the query in the title or content; with no query, lists the most ' +
       'recent items. For “last week” or “in March”, pass after/before dates. Returns ids for ' +
-      'workspace.read, workspace.update, workspace.delete, notes.edit and notes.show; for a ' +
+      'workspace.read, workspace.update, workspace.delete and (for notes) notes.show; for a ' +
       'conversation, tell the user its title and when, and quote what was said.',
     effect: 'read',
     timeoutMs: 10_000,
@@ -486,24 +494,33 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
 
   const update = defineCapability({
     id: 'workspace.update',
-    title: 'Update generated content',
+    title: 'Update workspace content',
     description:
-      'Replace a generated document, checklist, table or interactive page with a new version, ' +
-      'keeping its place in the workspace. Pass its id from workspace.search and the complete new ' +
-      'content with the same kind. The user reviews the change first, and Edi opens the result. ' +
-      'For saved notes use notes.edit.',
+      'Replace a workspace item with a new version, keeping its place: a generated document, ' +
+      'checklist, table or interactive page (same kind), or a saved note (kind note, with the ' +
+      'new title and the complete Markdown). Pass its id from workspace.search. The user reviews ' +
+      'the change first, and Edi opens the result.',
     effect: 'write',
     timeoutMs: 10_000,
-    input: showInput.extend({ id: itemId }),
-    prepare(input) {
+    input: showInput.extend({
+      id: itemId,
+      kind: z
+        .enum(['document', 'checklist', 'table', 'html', 'note'])
+        .describe('The item’s kind, unchanged; note for a saved note (use markdown)'),
+    }),
+    prepare(input, { callId }) {
       const record = deps.artifacts.get(input.id);
       if (!record) {
-        if (deps.notes.store.get(input.id))
-          throw new Error('That is a note. Use notes.edit instead.');
-        throw new Error('Edi has no generated content with that id. Search the workspace first.');
+        const note = deps.notes.store.get(input.id);
+        if (!note)
+          throw new Error(
+            'Edi has nothing in its workspace with that id. Search the workspace first.',
+          );
+        return updateNote(note.title, input, callId);
       }
+      if (input.kind === 'note') throw new Error(`That item is a ${record.kind}, not a note.`);
       const { id, ...fields } = input;
-      const content = toArtifactContent(fields);
+      const content = toArtifactContent({ ...fields, kind: input.kind });
       if (content.kind !== record.kind)
         throw new Error(
           `That item is a ${record.kind}. Keep the kind, or show new content instead.`,
@@ -546,6 +563,55 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
       };
     },
   });
+
+  /** A saved note keeps its file; only its title and Markdown change, after review. */
+  function updateNote(
+    previousTitle: string,
+    input: { id: string; kind: string; title: string; markdown?: string },
+    callId: string,
+  ) {
+    if (input.kind !== 'note' && input.kind !== 'document')
+      throw new Error('That item is a note. Pass kind note with its new Markdown.');
+    const body = input.markdown?.trim();
+    if (!body) throw new Error('A note needs its complete new Markdown.');
+    const { path } = locate(deps.notes.store, deps.notes.directory, input.id);
+    const content = noteContent(input.title, body);
+    return {
+      preview: {
+        title: 'Edit a note',
+        action: 'Update Note',
+        summary: 'Replace this note’s content. The file path stays the same.',
+        fields: [
+          {
+            label: 'Title',
+            value:
+              input.title === previousTitle ? input.title : `${previousTitle} → ${input.title}`,
+          },
+          { label: 'Location', value: path },
+          { label: 'Size', value: formatBytes(Buffer.byteLength(content)) },
+        ],
+        body: content.slice(0, 4000),
+      },
+      async execute() {
+        const saved = await replaceNote(deps.notes.store, deps.notes.directory, {
+          id: input.id,
+          title: input.title,
+          body,
+        });
+        await deps.shown({
+          id: callId,
+          kind: 'note',
+          title: input.title,
+          preview: artifactPreview({ kind: 'note', markdown: saved.content }),
+          noteId: input.id,
+        });
+        return {
+          summary: `Updated “${input.title}” at ${saved.path}.`,
+          output: { id: input.id, path: saved.path },
+        };
+      },
+    };
+  }
 
   const remove = defineCapability({
     id: 'workspace.delete',

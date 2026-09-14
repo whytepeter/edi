@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import type { ArtifactSummary } from '@edi/contracts';
 import {
   CapabilityBroker,
   defineCapability,
@@ -246,7 +247,7 @@ test('manifest exposes model-safe names and JSON schemas', () => {
   const manifest = broker.manifest();
   assert.deepEqual(
     manifest.map(entry => entry.name),
-    ['notes_save', 'notes_list', 'notes_read', 'notes_edit', 'notes_delete', 'notes_show'],
+    ['notes_save', 'notes_show'],
   );
   assert.ok(manifest[0]);
   assert.equal((manifest[0].inputSchema as { type: string }).type, 'object');
@@ -291,29 +292,64 @@ test('notes.save previews the exact path, writes it, and never overwrites', asyn
   );
 });
 
-test('notes.read returns the file; notes.edit replaces it; notes.delete removes it', async () => {
+/** Workspace tools over a notes folder, recording what was shown and trashed. */
+function notesWorkspace(folder: string, store: NoteStore) {
+  const shown: ArtifactSummary[] = [];
+  const trashed: string[] = [];
+  const tools = workspaceCapabilities({
+    directory: () => folder,
+    shown: artifact => {
+      shown.push(artifact);
+    },
+    artifacts: memoryArtifacts(),
+    notes: { store, directory: () => folder },
+    trash: async path => {
+      trashed.push(path);
+      await rm(path);
+    },
+  });
+  const [, , read, update, remove] = tools;
+  return { read, update, remove, shown, trashed };
+}
+
+test('saved notes are read, edited and trashed through the workspace tools', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
   const path = join(folder, 'ideas.md');
   await writeFile(path, '# Ideas\n\nold\n');
   const store = memoryStore([{ id: noteId, title: 'Ideas', path, createdAt: 1 }]);
-  const [, , read, edit, remove] = notesCapabilities({ directory: () => folder, store });
+  const { read, update, remove, shown, trashed } = notesWorkspace(folder, store);
   const context = { callId: '00000000-0000-4000-8000-000000000011', runId: run };
 
-  const shown = await read.prepare({ id: noteId }, context);
-  assert.deepEqual(await shown.execute(live()), {
-    summary: 'Read “Ideas”.',
-    output: { id: noteId, title: 'Ideas', path, body: '# Ideas\n\nold\n' },
+  const reading = await read.prepare({ id: noteId }, context);
+  assert.deepEqual((await reading.execute(live())).output, {
+    id: noteId,
+    kind: 'note',
+    title: 'Ideas',
+    text: '# Ideas\n\nold\n',
   });
 
-  const update = await edit.prepare({ id: noteId, title: 'Plans', body: 'new' }, context);
-  assert.equal(update.preview.fields.find(field => field.label === 'Location')?.value, path);
-  await update.execute(live());
+  const editing = await update.prepare(
+    { id: noteId, kind: 'note', title: 'Plans', markdown: 'new' },
+    context,
+  );
+  assert.equal(editing.preview.fields.find(field => field.label === 'Location')?.value, path);
+  assert.equal(editing.preview.fields[0]?.value, 'Ideas → Plans');
+  await editing.execute(live());
   assert.equal(await readFile(path, 'utf8'), '# Plans\n\nnew\n');
   assert.equal(store.records[0]?.title, 'Plans');
+  assert.deepEqual(
+    shown.map(item => [item.kind, item.title, item.noteId]),
+    [['note', 'Plans', noteId]],
+  );
+  // A note is edited as a note, never turned into a checklist.
+  await assert.rejects(
+    async () => update.prepare({ id: noteId, kind: 'checklist', title: 'X', items: [] }, context),
+    /That item is a note/,
+  );
 
-  const gone = await remove.prepare({ id: noteId }, context);
-  await gone.execute(live());
-  await assert.rejects(() => readFile(path));
+  const trashing = await remove.prepare({ id: noteId }, context);
+  await trashing.execute(live());
+  assert.deepEqual(trashed, [path]);
   assert.deepEqual(store.records, []);
   assert.equal(
     (await readdir(folder)).some(name => name.endsWith('.tmp')),
@@ -321,40 +357,48 @@ test('notes.read returns the file; notes.edit replaces it; notes.delete removes 
   );
 });
 
-test('notes.edit and notes.delete refuse paths outside the notes folder', async () => {
+test('workspace tools refuse notes outside the notes folder', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
   const outside = join(tmpdir(), `edi-notes-outside-${noteId}.md`);
   await writeFile(outside, 'secret');
   const store = memoryStore([{ id: noteId, title: 'Secret', path: outside, createdAt: 1 }]);
-  const [, , read, edit, remove] = notesCapabilities({ directory: () => folder, store });
+  const { read, update, remove } = notesWorkspace(folder, store);
   const context = { callId: '00000000-0000-4000-8000-000000000012', runId: run };
 
-  assert.throws(() => read.prepare({ id: noteId }, context), /outside the notes folder/);
-  assert.throws(
-    () => edit.prepare({ id: noteId, title: 'X', body: 'y' }, context),
+  const reading = await read.prepare({ id: noteId }, context);
+  await assert.rejects(reading.execute(live()), /outside the notes folder/);
+  await assert.rejects(
+    async () => update.prepare({ id: noteId, kind: 'note', title: 'X', markdown: 'y' }, context),
     /outside the notes folder/,
   );
-  assert.throws(() => remove.prepare({ id: noteId }, context), /outside the notes folder/);
+  await assert.rejects(
+    async () => remove.prepare({ id: noteId }, context),
+    /outside the notes folder/,
+  );
   assert.equal(await readFile(outside, 'utf8'), 'secret');
 });
 
-test('notes.read refuses replacement links and oversized files', async () => {
+test('reading a note refuses replacement links and oversized files', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
   const outside = join(folder, '..', `edi-secret-${noteId}.md`);
   const linked = join(folder, 'linked.md');
   await writeFile(outside, 'secret');
   await symlink(outside, linked);
-  const linkedStore = memoryStore([{ id: noteId, title: 'Linked', path: linked, createdAt: 1 }]);
-  const [, , linkedRead] = notesCapabilities({ directory: () => folder, store: linkedStore });
   const context = { callId: '00000000-0000-4000-8000-000000000013', runId: run };
-  const linkedAction = await linkedRead.prepare({ id: noteId }, context);
+  const linkedTools = notesWorkspace(
+    folder,
+    memoryStore([{ id: noteId, title: 'Linked', path: linked, createdAt: 1 }]),
+  );
+  const linkedAction = await linkedTools.read.prepare({ id: noteId }, context);
   await assert.rejects(() => linkedAction.execute(live()));
 
   const large = join(folder, 'large.md');
   await writeFile(large, 'x'.repeat(64 * 1024 + 1));
-  const largeStore = memoryStore([{ id: noteId, title: 'Large', path: large, createdAt: 1 }]);
-  const [, , largeRead] = notesCapabilities({ directory: () => folder, store: largeStore });
-  const largeAction = await largeRead.prepare({ id: noteId }, context);
+  const largeTools = notesWorkspace(
+    folder,
+    memoryStore([{ id: noteId, title: 'Large', path: large, createdAt: 1 }]),
+  );
+  const largeAction = await largeTools.read.prepare({ id: noteId }, context);
   await assert.rejects(() => largeAction.execute(live()), /too large/);
 });
 
@@ -364,7 +408,7 @@ test('notes.show displays a note without returning its text to the model', async
   await writeFile(path, '# Groceries\n\n- milk\n- eggs\n');
   const store = memoryStore([{ id: noteId, title: 'Groceries', path, createdAt: 1 }]);
   const shown: unknown[] = [];
-  const show = notesCapabilities({ directory: () => folder, store, shown: a => shown.push(a) })[5];
+  const show = notesCapabilities({ directory: () => folder, store, shown: a => shown.push(a) })[1];
   const callId = '00000000-0000-4000-8000-000000000020';
   const result = await (await show.prepare({ id: noteId }, { callId, runId: run })).execute(live());
   assert.deepEqual(result.output, { shown: true, title: 'Groceries' });
@@ -497,10 +541,9 @@ test('Edi searches, reads, updates and trashes workspace items, confined to its 
 
   // Update keeps the place and kind, replaces the file, and reopens the content.
   const context = { callId: run, runId: run };
-  assert.throws(
-    () => update.prepare({ id: noteId, kind: 'document', title: 'x', markdown: 'y' }, context),
-    /notes\.edit/,
-  );
+  // A saved note is edited as a note, with its own review of the new Markdown.
+  const noteEdit = update.prepare({ id: noteId, kind: 'note', title: 'x', markdown: 'y' }, context);
+  assert.equal((noteEdit as Awaited<typeof noteEdit>).preview.title, 'Edit a note');
   assert.throws(
     () => update.prepare({ id: listId, kind: 'document', title: 'x', markdown: 'y' }, context),
     /Keep the kind/,
