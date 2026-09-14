@@ -3,6 +3,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
+#import <PDFKit/PDFKit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <Vision/Vision.h>
 #import <math.h>
@@ -204,6 +205,78 @@ void edi_start_text_recognition_file(const char *path, uint32_t key) {
   if (source) CFRelease(source);
   edi_start_text_for_image(image, key);
   if (image) CGImageRelease(image);
+}
+
+/*
+ * Text of a document the person asked Edi to read: a PDF's own text, or recognized text for
+ * scanned pages and images. Blocking; call it off the main thread (koffi async). Returns the
+ * UTF-8 bytes written to `dest` (cut at a character boundary to fit), 0 when there is no
+ * text, or -1 when the file cannot be opened.
+ */
+static NSString *edi_ocr_lines(CGImageRef image) {
+  if (!image) return @"";
+  VNRecognizeTextRequest *request = [VNRecognizeTextRequest new];
+  request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+  request.usesLanguageCorrection = YES;
+  VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:image options:@{}];
+  if (![handler performRequests:@[ request ] error:nil]) return @"";
+  NSMutableArray<NSString *> *lines = [NSMutableArray array];
+  for (VNRecognizedTextObservation *observation in request.results) {
+    NSString *line = [[observation topCandidates:1] firstObject].string;
+    if (line.length) [lines addObject:line];
+  }
+  return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSString *edi_trimmed(NSString *text) {
+  return [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+int edi_document_text(const char *path, int max_pages, char *dest, int capacity) {
+  if (!path || !dest || capacity <= 0) return -1;
+  @autoreleasepool {
+    NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
+    NSString *extension = url.pathExtension.lowercaseString;
+    NSMutableString *text = [NSMutableString string];
+    if ([extension isEqualToString:@"pdf"]) {
+      PDFDocument *document = [[PDFDocument alloc] initWithURL:url];
+      if (!document || document.isLocked) return -1;
+      const NSInteger pages = MIN(document.pageCount, (NSInteger)MAX(1, max_pages));
+      for (NSInteger index = 0; index < pages; index++) {
+        PDFPage *page = [document pageAtIndex:index];
+        if (!page) continue;
+        NSString *own = edi_trimmed(page.string ?: @"");
+        if (own.length < 40) {
+          // A scanned page: draw it at about 2x and read the picture.
+          const NSRect box = [page boundsForBox:kPDFDisplayBoxMediaBox];
+          const double scale = MIN(2.0, 2400.0 / MAX(1.0, MAX(box.size.width, box.size.height)));
+          NSImage *picture = [page thumbnailOfSize:NSMakeSize(box.size.width * scale, box.size.height * scale)
+                                            forBox:kPDFDisplayBoxMediaBox];
+          CGImageRef image = [picture CGImageForProposedRect:NULL context:nil hints:nil];
+          NSString *seen = edi_trimmed(edi_ocr_lines(image));
+          if (seen.length > own.length) own = seen;
+        }
+        if (!own.length) continue;
+        if (pages > 1) [text appendFormat:@"%@[Page %ld]\n", text.length ? @"\n\n" : @"", (long)index + 1];
+        [text appendString:own];
+      }
+    } else {
+      CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
+      CGImageRef image = source ? CGImageSourceCreateImageAtIndex(source, 0, NULL) : NULL;
+      if (source) CFRelease(source);
+      if (!image) return -1;
+      [text appendString:edi_trimmed(edi_ocr_lines(image))];
+      CGImageRelease(image);
+    }
+    NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
+    NSUInteger length = MIN(data.length, (NSUInteger)capacity);
+    const uint8_t *bytes = data.bytes;
+    // Never end inside a multi-byte character.
+    if (length < data.length)
+      while (length > 0 && (bytes[length] & 0xC0) == 0x80) length--;
+    memcpy(dest, bytes, length);
+    return (int)length;
+  }
 }
 
 /** Do not wait on the main thread — that hides the system prompt. */

@@ -7,6 +7,10 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Edi reads PDFs, including scanned pages, and text in pictures of documents (scans, photos, screenshots) with
+  macOS PDFKit and Vision, on this Mac. The native helper is replaced by rename when rebuilt, so a running Edi is
+  not killed by the build.
+
 - Schedules and watches. Tasks can run later or on repeat (every day or weekday at a time, every few hours, once at
   a date) from the Tasks composer or by asking Edi ("every weekday at 9 summarize my tech news", "tell me when the
   MacBook Air price changes"). A watch compares each check with the last and only notifies when something changed;

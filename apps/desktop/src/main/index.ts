@@ -70,7 +70,7 @@ import {
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreensForPrompt } from './capture/screens';
-import { shouldHideCardOnBlur } from './permissions';
+import { documentText, shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
@@ -466,6 +466,9 @@ async function start() {
       workspace: workspaceFolder,
       trash: path => shell.trashItem(path),
       accessResult: (root, allowed) => fileAccess.record(root, allowed),
+      ...(process.platform === 'darwin'
+        ? { documentText: path => documentText(path) ?? Promise.resolve(null) }
+        : {}),
     }),
     ...webCapabilities({
       // A link the person typed is read on their behalf; robots.txt applies to the model's picks.

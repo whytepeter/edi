@@ -241,3 +241,34 @@ test('search ranks what a person means: named documents first, code projects and
       paths.indexOf('~/Documents/code/app/src/parser.ts'),
   );
 });
+
+test('PDFs and pictures of documents are read through the native helper', async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'edi-docs-')));
+  await mkdir(join(base, 'Documents'), { recursive: true });
+  for (const name of ['resume.pdf', 'slip.jpg', 'blank.png', 'locked.pdf'])
+    await writeFile(join(base, 'Documents', name), Buffer.from([0x25, 0x50, 0, 0]));
+  const [, , read] = fileCapabilities({
+    home: base,
+    roots: () => [{ name: 'Documents', path: join(base, 'Documents'), access: 'allowed' }],
+    workspace: join(base, 'Documents/Edi'),
+    trash: async () => {},
+    documentText: async path =>
+      path.endsWith('resume.pdf')
+        ? 'Education\nUniversity of Abuja'
+        : path.endsWith('slip.jpg')
+          ? 'RESULT SLIP'
+          : path.endsWith('blank.png')
+            ? ''
+            : null,
+  });
+  const run = async (path: string) =>
+    (await read!.prepare({ path } as never, context)).execute(live());
+  assert.equal(read!.id, 'files.read');
+  assert.match(((await run('~/Documents/resume.pdf')).output as { text: string }).text, /Abuja/);
+  assert.equal(
+    ((await run('~/Documents/slip.jpg')).output as { text: string }).text,
+    'RESULT SLIP',
+  );
+  await assert.rejects(run('~/Documents/blank.png'), /no readable text/);
+  await assert.rejects(run('~/Documents/locked.pdf'), /couldn’t open/);
+});

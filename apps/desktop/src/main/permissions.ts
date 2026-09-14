@@ -73,6 +73,16 @@ interface ScreenAskLibrary extends KoffiLib {
     ): void;
   } | null;
   accessibilityTrusted: ((prompt: boolean) => boolean) | null;
+  /** Absent in an older helper; PDFs and images are then not readable. */
+  documentText: {
+    async(
+      path: string,
+      maxPages: number,
+      dest: Uint8Array,
+      capacity: number,
+      callback: (error: unknown, written: number) => void,
+    ): void;
+  } | null;
 }
 
 let screenAsk: ScreenAskLibrary | null | undefined;
@@ -135,6 +145,18 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
           return loaded.func('edi_accessibility_trusted', 'bool', ['bool']) as NonNullable<
             ScreenAskLibrary['accessibilityTrusted']
           >;
+        } catch {
+          return null;
+        }
+      })(),
+      documentText: (() => {
+        try {
+          return loaded.func('edi_document_text', 'int', [
+            'str',
+            'int',
+            'void *',
+            'int',
+          ]) as unknown as NonNullable<ScreenAskLibrary['documentText']>;
         } catch {
           return null;
         }
@@ -316,6 +338,22 @@ export function macAccessibilityTrusted(prompt = false): boolean | 'unavailable'
 }
 
 /** Raw JSON describing the front window that is not Edi's, or null. Runs off the main thread. */
+/** Text of a PDF (up to 50 pages, scans recognized) or an image; null when unavailable. */
+export function documentText(path: string): Promise<string | null> | undefined {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.documentText) return undefined;
+  const buffer = Buffer.alloc(2 * 1024 * 1024);
+  return new Promise(resolve => {
+    try {
+      lib.documentText!.async(path, 50, buffer, buffer.length, (error, written) => {
+        resolve(error || written < 0 ? null : buffer.subarray(0, written).toString('utf8'));
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export function frontWindowContextJson(excludePid: number): Promise<string | null> {
   const lib = loadBoundScreenAsk();
   if (!lib?.frontContext) return Promise.resolve(null);
