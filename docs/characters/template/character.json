@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "id": "com.example.pip",
+  "name": "Pip",
+  "version": "1.0.0",
+  "description": "A round little starter character.",
+  "author": { "name": "Your Name", "url": "https://example.com" },
+  "license": "CC-BY-4.0",
+  "colors": { "accent": "#2f6f8f", "outline": "#1f3b4d", "skin": "#bfe6f2" },
+  "geometry": {
+    "version": 1,
+    "viewBox": { "x": 0, "y": 0, "width": 160, "height": 170 },
+    "paintedBounds": { "x": 20, "y": 24, "width": 120, "height": 136 },
+    "bodyPath": "M80 26C114 26 138 52 138 88C138 124 114 148 80 148C46 148 22 124 22 88C22 52 46 26 80 26Z",
+    "anchors": {
+      "workspace": { "x": 31, "y": 40 },
+      "leftHand": { "x": 30, "y": 99 },
+      "rightHand": { "x": 132, "y": 112 },
+      "speechRight": { "x": 122, "y": 54 },
+      "speechLeft": { "x": 40, "y": 54 }
+    }
+  },
+  "motion": { "intensity": 1, "blink": true },
+  "effects": true
+}

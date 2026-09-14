@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { Artifact, ArtifactKind, ArtifactRef, ArtifactSummary } from '@edi/contracts';
 import { useSettings } from '../../hooks/useSettings';
-import { accentFor } from '../../lib/bridge';
+import { characterById, useCharacters } from '../../hooks/useCharacters';
 import { Icon, IconButton, type IconName } from '../ui';
 import { Markdown } from './Markdown';
 import './artifacts.css';
@@ -39,6 +39,92 @@ export function ArtifactCard({ artifact, onOpen }: { artifact: ArtifactSummary; 
         {artifact.preview && <span className="artifact-card-preview">{artifact.preview}</span>}
       </span>
       <Icon name="chevron-right" size={14} />
+    </button>
+  );
+}
+
+const previewLabel: Record<ArtifactKind, string> = {
+  document: 'Document',
+  note: 'Note',
+  checklist: 'Checklist',
+  table: 'Table',
+  html: 'Interactive page',
+};
+
+/** A glimpse of the content itself, derived from the summary's plain-text preview. */
+function Glimpse({ artifact }: { artifact: ArtifactSummary }) {
+  const lines = artifact.preview.split('\n').filter(Boolean);
+  if (artifact.kind === 'html')
+    return (
+      <span className="artifact-glimpse-live" aria-hidden="true">
+        <span className="artifact-glimpse-window">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span>Try it in its own window</span>
+      </span>
+    );
+  if (artifact.kind === 'checklist')
+    return (
+      <ul className="artifact-glimpse-list">
+        {lines.slice(0, 2).map((line, index) => (
+          <li key={index} data-done={line.startsWith('☑') || undefined}>
+            <span className="md-check" aria-hidden="true" />
+            <span>{line.replace(/^[☐☑]\s*/, '')}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  if (artifact.kind === 'table') {
+    const rows = lines.slice(0, 3).map(line => line.split(' · ').slice(0, 3));
+    // Header plus two rows fit under the title in the bubble.
+    return (
+      <span className="artifact-glimpse-table" aria-hidden="true">
+        {rows.map((cells, r) => (
+          <span key={r} data-head={r === 0 || undefined}>
+            {cells.map((cell, c) => (
+              <span key={c}>{cell}</span>
+            ))}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  return <span className="artifact-glimpse-text">{lines.slice(0, 2).join(' ')}</span>;
+}
+
+/**
+ * The bubble beside Edi when content is shown during a voice turn with the card closed: what it
+ * is, a glimpse of it, and one clear Open. The whole preview is a single button.
+ */
+export function ArtifactPreview({
+  artifact,
+  onOpen,
+}: {
+  artifact: ArtifactSummary;
+  onOpen(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className="artifact-preview"
+      data-kind={artifact.kind}
+      onClick={onOpen}
+      aria-label={`Open ${previewLabel[artifact.kind].toLowerCase()} “${artifact.title}”`}
+    >
+      <span className="artifact-preview-head">
+        <span className="artifact-card-icon">
+          <Icon name={kindIcon[artifact.kind]} size={14} />
+        </span>
+        <span className="artifact-preview-kind">{previewLabel[artifact.kind]}</span>
+        <span className="artifact-preview-open">
+          Open
+          <Icon name="arrow-up-right" size={12} />
+        </span>
+      </span>
+      <span className="artifact-preview-title">{artifact.title}</span>
+      <Glimpse artifact={artifact} />
     </button>
   );
 }
@@ -123,6 +209,7 @@ const canDownload: Record<ArtifactKind, boolean> = {
  */
 export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
   const { settings } = useSettings();
+  const characters = useCharacters();
   const [reference, setReference] = useState(initial);
   const key = reference ? ('callId' in reference ? reference.callId : reference.noteId) : '';
   // Results are tagged with the content they belong to, so switching content never shows
@@ -194,7 +281,11 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     <article
       className="artifact-window ds-card glass-window"
       data-accent
-      style={{ '--accent': accentFor(settings.skin) } as CSSProperties}
+      style={
+        {
+          '--accent': characterById(characters, settings.skin).manifest.colors.accent,
+        } as CSSProperties
+      }
       aria-label={artifact?.title ?? 'Content'}
     >
       <header className="artifact-window-header">

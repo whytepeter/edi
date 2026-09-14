@@ -18,7 +18,7 @@ cross-app/display checks remain follow-up validation rather than blockers for th
 | Skins and motion | Edi (default, from the owner's reference; replaced Mira) and Mochi (cream dumpling from the owner's second reference, with its own softer brown outline and theme; replaced Cloud and Sprout) share geometry/anchor and semantic-expression contracts. Saved Mira/Cloud/Sprout choices migrate to Edi. Appearance has a size slider (0.6–1.6×; the card stays still while dragging) and a happy reaction on hover. Menu and bubbles use native macOS glass; bubbles have a native glass tail (implemented, visual check pending). Edi's hands appear only for gestures; listening and thinking change only the eyes; the mouth follows speech loudness. Idle, blink/gaze, listening, thinking, speaking, happy, attention, and appearance motion are wired to live lifecycle events. Native tests cover every state, every skin, persistence, hit bounds, and reduced motion. Owner visual acceptance, cross-app click-through, and mixed-display checks remain manual. |
 | Content | Text, step diagrams, and local-video selection implemented as previews. Valid-video playback and agent-generated diagrams remain pending. |
 | Audio / minimum hardware | Pocket/Jane is the wired local default. Chatterbox Turbo is installed and selectable (2026-09-13): it loads in ~30 s idle to 3+ min under load on the 16 GB M2 Pro and speaks at ~2–8× real time, so Jane answers until it is loaded, Stop keeps the model loaded, and Settings → Voice shows loading and speed; ElevenLabs and Cartesia are planned cloud options. Pocket screening is complete and muted Electron streaming passes. See [`benchmarks/voice/RESULTS.md`](../benchmarks/voice/RESULTS.md) and [`AUDIO-RUNTIME.md`](AUDIO-RUNTIME.md); subjective listening, physical audio, packaged runtime distribution, and lower-end hardware remain open. Pocket installation stayed below the approved 2 GB budget; no paid calls. |
-| Artifacts and Workspace | 2026-09-13: `workspace.show` (document, checklist, table, html) and `notes.show` display content instead of reading it out. Shown content appears as inline cards in Conversations and opens in its own native-glass artifact window beside the card, with Copy, Download, Show in Finder and Close. Interactive `html` pages run sandboxed (private scheme, CSP sandbox, isolated session, no network or storage). The Edi workspace is Documents › Edi, with notes in Edi › Notes and generated content in Artifacts/{Reports,Checklists,Tables,Interactive}; Library lists and opens everything. Structured composition blocks (metrics, swatches, charts, cards), diagrams, rename and search are next. |
+| Artifacts and Workspace | 2026-09-13: `workspace.show` (document, checklist, table, html) and `notes.show` display content instead of reading it out. Shown content appears as inline cards in Conversations and opens in its own native-glass artifact window beside the card, with Copy, Download, Show in Finder and Close. Interactive `html` pages run sandboxed (private scheme, CSP sandbox, isolated session, no network or storage). The Edi workspace is Documents › Edi, with notes in Edi › Notes and generated content in Artifacts/{Reports,Checklists,Tables,Interactive}; Library lists, opens and deletes everything (to the Trash). Edi can search, read, update and delete workspace items through reviewed tools. Structured composition blocks (metrics, swatches, charts, cards), diagrams, rename and search are next. |
 | Edi self-control and self-awareness | 2026-09-13: Edi can open every page (including Settings itself), change its own character, size, pin, voice and spoken replies, and close or sleep itself, without approval. The setup snapshot now includes where the user is, card state, size, voice loading status, Library notes, abilities (with which ask first) and features not available yet. |
 | Model setup | Settings → AI shows three recommended models (newest Gemini Flash, Claude Sonnet, Claude Opus with image and tool support) and opens the full searchable catalog only on request. Model roles and Recommended/Custom routing remain Milestone 2. |
 | Presentation accuracy | 2026-09-13: pointing and drawing snap to text recognized locally with Apple Vision (full-resolution capture, memory only). Fixture: mean miss 25.3 → 1.4 image px. Hand pose, label placement and a jump-back bug fixed. Icons without text still rely on the model; content that moves during a reply is not re-tracked; the live capture path needs manual checks. |
@@ -71,8 +71,8 @@ Make Conversations, Library, Skills, Connectors, Appearance, every Settings page
 agent-addressable as each surface ships. Navigation uses a versioned destination
 contract, never arbitrary routes.
 
-Add Pocket TTS and Chatterbox Turbo as explicit local choices, with Pocket selected by default. Add Cartesia and
-ElevenLabs as optional cloud choices with separate user-supplied credentials. Keep personality and semantic moods
+Local speech is Kokoro (default) and Chatterbox Turbo on MLX; Pocket TTS and the PyTorch Chatterbox build were removed
+2026-09-14. Cartesia and ElevenLabs are optional cloud choices with separate user-supplied credentials. Keep personality and semantic moods
 (neutral, curious, thinking, happy, excited, confused, concerned, playful, and proud) independent of provider and
 skin; adapters map moods to the expression each provider supports.
 
@@ -96,8 +96,8 @@ Build Skills and Connectors with curated discovery, details, setup forms, instal
 The Edi workspace is one folder, Documents › Edi, owned by Edi: Notes today; Documents, Diagrams, Reports and Exports
 folders as those artifact types ship. Library shows everything in it. Turn the scoped artifact foundation into Edi Workspace: notes, diagrams, reports, and exports with semantic types,
 stable IDs, provenance, temporary-versus-saved state, search, update, and deletion. Library is the user-facing home for these artifacts. A follow-up such as “add the MCP layer” updates
-the existing diagram instead of generating an unrelated one. Saving inside Edi must not grant
-arbitrary filesystem access. Keep connector architecture provider-neutral; Composio may be tested as an adapter but
+the existing diagram instead of generating an unrelated one. Saving inside Edi never widens file access: the
+person's own files are reached only through the file tools, scoped to folders they allow (2026-09-14). Keep connector architecture provider-neutral; Composio may be tested as an adapter but
 must not replace Edi's capability broker, approval policy, or secure credential boundary.
 
 **Exit:** install a skill, connect an account, add a remote MCP server, and use them in a task. Create, reopen, update,
@@ -184,44 +184,44 @@ profiles remain private by default and require explicit consent when the voice b
 **Exit:** computer use is visibly bounded and interruptible, and an imported declarative skin or skill can be
 validated, disabled, removed, and audited without bypassing capability policy.
 
-## Suggestion coverage
+## Feature coverage
 
-Every section of [`SUGGESTIONS.md`](SUGGESTIONS.md), where it lands, and where it stands (2026-09-13). “Principle” means
+Every planned feature area, where it lands, and where it stands (2026-09-13). “Principle” means
 a rule every milestone follows rather than a feature with its own gate.
 
-| § | Suggestion | Milestone | Status |
-| --- | --- | --- | --- |
-| 1 | Composio / connected apps, BYOK, keychain secrets, broker stays authoritative | 3 | Planned; Connectors page shows an honest empty state |
-| 2 | Skill library: trust levels, declared requirements, declarative first | 3 (local/curated), 8 (community) | Built-in skills listed in Skills; installs planned |
-| 3 | Open-source distribution: signed builds, website, auto-update | 4 | Planned |
-| 4 | Download and anonymous usage analytics, off by default, inspectable | 4 | Planned; Privacy page states no analytics are collected |
-| 5 | Local-first preferences, secrets separate, preference vs availability | 0–2 | Done for current settings; Jane fallback while Chatterbox loads |
-| 6 | Voice providers: Pocket, Chatterbox Turbo, Cartesia, ElevenLabs | 2 | Pocket and Chatterbox wired; cloud providers planned |
-| 7 | Computer use as a separate, off-by-default, interruptible capability | 8 | Planned; listed as not available |
-| 8 | Self-awareness from runtime state | 1 | Done (setup snapshot, abilities, not-yet-available list, location) |
-| 9 | Conversational navigation of Edi itself | 1–2 | Done for every page; preference changes and close/sleep too |
-| 10–12 | Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7 | Planned; scale naming is an open decision |
-| 13, 19 | Keep identity, voice, skin, capabilities, permissions separate | Principle | Enforced by contracts; skin changes never touch capabilities |
-| 14 | Private custom voices with consent | 8 | Planned |
-| 15–16 | Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Bundled skins share a validated contract |
-| 17–18 | Skill vs skin communities; creator profiles | 8 | Planned; formats kept compatible |
-| 20–21 | Edi Workspace with a scoped local folder, no arbitrary filesystem access | 2–3 | Started: Documents › Edi with Notes; Library lists it |
-| 22 | Dynamic content area renders rich artifacts | 2 | Documents, checklists, tables, notes and sandboxed interactive HTML in the artifact window; composition blocks planned |
-| 23 | Artifact lifecycle: show → save → revisit → export | 2–3 | Show, auto-save, Library, copy, download (md/csv/html) done; rename, pin, regenerate planned |
-| 24 | Semantic artifact types, with HTML only sandboxed | 2 | Four structured types plus `html`, isolated from Edi (CSP sandbox, private scheme, isolated session) |
-| 25 | Diagrams as first-class, updatable artifacts | 2–3 | Step diagrams only; updatable diagrams planned |
-| 26 | Reports and exports (save ≠ export) | 3 | Planned |
-| 27 | Workspace is not memory | Principle | Held: nothing shown or saved is used as memory |
-| 28–31 | Ambient companion, background tasks, task lifecycle, watches | 7 | Planned |
-| 32 | Schedule and calendar awareness from real calendar state | 7 (after a calendar connector in 3) | Planned |
-| 33–37 | Bubble as ambient channel, explicit proactivity sources, levels, voice vs silent, companion tone | 7 | Bubble foundation done (voice states, approvals, artifact previews) |
-| 38 | Flagship “find jobs while I work” demo | 7 exit | Planned |
-| 39–50 | AI provider, Recommended/Custom, roles, cost preference, compatibility, fallbacks, advanced | 2 (roles), 7 (background role) | Recommended picks and compatibility filtering done; roles and cost preference planned |
-| 51–54, 60 | Compact bubble as HITL surface with compact and expanded representations | 2 | Approvals and artifact previews done |
-| 55–57 | Liquid Glass materials, hierarchy, shared language | 2 | Native glass for floating windows; solid settings; hierarchy applied |
-| 58–59 | ⌥ Space default, configurable shortcuts | 2 | ⌥ Space done; rebinding planned |
-| 61–82 | Modular monorepo by domain and trust boundary | Ongoing | contracts, capabilities, storage extracted; others when boundaries stabilize |
-| — | Multi-surface Edi (core independent of Electron) | Principle | Domain packages stay free of Electron |
+| Feature | Milestone | Status |
+| --- | --- | --- |
+| Composio / connected apps, BYOK, keychain secrets, broker stays authoritative | 3 | Planned; Connectors page shows an honest empty state |
+| Skill library: trust levels, declared requirements, declarative first | 3 (local/curated), 8 (community) | Built-in skills listed in Skills; installs planned |
+| Open-source distribution: signed builds, website, auto-update | 4 | Planned |
+| Download and anonymous usage analytics, off by default, inspectable | 4 | Planned; Privacy page states no analytics are collected |
+| Local-first preferences, secrets separate, preference vs availability | 0–2 | Done for current settings; Kokoro stands in while Chatterbox loads |
+| Voice providers: local, Cartesia, ElevenLabs | 2 | Done: Kokoro and Chatterbox Turbo (MLX), Cartesia and ElevenLabs with the person's keys; Pocket removed |
+| Computer use as a separate, off-by-default, interruptible capability | 8 | Planned; listed as not available |
+| Self-awareness from runtime state | 1 | Done (setup snapshot, abilities, not-yet-available list, location) |
+| Conversational navigation of Edi itself | 1–2 | Done for every page; preference changes and close/sleep too |
+| Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7 | Planned; scale naming is an open decision |
+| Keep identity, voice, skin, capabilities, permissions separate | Principle | Enforced by contracts; skin changes never touch capabilities |
+| Private custom voices with consent | 8 | Planned |
+| Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Character packages: install from a .edichar file, every mood previewed; community library planned |
+| Skill vs skin communities; creator profiles | 8 | Planned; formats kept compatible |
+| Edi Workspace with a scoped local folder; the person's files only through allowed folders | 2–3 | Workspace done (Documents › Edi, Library). File tools for Desktop, Documents, Downloads, added folders and Full Disk Access; changes need approval |
+| Dynamic content area renders rich artifacts | 2 | Documents, checklists, tables, notes and sandboxed interactive HTML in the artifact window; composition blocks planned |
+| Artifact lifecycle: show → save → revisit → export | 2–3 | Show, auto-save, Library, copy, download (md/csv/html) done; rename, pin, regenerate planned |
+| Semantic artifact types, with HTML only sandboxed | 2 | Four structured types plus `html`, isolated from Edi (CSP sandbox, private scheme, isolated session) |
+| Diagrams as first-class, updatable artifacts | 2–3 | Step diagrams only; updatable diagrams planned |
+| Reports and exports (save ≠ export) | 3 | Planned |
+| Workspace is not memory | Principle | Held: nothing shown or saved is used as memory |
+| Ambient companion, background tasks, task lifecycle, watches | 7 | Planned |
+| Schedule and calendar awareness from real calendar state | 7 (after a calendar connector in 3) | Planned |
+| Bubble as ambient channel, explicit proactivity sources, levels, voice vs silent, companion tone | 7 | Bubble foundation done (voice states, approvals, artifact previews) |
+| Flagship “find jobs while I work” demo | 7 exit | Planned |
+| AI provider, Recommended/Custom, roles, cost preference, compatibility, fallbacks, advanced | 2 (roles), 7 (background role) | Recommended picks and compatibility filtering done; roles and cost preference planned |
+| Compact bubble as HITL surface with compact and expanded representations | 2 | Approvals and artifact previews done |
+| Liquid Glass materials, hierarchy, shared language | 2 | Native glass for floating windows; solid settings; hierarchy applied |
+| ⌥ Space default, configurable shortcuts | 2 | ⌥ Space done; rebinding planned |
+| Modular monorepo by domain and trust boundary | Ongoing | contracts, capabilities, storage extracted; others when boundaries stabilize |
+| Multi-surface Edi (core independent of Electron) | Principle | Domain packages stay free of Electron |
 
 ## Conditional later work
 
@@ -257,11 +257,11 @@ Initial targets to validate, not public guarantees: immediate input feedback, vi
 ## Open decisions
 
 - Validate the provisional minimum chip/RAM on lower-end hardware; decide whether Intel Macs are supported.
-- Pocket/Jane is the wired default; Chatterbox Turbo is the expressive local option; ElevenLabs and Cartesia are optional cloud choices. Subjective Jane acceptance and measured provider/hardware support remain open.
+- Kokoro is the default local voice and Chatterbox Turbo the expressive one (both MLX); ElevenLabs and Cartesia are optional cloud choices. Pocket was removed 2026-09-14. Measured support on lower-end hardware remains open.
 - Default voice must be female. Later custom voice enrollment may use the user's girlfriend's voice with her explicit consent; include recording/upload disclosure and deletion controls. Defer cloning until after the current audio foundation work.
 - First connector and its desktop OAuth feasibility.
 - SVG versus Rive after trying the character interaction.
-- Proactivity scale: SUGGESTIONS.md proposes both Off/Subtle/Helpful (suggestions) and Quiet/Balanced/Expressive
+- Proactivity scale: two scales have been proposed, Off/Subtle/Helpful (suggestions) and Quiet/Balanced/Expressive
   (overall behavior). Pick one user-facing control, or define them as two distinct settings, before building Behavior.
 - Personal build uses a user-provided OpenRouter key (selected and live-tested). Edi-funded usage for distribution remains a separate decision.
 

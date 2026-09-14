@@ -52,6 +52,14 @@ contextBridge.exposeInMainWorld('ediBubble', {
     }
     await ipcRenderer.invoke('edi:command', { type: 'respond-approval', callId, decision });
   },
+  /** Short progress for the thinking bubble ("Searching the web"); plain text only. */
+  subscribeText(callback: (text: string) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      if (typeof value === 'string' && value.length <= 60) callback(value);
+    };
+    ipcRenderer.on('edi:bubble-text', listener);
+    return () => ipcRenderer.removeListener('edi:bubble-text', listener);
+  },
   async openArtifact(callId: string) {
     if (!uuid.test(callId)) throw new Error('Invalid content.');
     await ipcRenderer.invoke('edi:command', { type: 'open-artifact', ref: { callId } });

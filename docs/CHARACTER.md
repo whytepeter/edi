@@ -1,81 +1,79 @@
-# Character motion and skins
+# Characters, expressions and motion
 
-Edi's character is a presentation surface, not an agent runtime. It receives a small semantic expression and
-turns that state into artwork and motion. Voice providers, model providers, and capability code never select
-CSS animations or manipulate facial parts directly.
+A character is a package of data: `character.json` and `art.svg`. Edi and Mochi ship as packages; people can
+install more from `.edichar` files. How to make one is in [characters/README.md](characters/README.md). This
+page is for changing the system itself.
 
-## Responsibility and entry points
+The character is a presentation surface, not an agent runtime. Voice providers, models and capabilities never
+touch artwork or CSS; they produce semantic state, and the pet renderer turns that into a face and motion.
 
-- `packages/contracts/src/index.ts` defines `CharacterExpression` and the bundled skin catalog.
-- `packages/contracts/src/skin-geometry.ts` owns silhouettes, hit bounds, window/bubble anchors, and hand geometry.
-- `apps/desktop/src/main/character/character-actions.ts` translates product lifecycle events into expressions.
-- `apps/desktop/src/preload/index.ts` validates the narrow main-to-pet expression event.
-- `apps/desktop/src/renderer/src/components/Pet.tsx` renders skin artwork and stable semantic part names.
-- `apps/desktop/src/renderer/src/features/pet/pet.css` expresses each state with transform/opacity motion.
+## State in three layers
 
-## State flow
+| Layer          | Values                                                                | Owner                                                         |
+| -------------- | --------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **expression** | idle, listening, thinking, speaking, happy, attention                 | `CharacterActions` in main, from the runtime                  |
+| **mood**       | neutral, happy, sad, surprised, confused, sleepy, love, annoyed       | `CharacterMoodController` in main                             |
+| **cue**        | laugh, chuckle, sigh, gasp, groan, sniff                              | the pet window, timed to the audio (`features/pet/cue-store`) |
 
-```text
-click / hold / voice / agent / approval
-             ↓
-CharacterActions in main
-             ↓ validated CharacterExpression
-pet preload → PetSurface → Pet data-expression → skin motion
-```
+- Expressions come from what Edi is doing (voice states, a new request, an approval).
+- Moods come from the reply: the agent opens every reply with `[MOOD:…]`, which `replyMood` reads and
+  `presentationText` and `speakable` strip. An error is briefly sad; after 20 quiet minutes the companion is
+  sleepy until the next interaction.
+- Cues come from Chatterbox tags. `cueSegments` splits an expressive clip so the tag starts its own
+  utterance, and the voice controller sends a `cue` event just ahead of that audio. The pet window schedules
+  it on the player clock (see `VoiceClient`), so the face laughs when the voice does.
 
-The current states are:
+The three are validated at the preload boundary and combined in `CharacterState`.
 
-| State | Meaning | Visual treatment |
-| --- | --- | --- |
-| `idle` | No foreground work | Slow breathing, occasional blink and gaze shift |
-| `listening` | Microphone capture is active | Wider eyes only; the bubble shows the listening bars |
-| `thinking` | Transcription or agent work is active | Upward gaze only; the bubble shows the thinking dots |
-| `speaking` | Audio playback is active | Mouth only. With live audio the mouth opens with the voice's loudness (`--edi-mouth`); otherwise an uneven fallback rhythm |
-| `happy` | A foreground turn completed | Brief hop and smile, then idle |
-| `attention` | Opening, notice, permission, or approval needs attention | Quick heads-up pose and marks |
+## From state to a face
 
-Opening the microphone uses `attention` until capture confirms `listening`; this gives immediate feedback without
-claiming Edi can already hear. Ordinary assistant text stays in the conversation card. The character bubble is a
-separate surface for voice status, concise notices, and request-bound human input.
+Art is split into parts (`data-part`: eyes, brows, mouth, cheeks, extras, effects), each with variants
+(`data-variant`). `resolveVariant` in `packages/contracts/src/character/expressions.ts` picks the variant a
+part shows, in this order: cue → talking mouth → happy/attention gesture → mood → listening/thinking →
+`default`. Missing variants fall back to a relative (`chuckle` → `laugh` → `happy`, `love` → `happy`,
+`gasp` → `surprised`…). A part with no match is hidden, which is how `extras` shows a prop only for one state.
 
-## Motion rules
+`CharacterArt` injects the sanitized art, marks the chosen variant of each part with `data-active` before
+paint, and adds what every character shares: the grab outline (`geometry.bodyPath`), gesture hands at the
+anchors, and floating effects (`CharacterEffects`) near the speech anchors.
 
-Motion changes only transforms and opacity, stays subtle at the desktop size (Small 84×90, Medium 112×120, Large
-151×162 from Settings → Appearance; the window scales from Edi's feet), and never alters the skin's
-anchor geometry. User input can replace a state immediately. `prefers-reduced-motion` disables all character
-keyframes and lip-sync movement while keeping semantic mouths, marks, and expressions visible. States that the
-bubble already shows (listening, thinking) never add rings, dots, or body motion to the character (owner decision,
-2026-09-13).
+## Motion
 
-## Bundled skins
+All motion is in `components/character/character.css`, keyed on `data-expression`, `data-mood` and `data-cue`
+on the SVG, and only inside `.character-live` (the desktop pet and preview tiles). Priority on the body:
+idle breathing → mood → gesture → cue. `--motion` (the manifest's `motion.intensity`) scales distances.
+Blinking, glances (`data-part="pupils"`) and lip-sync (`--edi-mouth` on the active mouth variant) apply to
+every character. Reduced motion stops all animation but keeps the face.
 
-- **Edi** (default, 2026-09-13): drawn from the owner's reference: a bald, warm-brown rounded head, winged almond
-  eyes with clipped irises, thin arched brows, full lips, soft blush and gold hoop earrings hanging behind the jaw.
-  Small rounded hands are hidden at rest and appear only for gestures: a wave for `attention` (replacing the
-  attention marks) and one hand beside the chin for `happy`. `happy` uses closed, smiling eyes. Mira, a monochrome
-  skin that did not read as the intended female character, was removed; saved `mira` preferences migrate to `edi`.
-- **Mochi** (2026-09-13): a cream dumpling with a curled tuft, big glossy eyes, pink cheeks and an open smile,
-  from the owner's second reference. Cloud and Sprout were removed; saved choices migrate to Edi.
-- Each skin has an outline `color`, a body `fill` and a theme `accent` for the card, bubbles and pointer,
-  all from one palette. Edi is dark brown throughout (#3d2419). Mochi is a cream body with a softer brown
-  outline and theme (#71493D); no pink, and never Edi's exact brown (owner decision).
-- Every bundled skin uses the same small gesture hands: hidden at rest, a wave for `attention`, one hand by the
-  chin for `happy`. Hovering a character in Appearance plays `happy`.
+## Adding an expression
 
-## Adding or changing a bundled skin
+1. Add the name to the right layer in `character/expressions.ts` and, if useful, a fallback.
+2. Decide who produces it (main for expressions and moods, a speech tag for cues) and validate it at preload.
+3. Add body motion and, if it fits, an effect in `CharacterEffects`.
+4. Draw variants for Edi and Mochi in `packages/characters/src`, run `pnpm --filter @edi/characters build`.
+5. Add it to `MoodPreview` and the creator guide's table, and extend `tests/desktop/character-animation.mjs`.
 
-1. Add the ID to `skinSchema`, the catalog entry, and `skinGeometry`.
-2. Keep artwork inside the 160×170 logical artboard and provide accurate painted bounds and anchors.
-3. Reuse the semantic SVG part classes, or add a skin-specific rendering branch that implements every state.
-4. Do not put capabilities, provider behavior, arbitrary routes, or executable code in a skin.
-5. Run contract, desktop smoke, and character-animation checks. Visually inspect every state at actual desktop size.
+Characters without the new variant keep working: they fall back to `default` and still move.
 
-Bundled skins are currently repository-owned React/SVG. A future installable skin format must be declarative and
-versioned before third-party assets are accepted.
+## Packages and safety
+
+- `character/manifest.ts`: the `character.json` schema. `character/package.ts`: `checkCharacter`, the single
+  gate for built-in, installed and creator-checked characters.
+- `character/svg.ts`: a strict parser and allowlist serializer. Scripts, styles, classes, images, links, text,
+  filters, animation, event handlers and non-local references never survive; ids are rewritten to
+  `{{scope}}-id` and scoped per rendered copy.
+- `apps/desktop/src/main/characters/package-file.ts`: reads and writes `.edichar` zips with size limits; entry
+  names are matched, never used as paths.
+- `apps/desktop/src/main/characters/library.ts`: built-in plus installed characters in
+  `<userData>/characters/<id>/`, rechecked on every launch; install goes through a checked token, removal falls
+  back to Edi.
+- Built-in art is generated from `packages/characters/src/*.tsx` into `packages/characters/*/art.svg` and bundled
+  into main and renderer through `apps/desktop/src/shared/built-in-characters.ts`.
 
 ## Verification
 
-`pnpm test:animation` launches Electron with an isolated profile, checks all six states on every bundled skin,
-rejects an unknown provider-specific state at the preload boundary, and verifies reduced-motion behavior. It can
-save Edi screenshots when `EDI_SHOT_DIR` is set. `pnpm test:desktop` covers skin selection, persistence, hit
-regions, placement, and dragging.
+- `pnpm test`: sanitizer (hostile SVG), manifest, variant resolution, package reading, mood tags and timing.
+- `pnpm test:audio`: cue segmentation and cue events around audio.
+- `pnpm test:animation`: both built-in characters in every expression and mood in the real pet window, one
+  variant per part, effects, lip-sync scale and reduced motion.
+- `pnpm character check <folder>`: what a creator runs.

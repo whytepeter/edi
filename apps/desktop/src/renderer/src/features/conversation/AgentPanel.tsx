@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { presentationText, type ArtifactRef } from '@edi/contracts';
+import { ReplyText } from './ReplyText';
 import { Button, EmptyState, Icon, ThinkingDots } from '../../components/ui';
 import type { Command } from '../../lib/bridge';
 import { useAgentState } from '../../hooks/useAgentState';
 import { StepList } from '../../components/StepList';
 import { ArtifactCard } from '../../components/artifacts/Artifact';
 import './conversation.css';
+import { useAssistantName } from '../../hooks/useAssistantName';
 
 /** The current conversation. AI setup lives in Settings → AI. */
 export function AgentPanel({
@@ -15,6 +17,7 @@ export function AgentPanel({
   onSetUp(): void;
   onOpenArtifact(ref: ArtifactRef): void;
 }) {
+  const assistant = useAssistantName();
   const { state, loading, error: loadError } = useAgentState();
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -90,7 +93,7 @@ export function AgentPanel({
       <section className="agent-panel" data-setup>
         <EmptyState icon="chat" title="Connect an AI model first.">
           <p className="ds-body ds-secondary">
-            Add your OpenRouter key in Settings, then come back to talk with Edi.
+            Add your OpenRouter key in Settings, then come back to talk with {assistant}.
           </p>
           <Button variant="prominent" trailingIcon="chevron-right" onClick={onSetUp}>
             Set up AI
@@ -136,7 +139,7 @@ export function AgentPanel({
                     <ThinkingDots />
                   ) : (
                     <p className="agent-bubble-text">
-                      {body}
+                      {message.role === 'assistant' ? <ReplyText text={body} /> : body}
                       {pending && body ? <span className="agent-caret" aria-hidden="true" /> : null}
                     </p>
                   )}
@@ -155,7 +158,7 @@ export function AgentPanel({
                   }
                 />
               ))}
-              {pending && <StepList steps={state.steps} label="What Edi did" />}
+              {pending && <StepList steps={state.steps} label={`What ${assistant} did`} />}
             </article>
           );
         })}
@@ -176,7 +179,7 @@ export function AgentPanel({
           <p>
             {state.screenAccess === 'restricted'
               ? 'Screen Recording is restricted on this Mac.'
-              : 'Edi can’t see your screen yet. Turn on Screen Recording, then ask again.'}
+              : `${assistant} can’t see your screen yet. Turn on Screen Recording, then ask again.`}
           </p>
           {state.screenAccess !== 'restricted' && (
             <Button
@@ -209,7 +212,7 @@ export function AgentPanel({
         }}
       >
         <label htmlFor="agent-draft" className="ds-visually-hidden">
-          Message Edi
+          Message {assistant}
         </label>
         <textarea
           ref={el => {
@@ -221,7 +224,7 @@ export function AgentPanel({
           rows={1}
           value={draft}
           maxLength={8000}
-          placeholder="Ask Edi…"
+          placeholder={`Ask ${assistant}…`}
           disabled={busy && !running}
           onChange={event => {
             setDraft(event.target.value);

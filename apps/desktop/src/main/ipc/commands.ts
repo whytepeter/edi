@@ -1,5 +1,11 @@
 import type { BrowserWindow } from 'electron';
-import type { ArtifactRef, Settings, WorkspaceView } from '@edi/contracts';
+import type {
+  ArtifactRef,
+  CloudProviderId,
+  Settings,
+  VoiceSelection,
+  WorkspaceView,
+} from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
@@ -9,6 +15,7 @@ import type { WindowPlacement } from '../windows/placement';
 import type { VoiceController } from '../voice/voice-controller';
 import { cardSize, resizePetWindow } from '../windows/factory';
 import type { PermissionManager } from '../permission-manager';
+import type { CharacterLibrary } from '../characters/library';
 
 interface CommandDependencies {
   workspace: BrowserWindow;
@@ -27,7 +34,17 @@ interface CommandDependencies {
   /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
   artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
   closeArtifact(): void;
+  /** Open a validated http(s) link from a reply in the default browser. */
+  openLink(url: string): Promise<void>;
+  /** Save (after checking with the provider) or forget a cloud voice key. */
+  setVoiceKey(provider: CloudProviderId, apiKey: string | null): Promise<void>;
+  /** Settings → Voice: play a short sample of a voice. */
+  previewVoice(selection: VoiceSelection): Promise<void>;
+  /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
+  deleteLibraryItem(id: string): Promise<void>;
   reportView(view: WorkspaceView): void;
+  /** Built-in and installed characters. */
+  characters: CharacterLibrary;
 }
 
 const fromPet = ['pet'] as const;
@@ -50,7 +67,12 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     openArtifact,
     artifactAction,
     closeArtifact,
+    openLink,
+    previewVoice,
+    setVoiceKey,
+    deleteLibraryItem,
     reportView,
+    characters,
   } = deps;
 
   // Move the card immediately; the write and broadcast follow.
@@ -122,7 +144,26 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ expanded }) =>
         placement.place({ x: 0, y: 0, ...(expanded ? cardSize.expanded : cardSize.compact) }),
     },
-    'apply-skin': { from: fromWorkspace, handle: ({ skin }) => updateLayout({ skin }) },
+    'apply-skin': {
+      from: fromWorkspace,
+      handle: ({ skin }) => {
+        if (!characters.has(skin)) throw new Error('That character is not installed.');
+        const bounds = resizePetWindow(
+          pet,
+          settings.current.petScale,
+          characters.get(skin).manifest.geometry,
+        );
+        return updateLayout({ skin, petPosition: { x: bounds.x, y: bounds.y } });
+      },
+    },
+    'character-install': {
+      from: fromWorkspace,
+      handle: async ({ token }) => {
+        await characters.install(token);
+      },
+    },
+    'character-remove': { from: fromWorkspace, handle: ({ id }) => characters.remove(id) },
+    'set-name': { from: fromWorkspace, handle: ({ name }) => settings.update({ name }) },
     'set-pinned': { from: fromWorkspace, handle: ({ pinned }) => updateLayout({ pinned }) },
     'set-speak-replies': {
       from: fromWorkspace,
@@ -131,7 +172,11 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'set-pet-scale': {
       from: fromWorkspace,
       handle: ({ scale, commit }) => {
-        const bounds = resizePetWindow(pet, scale, settings.current.skin);
+        const bounds = resizePetWindow(
+          pet,
+          scale,
+          characters.get(settings.current.skin).manifest.geometry,
+        );
         // While the slider moves, the card (and the slider in it) stays still even if a display
         // edge pushes Edi; it re-attaches once, when the slider settles, and the size is saved.
         if (!commit) return;
@@ -147,11 +192,31 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
+    'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },
     'workspace-view': { from: fromWorkspace, handle: ({ view }) => reportView(view) },
     'set-voice-model': {
       from: fromWorkspace,
       handle: ({ model }) => settings.update({ voiceModel: model }),
     },
+    // Choosing a voice also selects its model; each model remembers its own voice.
+    'set-voice': {
+      from: fromWorkspace,
+      handle: ({ selection }) =>
+        settings.update({
+          voiceModel: selection.model,
+          voices: { ...settings.current.voices, [selection.model]: selection.voice },
+        }),
+    },
+    'preview-voice': { from: fromWorkspace, handle: ({ selection }) => previewVoice(selection) },
+    'set-voice-key': {
+      from: fromWorkspace,
+      handle: ({ provider, apiKey }) => setVoiceKey(provider, apiKey),
+    },
+    'forget-voice-key': {
+      from: fromWorkspace,
+      handle: ({ provider }) => setVoiceKey(provider, null),
+    },
+    'open-link': { from: fromWorkspace, handle: ({ url }) => openLink(url) },
     'reveal-library-item': { from: fromWorkspace, handle: ({ id }) => revealLibraryItem(id) },
 
     'configure-agent': {

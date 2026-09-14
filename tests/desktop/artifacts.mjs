@@ -71,6 +71,17 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     },
     3,
   );
+  repositories.artifacts.add({
+    id: callId,
+    kind: 'html',
+    title: 'Sandbox probe',
+    content: { kind: 'html', title: 'Sandbox probe', html: page },
+    // Never written in this test, so Delete finds no file and trashes nothing on this Mac.
+    path: 'Artifacts/Interactive/edi-test-sandbox-probe-missing.html',
+    bytes: page.length,
+    createdAt: 3,
+    updatedAt: 3,
+  });
   database.close();
 }
 
@@ -168,8 +179,20 @@ try {
   await artifact.keyboard.press('Escape');
   await expect.poll(artifactOpen).toBe(false);
 
+  // 5. Library Delete asks first; Cancel keeps the item, Move to Trash removes it everywhere.
+  await workspace.getByRole('button', { name: 'Delete “Sandbox probe”' }).click();
+  await expect(workspace.getByText(/Move “Sandbox probe” to the Trash\?/)).toBeVisible();
+  await workspace.getByRole('button', { name: 'Cancel' }).click();
+  await expect(row).toBeVisible();
+  await workspace.getByRole('button', { name: 'Delete “Sandbox probe”' }).click();
+  await workspace.getByRole('button', { name: 'Move to Trash' }).click();
+  await expect(row).toHaveCount(0);
+  expect((await workspace.evaluate(() => window.edi.library())).map(item => item.id)).not.toContain(
+    callId,
+  );
+
   console.log(
-    'PASS: artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge.',
+    'PASS: artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
   );
 } finally {
   await app?.close();

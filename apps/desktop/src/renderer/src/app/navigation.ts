@@ -25,6 +25,7 @@ export const settingsDestination: Destination = {
 const pageTitles: Record<Exclude<WorkspaceView, WorkspaceSection>, string> = {
   'settings.ai': 'AI',
   'settings.voice': 'Voice',
+  'settings.usage': 'Usage',
   'settings.keyboard': 'Keyboard',
   'settings.privacy': 'Privacy & Permissions',
   'settings.activity': 'Activity',

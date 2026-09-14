@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ToolOutcome } from '@edi/capabilities';
-import { modelIdSchema } from '@edi/contracts';
+import { assistantNameSchema, modelIdSchema, usageEntrySchema } from '@edi/contracts';
 
 const bytesWithin = (limit: number) =>
   z.custom<Uint8Array>(
@@ -20,6 +20,10 @@ export const workerInputSchema = z
   .object({
     apiKey: z.string().min(10).max(4_096),
     model: modelIdSchema,
+    /** What the person calls their companion. */
+    name: assistantNameSchema.default('Edi'),
+    /** A fast model that reads fetched pages and answers Edi's question; defaults to `model`. */
+    readerModel: modelIdSchema.optional(),
     prompt: z.string().min(1).max(8_000),
     /** Earlier completed exchanges, oldest first, text only. */
     history: z
@@ -56,6 +60,10 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('done') }).strict(),
+  /** Tokens and cost of one model call, as the provider reported them. */
+  z.object({ type: z.literal('usage'), entry: usageEntrySchema }).strict(),
+  /** A closed set of progress hints; provider output never becomes free text here. */
+  z.object({ type: z.literal('activity'), activity: z.enum(['searching-web']) }).strict(),
   z
     .object({
       type: z.literal('error'),

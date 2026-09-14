@@ -28,7 +28,7 @@
 }
 .voice-model-option {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
@@ -38,7 +38,7 @@
   color: var(--label);
   text-align: left;
 }
-.voice-model-option + .voice-model-option {
+.voice-model-item + .voice-model-item {
   box-shadow: inset 0 0.5px 0 var(--separator);
 }
 .voice-model-option:hover:not(:disabled) {
@@ -62,6 +62,140 @@
 .voice-model-copy span {
   font: var(--text-footnote);
   color: var(--label-secondary);
+}
+.voice-model-copy span[data-connected] {
+  color: var(--accent-strong);
+  font-weight: 500;
+}
+.voice-model-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent-strong);
+}
+.voice-model-check {
+  display: grid;
+  place-items: center;
+  width: 16px;
+}
+.voice-model-chevron {
+  display: grid;
+  color: var(--label-tertiary);
+  transition: transform 220ms var(--ease-out);
+}
+.voice-model-item[data-open] .voice-model-chevron {
+  transform: rotate(180deg);
+}
+
+/* A cloud provider's key panel, opened in place under its row. */
+.voice-cloud-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4) calc(var(--space-4) + 22px + var(--space-3));
+  background: var(--accent-softer);
+  animation: voice-cloud-open 220ms var(--ease-out);
+}
+.voice-cloud-panel > p {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+@keyframes voice-cloud-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-cloud-panel {
+    animation: none;
+  }
+  .voice-model-chevron {
+    transition: none;
+  }
+}
+/* A connected account with no voices of its own yet. */
+.voice-cloud-empty {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.voice-cloud-connected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.voice-cloud-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--text-callout);
+  font-weight: 500;
+  color: var(--label);
+}
+.voice-cloud-status .ds-icon {
+  color: var(--accent-strong);
+}
+
+/* The voice within the chosen model: pick with the row, listen with the play button. */
+.voice-filter {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+}
+.voice-list {
+  display: grid;
+}
+.voice-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+}
+.voice-option + .voice-option {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+.voice-option[data-selected] {
+  background: var(--accent-softer);
+}
+.voice-option-choose {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 9px var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  text-align: left;
+}
+.voice-option-choose:hover {
+  background: var(--fill-hover);
+}
+.voice-option-check {
+  display: grid;
+  place-items: center;
+  color: var(--accent-strong);
+}
+.voice-preview.ds-icon-button {
+  flex: none;
+  color: var(--label-secondary);
+}
+.voice-preview.ds-icon-button[data-playing] {
+  color: var(--accent-strong);
+  animation: voice-preview-pulse 900ms ease-in-out infinite alternate;
+}
+@keyframes voice-preview-pulse {
+  to {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-preview.ds-icon-button[data-playing] {
+    animation: none;
+  }
 }
 
 .model-picker {
@@ -128,4 +262,79 @@
   color: var(--accent-strong);
   text-transform: uppercase;
   letter-spacing: var(--tracking-eyebrow);
+}
+
+.voice-key-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.voice-key-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.voice-key-hint[role='alert'] {
+  color: var(--label);
+}
+.voice-key-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 500;
+}
+.voice-key-link:hover {
+  text-decoration: underline;
+}
+.voice-filter {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* Settings → Usage: the period's spend, a small daily chart, then where it went. */
+.usage-hero {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+}
+.usage-hero-label {
+  font: var(--text-footnote);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.usage-hero-cost {
+  font: var(--text-large-title);
+  letter-spacing: var(--tracking-large-title);
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
+}
+.usage-hero-detail {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 56px;
+  margin-top: var(--space-3);
+}
+.usage-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--accent-fill);
+  opacity: 0.85;
+}
+.usage-bar:hover {
+  opacity: 1;
 }

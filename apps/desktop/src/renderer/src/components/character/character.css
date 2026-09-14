@@ -1,0 +1,482 @@
+/*
+ * Character motion for every package. The art never animates itself: it offers parts
+ * (data-part) with variants (data-variant), CharacterArt marks the active variant with
+ * data-active, and these rules move parts by state. Layers, lowest to highest priority:
+ *   idle breathing → mood (data-mood) → gesture (data-expression happy/attention) → cue (data-cue)
+ * --motion (0.5–1.5, from the manifest) scales distances. Motion runs inside .character-live
+ * (the desktop pet and preview tiles); elsewhere characters hold still.
+ */
+
+.pet-art {
+  overflow: visible;
+}
+.pet-art [data-variant]:not([data-active]) {
+  display: none;
+}
+
+/* ---------- Hit testing ---------- */
+/* Only the declared outline is grabbable; the transparent window passes clicks through. */
+.desktop-pet,
+.desktop-pet .pet-art,
+.pet-art-layer,
+.pet-hit,
+.pet-effects {
+  pointer-events: none;
+}
+.desktop-pet .pet-hit {
+  pointer-events: all;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.desktop-pet.is-dragging .pet-hit {
+  cursor: grabbing;
+}
+
+.pet-body,
+.pet-art [data-part='eyes'],
+.pet-art [data-part='pupils'],
+.pet-art [data-part='brows'],
+.pet-art [data-part='mouth'] > [data-variant],
+.pet-art [data-part='extras'] > [data-variant],
+.pet-hand,
+.pet-effect {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Variant changes ease in rather than snapping (the mouth keeps its own animation). */
+.pet-art [data-part='brows'] > [data-active],
+.pet-art [data-part='cheeks'] > [data-active] {
+  animation: character-fade-in 160ms ease-out both;
+}
+.pet-art [data-part='extras'] > [data-active] {
+  transform-origin: 50% 100%;
+  animation: character-rise-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---------- Resting ---------- */
+.character-live .pet-body {
+  animation: edi-idle 4.8s ease-in-out infinite;
+}
+.character-live .pet-body[data-blink] [data-part='eyes'] {
+  animation: edi-blink 5.6s linear infinite;
+}
+.character-live [data-part='pupils'] {
+  animation: edi-look-around 7.2s ease-in-out infinite;
+}
+
+/* ---------- What Edi is doing ---------- */
+/* Listening and thinking already show in the bubble, so only the eyes change. */
+.pet-art[data-expression='listening'] [data-part='pupils'] {
+  animation: none;
+  transform: scale(1.12);
+}
+.pet-art[data-expression='thinking'] [data-part='pupils'] {
+  animation: none;
+  transform: translate(4px, -4px);
+}
+
+/* Speaking: the mouth moves. With live audio it follows the voice's loudness. */
+.pet-art[data-expression='speaking'] [data-part='mouth'] > [data-active] {
+  animation: edi-mouth 1.1s ease-in-out infinite;
+}
+:root[data-lip-sync] .pet-art[data-expression='speaking'] [data-part='mouth'] > [data-active] {
+  animation: none;
+  transform: scaleY(calc(0.16 + var(--edi-mouth, 0) * 0.84));
+  transition: transform 60ms linear;
+}
+
+/* ---------- Mood ---------- */
+.character-live .pet-art[data-mood='happy'] .pet-body {
+  animation: mood-bouncy 2.6s ease-in-out infinite;
+}
+.character-live .pet-art[data-mood='love'] .pet-body {
+  animation: mood-love 1.5s ease-in-out infinite;
+}
+.character-live .pet-art[data-mood='sad'] .pet-body {
+  animation: mood-droop 6s ease-in-out infinite;
+}
+.character-live .pet-art[data-mood='surprised'] .pet-body {
+  animation: mood-pop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.character-live .pet-art[data-mood='confused'] .pet-body {
+  animation: mood-tilt 3.4s ease-in-out infinite;
+}
+.character-live .pet-art[data-mood='sleepy'] .pet-body {
+  animation: mood-sleepy 7s ease-in-out infinite;
+}
+.character-live .pet-art[data-mood='annoyed'] .pet-body {
+  animation: mood-huff 720ms ease-in-out both;
+}
+.pet-art[data-mood='sad'] [data-part='pupils'] {
+  animation: none;
+  transform: translateY(1.5px);
+}
+.pet-art[data-mood='confused'] [data-part='pupils'] {
+  animation: none;
+  transform: translate(-2px, -3px);
+}
+.pet-art[data-mood='surprised'] [data-part='pupils'] {
+  animation: none;
+  transform: scale(0.92);
+}
+/* Characters without their own sleepy or happy eyes still squint. */
+.pet-art[data-mood='sleepy'] [data-part='eyes']:has(> [data-variant='default'][data-active]) {
+  animation: none;
+  transform: scaleY(0.45);
+}
+.pet-art:is([data-expression='happy'], [data-mood='happy'])
+  [data-part='eyes']:has(> [data-variant='default'][data-active]) {
+  animation: none;
+  transform: scaleY(0.62);
+}
+.pet-art[data-mood='sleepy'] .pet-body[data-blink] [data-part='eyes'] {
+  animation: none;
+}
+
+/* ---------- Gestures ---------- */
+/* Small hands appear only for gestures: a wave for attention, one hand up when happy. */
+.pet-art [data-hand] {
+  visibility: hidden;
+}
+.pet-art[data-expression='attention'] [data-hand='right'],
+.pet-art[data-expression='happy'] [data-hand='right'] {
+  visibility: visible;
+}
+.pet-art[data-expression='attention'] .pet-hand-right {
+  transform-origin: 50% 100%;
+  transform: translate(8px, -70px);
+  animation: edi-wave 360ms ease-in-out 3 alternate both;
+}
+.pet-art[data-expression='happy'] .pet-hand-right {
+  transform: translate(12px, 14px) rotate(-18deg);
+  animation: edi-hand-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.character-live .pet-art[data-expression='happy'] .pet-body {
+  animation: edi-happy 720ms cubic-bezier(0.34, 1.56, 0.64, 1) 2;
+}
+.character-live .pet-art[data-expression='attention'] .pet-body {
+  animation: edi-attention 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pet-art[data-expression='attention'] [data-part='pupils'] {
+  animation: none;
+}
+
+/* ---------- Cues, in time with the voice ---------- */
+.character-live .pet-art[data-cue='laugh'] .pet-body {
+  animation: cue-laugh 280ms ease-in-out 5;
+}
+.character-live .pet-art[data-cue='chuckle'] .pet-body {
+  animation: cue-chuckle 300ms ease-in-out 3;
+}
+.character-live .pet-art[data-cue='sigh'] .pet-body {
+  animation: cue-sigh 1.3s ease-in-out both;
+}
+.character-live .pet-art[data-cue='gasp'] .pet-body {
+  animation: cue-gasp 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.character-live .pet-art[data-cue='groan'] .pet-body {
+  animation: cue-groan 1.1s ease-in-out both;
+}
+.character-live .pet-art[data-cue='sniff'] .pet-body {
+  animation: cue-sniff 200ms ease-in-out 2;
+}
+/* A laugh's smile opens with the voice rather than chattering. */
+:root[data-lip-sync]
+  .pet-art[data-cue][data-expression='speaking']
+  [data-part='mouth']
+  > [data-active] {
+  transform-origin: 50% 0;
+  transform: scaleY(calc(0.8 + var(--edi-mouth, 0.5) * 0.35));
+}
+.pet-art[data-cue] [data-part='brows'] {
+  transform: translateY(-1.5px);
+}
+
+/* ---------- Effects ---------- */
+.pet-effect-float {
+  animation: effect-float 2.4s ease-in-out infinite;
+}
+.pet-effect-wobble {
+  animation: effect-wobble 1.8s ease-in-out infinite;
+}
+.pet-effect-pop {
+  animation: effect-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ---------- Keyframes ---------- */
+@keyframes character-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes character-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes edi-idle {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.25deg);
+  }
+  50% {
+    transform: translateY(calc(var(--motion, 1) * -1.5px)) rotate(0.35deg);
+  }
+}
+@keyframes edi-blink {
+  0%,
+  44%,
+  48%,
+  82%,
+  86%,
+  100% {
+    transform: scaleY(1);
+  }
+  46%,
+  84% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes edi-look-around {
+  0%,
+  18%,
+  100% {
+    transform: translateX(0);
+  }
+  28%,
+  42% {
+    transform: translateX(3px);
+  }
+  58%,
+  72% {
+    transform: translateX(-3px);
+  }
+}
+/* Without audio levels, an uneven rhythm reads as speech rather than a metronome. */
+@keyframes edi-mouth {
+  0%,
+  100% {
+    transform: scaleY(0.2);
+  }
+  14% {
+    transform: scaleY(0.85);
+  }
+  28% {
+    transform: scaleY(0.35);
+  }
+  45% {
+    transform: scaleY(1);
+  }
+  60% {
+    transform: scaleY(0.25);
+  }
+  78% {
+    transform: scaleY(0.7);
+  }
+}
+@keyframes edi-wave {
+  from {
+    transform: translate(8px, -70px) rotate(-14deg);
+  }
+  to {
+    transform: translate(8px, -70px) rotate(16deg);
+  }
+}
+@keyframes edi-hand-pop {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+}
+@keyframes edi-happy {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(calc(var(--motion, 1) * -5px)) scale(1.025, 0.985);
+  }
+  70% {
+    transform: translateY(1px) scale(0.99, 1.01);
+  }
+}
+@keyframes edi-attention {
+  0% {
+    transform: rotate(-5deg) scale(0.96);
+  }
+  55% {
+    transform: rotate(2deg) scale(1.025);
+  }
+}
+@keyframes mood-bouncy {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.5deg);
+  }
+  50% {
+    transform: translateY(calc(var(--motion, 1) * -3px)) rotate(0.8deg);
+  }
+}
+@keyframes mood-love {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    transform: translateY(calc(var(--motion, 1) * -2.5px)) scale(1.015);
+  }
+  60% {
+    transform: translateY(0) scale(0.995);
+  }
+}
+@keyframes mood-droop {
+  0%,
+  100% {
+    transform: translateY(calc(var(--motion, 1) * 2px)) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(calc(var(--motion, 1) * 3px)) rotate(-2.8deg);
+  }
+}
+@keyframes mood-pop {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(calc(var(--motion, 1) * -6px)) scale(1.04, 0.97);
+  }
+  100% {
+    transform: translateY(-1px) scale(1.01);
+  }
+}
+@keyframes mood-tilt {
+  0%,
+  100% {
+    transform: rotate(calc(var(--motion, 1) * -7deg));
+  }
+  50% {
+    transform: rotate(calc(var(--motion, 1) * -4deg)) translateY(-1px);
+  }
+}
+@keyframes mood-sleepy {
+  0%,
+  100% {
+    transform: translateY(calc(var(--motion, 1) * 2px)) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(calc(var(--motion, 1) * 4px)) rotate(3deg);
+  }
+}
+@keyframes mood-huff {
+  0%,
+  100% {
+    transform: translateX(0) rotate(-2deg);
+  }
+  20% {
+    transform: translateX(calc(var(--motion, 1) * -2.5px)) rotate(-3deg);
+  }
+  40% {
+    transform: translateX(calc(var(--motion, 1) * 2.5px)) rotate(-1deg);
+  }
+  60% {
+    transform: translateX(calc(var(--motion, 1) * -1.5px)) rotate(-2.5deg);
+  }
+}
+@keyframes cue-laugh {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  30% {
+    transform: translateY(calc(var(--motion, 1) * -3px)) rotate(-2deg);
+  }
+  65% {
+    transform: translateY(1px) rotate(1.5deg);
+  }
+}
+@keyframes cue-chuckle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(calc(var(--motion, 1) * -1.8px));
+  }
+}
+@keyframes cue-sigh {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(calc(var(--motion, 1) * -2.5px)) scale(1.02);
+  }
+  100% {
+    transform: translateY(calc(var(--motion, 1) * 2px)) scale(0.99);
+  }
+}
+@keyframes cue-gasp {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(calc(var(--motion, 1) * -4px)) scale(1.05, 0.96) rotate(-2deg);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes cue-groan {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(calc(var(--motion, 1) * 3px)) rotate(4deg) scale(1.01, 0.98);
+  }
+}
+@keyframes cue-sniff {
+  50% {
+    transform: translateY(calc(var(--motion, 1) * -1.2px));
+  }
+}
+@keyframes effect-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@keyframes effect-wobble {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+@keyframes effect-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Accessibility wins over every state: the face still changes, nothing moves. */
+  .character-live .pet-art,
+  .character-live .pet-art * {
+    animation: none !important;
+  }
+  :root[data-lip-sync] .character-live [data-part='mouth'] > * {
+    transform: none !important;
+    transition: none;
+  }
+}

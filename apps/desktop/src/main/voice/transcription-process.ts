@@ -39,7 +39,10 @@ export async function transcribePcm(
   pcm: Uint8Array,
   signal: AbortSignal,
   timeoutMs = 30_000,
+  /** The companion's name when it is not Edi, so Whisper spells it as the person does. */
+  name = 'Edi',
 ): Promise<string> {
+  const vocabulary = name === 'Edi' ? '' : `${name}. `;
   signal.throwIfAborted();
   const wav = pcmWave(pcm);
   return new Promise((resolve, reject) => {
@@ -56,7 +59,7 @@ export async function transcribePcm(
         '-l',
         'en',
         '--prompt',
-        'Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.',
+        `${vocabulary}Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.`,
         '-t',
         '4',
         '-ng',

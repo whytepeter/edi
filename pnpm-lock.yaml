@@ -44,6 +44,9 @@ importers:
       '@edi/capabilities':
         specifier: workspace:*
         version: link:../../packages/capabilities
+      '@edi/characters':
+        specifier: workspace:*
+        version: link:../../packages/characters
       '@edi/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -105,6 +108,24 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.2
+
+  packages/characters:
+    devDependencies:
+      '@edi/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.1.0
+        version: 19.3.0(@types/react@19.3.0)
+      react:
+        specifier: ^19.1.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.3.0(react@19.3.0)
 
   packages/contracts:
     dependencies:

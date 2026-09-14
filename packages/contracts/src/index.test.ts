@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  systemInfoSchema,
+  cloudVoiceOptionSchema,
+  assistantName,
   agentStateSchema,
   characterExpressionSchema,
   commandSchema,
@@ -49,7 +52,6 @@ test('streamed presentation tags stay hidden, including partial tokens', () => {
   const shots = [{ width: 100, height: 100, display: { x: 0, y: 0, width: 100, height: 100 } }];
   assert.equal(resolvePresentation(parsePresentation('[DRAW:circle:5,5,20:bad]'), shots), null);
 });
-import { skinGeometrySchema, skinGeometry, mapSkinPoint } from './skin-geometry';
 import { placeCard, clampWindow, placeContextMenu, placeSpeechBubble } from './window-placement';
 
 test('card placement flips at left edge and clamps small/negative-origin displays', () => {
@@ -81,40 +83,6 @@ test('card placement flips at left edge and clamps small/negative-origin display
     { x: 0, y: 0, width: 320, height: 300 },
   );
   assert.throws(() => clampWindow({ x: NaN, y: 0, width: 1, height: 1 }, area));
-});
-
-test('all bundled skins validate and reject out-of-bounds anchors', () => {
-  for (const geometry of Object.values(skinGeometry)) {
-    assert.equal(skinGeometrySchema.safeParse(geometry).success, true);
-    assert.equal(
-      skinGeometrySchema.safeParse({
-        ...geometry,
-        anchors: { ...geometry.anchors, leftHand: { x: -1, y: 0 } },
-      }).success,
-      false,
-    );
-    assert.equal(
-      skinGeometrySchema.safeParse({
-        ...geometry,
-        paintedBounds: { x: 0, y: 0, width: 999, height: 10 },
-      }).success,
-      false,
-    );
-  }
-});
-test('skin coordinates match centered SVG scaling including negative display origins', () => {
-  const geometry = skinGeometry.mochi;
-  assert.deepEqual(
-    mapSkinPoint(geometry, { x: 80, y: 85 }, { x: -500, y: 10, width: 320, height: 170 }),
-    { x: -340, y: 95 },
-  );
-  assert.deepEqual(
-    mapSkinPoint(geometry, geometry.anchors.leftHand, { x: 0, y: 0, width: 160, height: 170 }),
-    { x: 30, y: 99 },
-  );
-  assert.throws(() =>
-    mapSkinPoint(geometry, { x: 0, y: 0 }, { x: 0, y: 0, width: 0, height: 170 }),
-  );
 });
 
 test('bridge rejects unknown capabilities and invalid skin selections', () => {
@@ -187,7 +155,81 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     commandSchema.safeParse({ type: 'set-pet-scale', scale: 3, commit: true }).success,
     false,
   );
-  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).voiceModel, 'pocket');
+  // Cloud voices: ids from the account, keys only through their own command.
+  assert.equal(
+    commandSchema.safeParse({
+      type: 'set-voice',
+      selection: { model: 'elevenlabs', voice: '21m00Tcm4TlvDq8ikWAM' },
+    }).success,
+    true,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'set-voice', selection: { model: 'cartesia', voice: '../x' } })
+      .success,
+    false,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'set-voice-key', provider: 'cartesia', apiKey: 'short' })
+      .success,
+    false,
+  );
+  // Replies may link sources; only plain web links can be opened.
+  for (const url of ['https://example.com/a?b=1', 'http://example.org'])
+    assert.equal(commandSchema.safeParse({ type: 'open-link', url }).success, true, url);
+  for (const url of [
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'https://user:pw@example.com',
+    'x',
+  ])
+    assert.equal(commandSchema.safeParse({ type: 'open-link', url }).success, false, url);
+  // Kokoro is the default; a saved Pocket choice (removed) moves to Kokoro, Chatterbox stays.
+  assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).voiceModel, 'kokoro');
+  assert.equal(
+    settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'pocket' }).voiceModel,
+    'kokoro',
+  );
+  assert.equal(
+    settingsSchema.parse({
+      skin: 'edi',
+      pinned: false,
+      voiceModel: 'pocket',
+      voices: { kokoro: 'af_heart', pocket: 'jane', 'chatterbox-turbo': 'calm' },
+    }).voiceModel,
+    'kokoro',
+  );
+  assert.equal(
+    settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'chatterbox-turbo' }).voiceModel,
+    'chatterbox-turbo',
+  );
+  // Each model keeps its own voice; a retired voice falls back to that model's default.
+  assert.deepEqual(
+    settingsSchema.parse({
+      skin: 'edi',
+      pinned: false,
+      voices: { kokoro: 'bf_emma', pocket: 'alba' },
+    }).voices,
+    {
+      kokoro: 'bf_emma',
+      'chatterbox-turbo': 'calm',
+      cartesia: null,
+      elevenlabs: null,
+    },
+  );
+  assert.equal(
+    commandSchema.safeParse({
+      type: 'set-voice',
+      selection: { model: 'pocket', voice: 'jane' },
+    }).success,
+    false,
+  );
+  assert.equal(
+    commandSchema.safeParse({
+      type: 'preview-voice',
+      selection: { model: 'kokoro', voice: 'bm_george' },
+    }).success,
+    true,
+  );
   assert.equal(
     settingsSchema.safeParse({ skin: 'cloud', pinned: false, voiceModel: 'chatterbox-turbo' })
       .success,
@@ -511,4 +553,41 @@ test('presentations resolve onto the right display, and bad targets are rejected
     localizeActions([{ type: 'point', x: -960, y: 540, label: '' }], { x: -1920, y: 0 }),
     [{ type: 'point', x: 960, y: 540, label: '' }],
   );
+});
+
+test('the companion is named by the person, or by its character until then', () => {
+  const saved = settingsSchema.parse({ skin: 'mochi', pinned: false });
+  assert.equal(saved.name, null);
+  assert.equal(assistantName(saved, 'Mochi'), 'Mochi');
+  assert.equal(assistantName({ name: 'Luna' }, 'Mochi'), 'Luna');
+  assert.equal(settingsSchema.parse({ skin: 'edi', pinned: false, name: '  Zoë ' }).name, 'Zoë');
+  // Names are copy, menu labels and prompt text: markup, paths and empty names are refused.
+  for (const name of ['', '<b>Edi</b>', '../x', '1Edi', 'A'.repeat(25)]) {
+    assert.equal(settingsSchema.parse({ skin: 'edi', pinned: false, name }).name, null);
+    assert.equal(commandSchema.safeParse({ type: 'set-name', name }).success, false);
+  }
+  assert.equal(commandSchema.safeParse({ type: 'set-name', name: 'Mary-Jane' }).success, true);
+  assert.equal(commandSchema.safeParse({ type: 'set-name', name: null }).success, true);
+});
+
+test('system info accepts the longest cloud voice name with its model', () => {
+  const voice = cloudVoiceOptionSchema.parse({
+    id: 'D9xwB6HNBJ9h4YvQFWuE',
+    name: 'V'.repeat(60),
+    description: '',
+    gender: null,
+    accent: null,
+  });
+  const model = (id: string) => ({ id, name: id, available: true, expressions: false, detail: '' });
+  const info = {
+    version: '0.1.0',
+    voice: {
+      available: true,
+      name: `${voice.name} · ElevenLabs`,
+      models: ['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
+    },
+    pushToTalk: { status: 'ready', label: '⌥ Space' },
+    notesFolder: '/Users/me/Documents/Edi',
+  };
+  assert.equal(systemInfoSchema.safeParse(info).success, true);
 });

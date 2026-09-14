@@ -34,8 +34,8 @@ After building, from the Edi root:
 
 ```sh
 sh benchmarks/voice/build_transcription.sh
-benchmarks/voice/.venv/bin/python -m unittest discover -s benchmarks/voice -p 'test_*.py'
-benchmarks/voice/.venv/bin/python benchmarks/voice/transcription_benchmark.py --output benchmarks/voice/results/transcription-01
+benchmarks/voice/mlx-venv/bin/python -m unittest discover -s benchmarks/voice -p 'test_*.py'
+benchmarks/voice/mlx-venv/bin/python benchmarks/voice/transcription_benchmark.py --output benchmarks/voice/results/transcription-01
 ```
 
 Use a new results directory for every run. JSON transcripts, process logs and summary measurements stay in the ignored results folder. Word-error scores are intentionally omitted: numbers, punctuation and proper-name spellings need an explicit normalization policy before scoring.

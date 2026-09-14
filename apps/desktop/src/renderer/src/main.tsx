@@ -1,13 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/index.css';
-import { artifactParams, bubbleParams, pointerParams, surface } from './app/surface';
+import { artifactParams, bubbleParams, menuParams, pointerParams, surface } from './app/surface';
 import { ArtifactWindow } from './components/artifacts/Artifact';
 import { WorkspaceCard } from './app/WorkspaceCard';
 import { PetSurface } from './features/pet/PetSurface';
 import { CharacterMenu } from './features/pet/CharacterMenu';
 import { StatusBubble } from './features/pet/StatusBubble';
 import { startVoiceClient } from './features/voice/VoiceClient';
+import { cueStore } from './features/pet/cue-store';
 import { PointerSurface } from './features/pointer/PointerSurface';
 
 document.documentElement.dataset.surface = surface;
@@ -29,13 +30,15 @@ if (surface === 'pet' && window.edi)
         root.style.setProperty('--edi-mouth', String(level));
       }
     },
+    // A laugh, sigh or gasp is audible now: the character performs it for about as long.
+    onCue: cue => cueStore.play(cue),
   });
 
 const view = {
   workspace: <WorkspaceCard />,
   artifact: <ArtifactWindow {...artifactParams} />,
   pet: <PetSurface />,
-  'character-menu': <CharacterMenu />,
+  'character-menu': <CharacterMenu {...menuParams} />,
   'voice-status': <StatusBubble {...bubbleParams} />,
   pointer: <PointerSurface {...pointerParams} />,
 }[surface];

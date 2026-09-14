@@ -21,7 +21,7 @@ The overlay expires automatically and is destroyed when replaced or stopped. Red
 
 Ordinary reply text stays in the conversation card and never streams into the character bubble. The bubble shows live listening, thinking, and speaking animation. When a capability needs approval, the same surface becomes a compact action card with a validated summary, a request-specific approve/deny action, and **View details** for the full review in the content card. Its isolated preload exposes only those approval actions; it cannot ask the agent, change settings, or access native APIs.
 
-The character itself receives only semantic expressions: idle, listening, thinking, speaking, happy, and attention. These states are validated at the preload boundary and remain independent of the active voice provider. Every bundled skin implements the same contract; reduced-motion keeps the facial state while removing movement. See `docs/CHARACTER.md`.
+The character itself receives only semantic state: an expression (idle, listening, thinking, speaking, happy, attention), a mood, and cues timed to the voice. These are validated at the preload boundary and remain independent of the active voice provider. Every character package implements the same parts-and-variants contract; reduced motion keeps the face while removing movement. See `docs/CHARACTER.md`.
 
 ## Verification still needed
 

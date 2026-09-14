@@ -67,6 +67,26 @@ function recommend(models: ModelOption[], created: Map<string, number>) {
   return models.map(model => ({ ...model, recommended: chosen.get(model.id) ?? null }));
 }
 
+/**
+ * The page reader: the newest Gemini Flash Lite (cheap, fast, long context, good at reading),
+ * by version number so the pick stays current; otherwise the fast pick.
+ */
+export function readerModelFrom(models: readonly ModelOption[]): string | null {
+  const version = (id: string) =>
+    /^google\/gemini-([\d.]+)-flash-lite$/.exec(id)?.[1]?.split('.').map(Number) ?? null;
+  const newer = (a: number[], b: number[]) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++)
+      if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+    return false;
+  };
+  let best: { id: string; version: number[] } | null = null;
+  for (const model of models) {
+    const parsed = version(model.id);
+    if (parsed && (!best || newer(parsed, best.version))) best = { id: model.id, version: parsed };
+  }
+  return best?.id ?? models.find(model => model.recommended === 'fast')?.id ?? null;
+}
+
 /** OpenRouter's public model list. No key or user data is sent; results are cached for an hour. */
 export class ModelCatalog {
   private cached?: { at: number; models: ModelOption[] };

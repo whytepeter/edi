@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type {
+  FileAccess,
+  FileAccessAction,
+  FolderAccessStatus,
   PermissionId,
   PermissionSnapshot,
   PermissionStatus,
@@ -26,6 +29,13 @@ const statusLabel: Record<PermissionStatus, string> = {
   unknown: 'Checking…',
 };
 
+const folderStatus: Record<FolderAccessStatus, string> = {
+  allowed: 'Allowed',
+  off: 'Off',
+  'not-checked': 'Not asked yet',
+  missing: 'Not found',
+};
+
 /** Settings → Privacy & Permissions: OS access, what leaves this Mac, and the activity log. */
 export function PrivacySettings({
   permissions,
@@ -35,6 +45,32 @@ export function PrivacySettings({
   onOpen(view: WorkspaceView): void;
 }) {
   const [error, setError] = useState('');
+  const [files, setFiles] = useState<FileAccess | null>(null);
+
+  const loadFiles = useCallback(() => {
+    void window.edi
+      ?.fileAccess()
+      .then(setFiles)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadFiles();
+    // Access changes in System Settings; check again whenever the card comes back.
+    window.addEventListener('focus', loadFiles);
+    return () => window.removeEventListener('focus', loadFiles);
+  }, [loadFiles]);
+
+  async function fileAction(action: FileAccessAction) {
+    setError('');
+    try {
+      const next = await window.edi?.fileAccessAction(action);
+      if (next) setFiles(next);
+    } catch {
+      setError(
+        action.type === 'add' ? 'Couldn’t add that folder.' : 'Couldn’t reach System Settings.',
+      );
+    }
+  }
 
   async function act(permission: PermissionId, status: PermissionStatus) {
     setError('');
@@ -81,12 +117,83 @@ export function PrivacySettings({
         })}
       </GroupedList>
 
+      {files && (
+        <GroupedList
+          title="Files & Folders"
+          footer="Edi searches and reads files only in these folders. Renaming, moving, new folders and moving to the Trash always ask first. Full Disk Access lets Edi use everything in your home folder."
+        >
+          {files.folders.map(folder => (
+            <GroupedRow
+              key={folder.id}
+              icon="folder"
+              title={folder.name}
+              detail={folder.path}
+              value={
+                folder.status === 'allowed' || folder.status === 'missing'
+                  ? folderStatus[folder.status]
+                  : undefined
+              }
+              control={
+                folder.kind === 'added' ? (
+                  <Button
+                    size="small"
+                    onClick={() => void fileAction({ type: 'remove', id: folder.id })}
+                  >
+                    Remove
+                  </Button>
+                ) : folder.status === 'not-checked' ? (
+                  <Button
+                    size="small"
+                    onClick={() => void fileAction({ type: 'check', id: folder.id })}
+                  >
+                    Allow
+                  </Button>
+                ) : folder.status === 'off' ? (
+                  <Button
+                    size="small"
+                    onClick={() => void fileAction({ type: 'open-settings', pane: 'files' })}
+                  >
+                    Open Settings
+                  </Button>
+                ) : undefined
+              }
+            />
+          ))}
+          <GroupedRow
+            icon="shield"
+            title="Full Disk Access"
+            detail="Everything in your home folder, including other apps’ files"
+            value={files.fullDiskAccess ? 'On' : undefined}
+            control={
+              !files.fullDiskAccess && (
+                <Button
+                  size="small"
+                  onClick={() => void fileAction({ type: 'open-settings', pane: 'full-disk' })}
+                >
+                  Open Settings
+                </Button>
+              )
+            }
+          />
+          <GroupedRow
+            icon="folder"
+            title="Add a folder…"
+            detail="Choose another folder Edi can use"
+            onOpen={() => void fileAction({ type: 'add' })}
+          />
+        </GroupedList>
+      )}
+
       <GroupedList title="What leaves this Mac">
         <li>
           <ul className="settings-prose">
             <li>
               Your questions, recent conversation, and any screenshot a question needs go to
               OpenRouter with your key.
+            </li>
+            <li>
+              When Edi reads one of your files to answer, that text goes to OpenRouter too. Your
+              files themselves stay on this Mac.
             </li>
             <li>Voice recordings, transcription and speech stay on this Mac.</li>
             <li>Edi doesn’t collect usage analytics.</li>

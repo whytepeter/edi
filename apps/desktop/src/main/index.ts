@@ -10,8 +10,8 @@ import {
   systemPreferences,
 } from 'electron';
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { readFile, stat, writeFile } from 'node:fs/promises';
+import { basename, join, relative, resolve } from 'node:path';
 
 if (process.env.EDI_CWD) process.chdir(process.env.EDI_CWD);
 
@@ -28,21 +28,34 @@ function recordMicrophoneStatus(phase: string) {
 }
 recordMicrophoneStatus('boot');
 import {
+  deleteWorkspaceItem,
   ediSetupCapabilities,
+  fileCapabilities,
   notesCapabilities,
   readLibraryNote,
   toArtifactContent,
+  webCapabilities,
   workspaceCapabilities,
   type EdiPreferences,
   type EdiSetupSnapshot,
+  type WorkspaceDependencies,
 } from '@edi/capabilities';
 import {
   artifactExport,
   artifactPreview,
-  skins,
+  assistantName,
+  isCloudVoiceModel,
+  voiceCatalog,
+  voiceName,
+  voiceSelectionSchema,
+  type VoiceSelection,
+  defaultCharacterId,
+  replyMood,
   type Artifact,
   type ArtifactRef,
   type ArtifactSummary,
+  type CloudProviderId,
+  type CloudVoiceOption,
   type LibraryItem,
   type SystemInfo,
   type WorkspaceView,
@@ -52,16 +65,22 @@ import { AgentService } from './agent/agent-service';
 import { captureScreensForPrompt } from './capture/screens';
 import { shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
-import { PocketVoice } from './voice/pocket-process';
-import { ChatterboxVoice } from './voice/chatterbox-process';
+import { MlxVoice } from './voice/mlx-process';
+import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
+import { VoiceKeys } from './voice/voice-keys';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { transcribePcm } from './voice/transcription-process';
 import { speakable, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
-import { ModelCatalog } from './agent/model-catalog';
+import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
+import { FileAccessManager } from './platform/file-access';
+import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
 import { CharacterActions } from './character/character-actions';
+import { CharacterMoodController } from './character/character-mood';
+import { CharacterLibrary } from './characters/library';
+import { maxPackageBytes, packageExtension } from './characters/package-file';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
 import { PetDrag } from './character/pet-drag';
@@ -136,8 +155,19 @@ async function start() {
 
   const settings = new SettingsStore();
   await settings.load();
+  // Built-in and installed characters. A saved character that is no longer installed falls
+  // back to Edi.
+  const characters = new CharacterLibrary(() => join(app.getPath('userData'), 'characters'));
+  await characters.load();
+  if (!characters.has(settings.current.skin)) await settings.update({ skin: defaultCharacterId });
+  const currentCharacter = () => characters.get(settings.current.skin);
+  /** What the companion is called: the person's name for it, or its character's. */
+  const companion = () => assistantName(settings.current, currentCharacter().manifest.name);
   // One user-visible workspace. Structured generated content and human notes remain distinct.
   const workspaceFolder = join(app.getPath('documents'), 'Edi');
+  // The person's own folders for the file tools (Settings → Privacy & Permissions).
+  const fileAccess = new FileAccessManager(() => workspaceFolder);
+  await fileAccess.load();
   const notesFolder = () => join(workspaceFolder, 'Notes');
   moveLegacyNotes(join(app.getPath('documents'), 'Edi Notes'), notesFolder(), repositories.notes);
   const permissionPort: { current?: PermissionManager } = {};
@@ -145,34 +175,83 @@ async function start() {
   // reports the same availability used by the voice controller.
   const voiceRuntime =
     process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  // The MLX engines are created after the settings snapshot helpers; read them lazily.
+  let kokoroVoice: MlxVoice | null = null;
+  let chatterboxVoice: MlxVoice | null = null;
+  const engineDetail = (engine: MlxVoice | null, base: string) => {
+    if (engine?.status === 'loading') return `${base} Warming up on this Mac.`;
+    const first = engine?.lastFirstAudioMs ?? null;
+    if (engine?.status === 'ready' && first !== null)
+      return `${base} Last reply started in ${(first / 1000).toFixed(1)}s.`;
+    return base;
+  };
   const voiceModels = (): SystemInfo['voice']['models'] => [
     {
-      id: 'pocket',
-      name: 'Jane · Pocket',
-      available: Boolean(voiceRuntime),
+      id: 'kokoro',
+      name: 'Kokoro',
+      available: Boolean(voiceRuntime?.mlx?.kokoro),
       expressions: false,
-      detail: 'Fast local voice',
+      detail: engineDetail(kokoroVoice, 'Natural, fast voices. The default.'),
     },
     {
       id: 'chatterbox-turbo',
       name: 'Chatterbox Turbo',
-      available: Boolean(voiceRuntime?.chatterbox),
+      available: Boolean(voiceRuntime?.mlx?.chatterbox),
       expressions: true,
-      detail: chatterboxDetail(),
+      detail: engineDetail(chatterboxVoice, 'Expressive, with laughs and sighs.'),
+    },
+    {
+      id: 'cartesia',
+      name: 'Cartesia',
+      available: voiceKeys.has('cartesia'),
+      expressions: false,
+      detail: voiceKeys.has('cartesia')
+        ? 'Cloud voice (Sonic). Uses your Cartesia account.'
+        : 'Cloud voice. Add your Cartesia key.',
+    },
+    {
+      id: 'elevenlabs',
+      name: 'ElevenLabs',
+      available: voiceKeys.has('elevenlabs'),
+      expressions: false,
+      detail: voiceKeys.has('elevenlabs')
+        ? 'Cloud voice (Flash). Uses your ElevenLabs account.'
+        : 'Cloud voice. Add your ElevenLabs key.',
     },
   ];
-  // Chatterbox is created after the settings snapshot helpers; read it lazily.
-  let chatterboxVoice: ChatterboxVoice | null = null;
-  const chatterboxDetail = () => {
-    const base = 'Expressive local voice with laughs, sighs and more.';
-    if (!chatterboxVoice) return base;
-    if (chatterboxVoice.status === 'loading')
-      return 'Warming up on this Mac. Jane answers until Chatterbox is ready.';
-    const rtf = chatterboxVoice.lastRealTimeFactor;
-    const first = chatterboxVoice.lastFirstAudioMs;
-    if (rtf !== null && first !== null)
-      return `${base} Last reply started in ${(first / 1000).toFixed(1)}s at ${rtf.toFixed(1)}× real time.`;
-    return chatterboxVoice.status === 'ready' ? `${base} Ready.` : base;
+  const voiceKeys = new VoiceKeys();
+  await voiceKeys.load();
+  // The last listing of each cloud account, so a chosen voice reads as its name ("Edi"), not its
+  // id, in Settings and in what the agent knows. Refreshed at launch and whenever Settings lists.
+  const cloudVoiceLists: Partial<Record<CloudProviderId, CloudVoiceOption[]>> = {};
+  const loadCloudVoices = async (provider: CloudProviderId) => {
+    const list = await listCloudVoices(
+      provider,
+      voiceKeys.get(provider),
+      AbortSignal.timeout(15_000),
+    );
+    if (voiceKeys.has(provider)) cloudVoiceLists[provider] = list;
+    return list;
+  };
+  for (const provider of ['cartesia', 'elevenlabs'] as const)
+    if (voiceKeys.has(provider)) void loadCloudVoices(provider).catch(() => {});
+  const spokenVoiceName = ({ model, voice }: VoiceSelection) => {
+    if (!isCloudVoiceModel(model)) return voiceName(model, voice);
+    const listed = cloudVoiceLists[model]?.find(entry => entry.id === voice);
+    return listed?.name ?? `Your ${model === 'cartesia' ? 'Cartesia' : 'ElevenLabs'} voice`;
+  };
+  /** The chosen model and voice; a cloud model without a key or voice falls back to Kokoro. */
+  const selectedVoice = (): VoiceSelection => {
+    const chosen = voiceSelectionSchema.safeParse({
+      model: settings.current.voiceModel,
+      voice: settings.current.voices[settings.current.voiceModel],
+    });
+    if (
+      chosen.success &&
+      (!isCloudVoiceModel(chosen.data.model) || voiceKeys.has(chosen.data.model))
+    )
+      return chosen.data;
+    return { model: 'kokoro', voice: settings.current.voices.kokoro };
   };
   let openSetup = (_page: WorkspaceView) => {};
   // Filled in once windows exist; capabilities call these lazily.
@@ -188,6 +267,15 @@ async function start() {
   // Assigned once below; the setup snapshot closure reads it after construction.
   // eslint-disable-next-line prefer-const
   let agent!: AgentService;
+  /** One set of workspace dependencies for Edi's tools and the Library's own Delete. */
+  const workspaceDeps: WorkspaceDependencies = {
+    directory: () => workspaceFolder,
+    shown: artifact => showArtifact(artifact),
+    artifacts: repositories.artifacts,
+    notes: { store: repositories.notes, directory: notesFolder },
+    // Recoverable: files go to the Trash, never straight to deletion.
+    trash: path => shell.trashItem(path),
+  };
   const libraryItems = (): LibraryItem[] => {
     const notes: LibraryItem[] = repositories.notes
       .list(500)
@@ -198,36 +286,31 @@ async function start() {
         bytes,
         createdAt,
       }));
-    const artifacts = repositories.toolCalls
-      .shown(['workspace.show'], {})
-      .flatMap((call): LibraryItem[] => {
-        try {
-          const content = toArtifactContent(call.input as Parameters<typeof toArtifactContent>[0]);
-          const output = call.output as { path?: unknown; bytes?: unknown } | null;
-          if (typeof output?.path !== 'string' || typeof output.bytes !== 'number') return [];
-          return [
-            {
-              id: call.id,
-              kind: content.kind,
-              title: content.title,
-              bytes: output.bytes,
-              createdAt: call.createdAt,
-            },
-          ];
-        } catch {
-          return [];
-        }
-      });
+    const artifacts: LibraryItem[] = repositories.artifacts
+      .list(500)
+      .map(({ id, kind, title, bytes, updatedAt }) => ({
+        id,
+        kind,
+        title,
+        bytes,
+        createdAt: updatedAt,
+      }));
     return [...notes, ...artifacts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 500);
   };
   const setupSnapshot = (): EdiSetupSnapshot => {
-    const character = skins.find(item => item.id === settings.current.skin) ?? skins[0];
-    const selectedVoice =
+    const character = currentCharacter().manifest;
+    const selectedModel =
       voiceModels().find(item => item.id === settings.current.voiceModel) ?? voiceModels()[0]!;
+    const speaking = selectedVoice();
     const items = libraryItems();
     const notes = items.filter(item => item.kind === 'note');
     return {
-      identity: { name: 'Edi', version: app.getVersion() },
+      identity: {
+        name: companion(),
+        customName: settings.current.name !== null,
+        app: 'Edi',
+        version: app.getVersion(),
+      },
       location: { page: currentView, cardOpen: cardOpen(), pinned: settings.current.pinned },
       workspace: {
         root: workspaceFolder,
@@ -244,11 +327,24 @@ async function start() {
       abilities: [
         { name: 'Answer questions, including about what is on screen', asksFirst: false },
         {
+          name: 'Search the public web for current information and link the sources it used',
+          asksFirst: false,
+        },
+        {
           name: 'Create documents, checklists, tables and sandboxed interactive pages, save them to the workspace and show them in their own window',
           asksFirst: false,
         },
-        { name: 'List and read saved notes', asksFirst: false },
-        { name: 'Save, edit or delete notes', asksFirst: true },
+        { name: 'Search and read everything in the workspace', asksFirst: false },
+        { name: 'Save or edit notes, and update generated content', asksFirst: true },
+        { name: 'Move workspace items to the Trash', asksFirst: true },
+        {
+          name: 'Search, list and read files in allowed folders (Desktop, Documents, Downloads, added folders)',
+          asksFirst: false,
+        },
+        {
+          name: 'Rename, move, create folders and move files to the Trash in allowed folders',
+          asksFirst: true,
+        },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
           name: 'Change its character, size, pin, voice and whether replies are spoken',
@@ -262,23 +358,27 @@ async function start() {
         'Connecting apps or MCP servers',
         'Background tasks, reminders and watches',
         'Clicking or typing in other apps',
+        'Opening, reading or using logged-in websites in a browser',
         'Changing the keyboard shortcut',
       ],
       current: {
         size: settings.current.petScale,
         character: { id: character.id, name: character.name },
         voice: {
-          id: selectedVoice.id,
-          name: selectedVoice.name,
-          available: selectedVoice.available,
-          expressions: selectedVoice.expressions,
-          detail: selectedVoice.detail,
+          id: selectedModel.id,
+          name: selectedModel.name,
+          speakingVoice: { id: speaking.voice, name: spokenVoiceName(speaking) },
+          available: selectedModel.available,
+          expressions: selectedModel.expressions,
+          detail: selectedModel.detail,
           status:
-            selectedVoice.id === 'chatterbox-turbo'
+            selectedModel.id === 'chatterbox-turbo'
               ? (chatterboxVoice?.status ?? 'off')
-              : selectedVoice.available
-                ? 'ready'
-                : 'unavailable',
+              : selectedModel.id === 'kokoro'
+                ? (kokoroVoice?.status ?? 'off')
+                : selectedModel.available
+                  ? 'ready'
+                  : 'unavailable',
         },
         speakReplies: settings.current.speakReplies,
         ai: { connected: agent?.state.configured ?? false, model: agent?.state.model || null },
@@ -291,13 +391,24 @@ async function start() {
         id,
         status,
       })),
-      availableCharacters: skins.map(({ id, name }) => ({ id, name })),
+      availableCharacters: characters.list().map(({ manifest }) => ({
+        id: manifest.id,
+        name: manifest.name,
+      })),
       availableVoices: voiceModels().map(({ id, name, available, expressions, detail }) => ({
         id,
         name,
         available,
         expressions,
         detail,
+        voices: isCloudVoiceModel(id)
+          ? (cloudVoiceLists[id] ?? []).map(({ id: voice, name: voiceLabel, gender, accent }) => ({
+              id: voice,
+              name: voiceLabel,
+              gender,
+              accent,
+            }))
+          : voiceCatalog[id].map(voice => ({ ...voice })),
       })),
     };
   };
@@ -306,8 +417,24 @@ async function start() {
     process.env.EDI_MODEL_CATALOG === 'off'
       ? { list: () => Promise.reject(new Error('Model catalog disabled.')) }
       : new ModelCatalog();
+  // Web pages are read by the newest Gemini Flash Lite in OpenRouter's catalog (cached an hour).
+  let readerModel: string | null = null;
+  const refreshReaderModel = () =>
+    void modelCatalog
+      .list()
+      .then(models => {
+        readerModel = readerModelFrom(models) ?? readerModel;
+      })
+      .catch(() => {});
+  refreshReaderModel();
+  const openRouter = new OpenRouterCredentials();
+  const openRouterAccount = new OpenRouterAccount();
   agent = new AgentService({
-    credentials: new OpenRouterCredentials(),
+    readerModel: () => {
+      refreshReaderModel();
+      return readerModel;
+    },
+    credentials: openRouter,
     repositories,
     capabilities: [
       ...notesCapabilities({
@@ -315,9 +442,24 @@ async function start() {
         store: repositories.notes,
         shown: artifact => showArtifact(artifact),
       }),
-      ...workspaceCapabilities({
-        directory: () => workspaceFolder,
-        shown: artifact => showArtifact(artifact),
+      ...workspaceCapabilities(workspaceDeps),
+      ...fileCapabilities({
+        home: app.getPath('home'),
+        roots: () => fileAccess.roots(),
+        workspace: workspaceFolder,
+        trash: path => shell.trashItem(path),
+        accessResult: (root, allowed) => fileAccess.record(root, allowed),
+      }),
+      ...webCapabilities({
+        // A link the person typed is read on their behalf; robots.txt applies to the model's picks.
+        suppliedByUser: url => {
+          const target = url.replace(/^http:/, 'https:').replace(/#.*$/, '');
+          return agent.state.messages.some(
+            message =>
+              message.role === 'user' &&
+              message.text.replace(/http:\/\//g, 'https://').includes(target),
+          );
+        },
       }),
       ...ediSetupCapabilities({
         snapshot: setupSnapshot,
@@ -329,7 +471,27 @@ async function start() {
     threadArtifacts: runIds => {
       const byRun = new Map<string, ArtifactSummary[]>();
       for (const call of repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { runIds })) {
-        const summary = summarizeShown(call);
+        // Deleted content leaves the conversation too; updated content shows its current title.
+        const record =
+          call.capability === 'workspace.show' ? repositories.artifacts.get(call.id) : null;
+        if (call.capability === 'workspace.show' && !record) continue;
+        const summary = record
+          ? (() => {
+              try {
+                const content = toArtifactContent(
+                  record.content as Parameters<typeof toArtifactContent>[0],
+                );
+                return {
+                  id: record.id,
+                  kind: content.kind,
+                  title: content.title,
+                  preview: artifactPreview(content),
+                } satisfies ArtifactSummary;
+              } catch {
+                return null;
+              }
+            })()
+          : summarizeShown(call);
         if (summary) byRun.set(call.runId, [...(byRun.get(call.runId) ?? []), summary].slice(-6));
       }
       return byRun;
@@ -338,6 +500,7 @@ async function start() {
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
     selfContext: () => JSON.stringify(setupSnapshot()),
+    assistantName: () => companion(),
   });
   await agent.load();
 
@@ -346,7 +509,7 @@ async function start() {
   cardOpen = () => !workspace.isDestroyed() && workspace.isVisible();
   const pointer = new PointerOverlay({
     pet,
-    skin: () => settings.current.skin,
+    character: () => currentCharacter().manifest,
     create: createPointerWindow,
   });
   // Shown content opens in its own window beside the card. Focus may move between the two
@@ -372,7 +535,7 @@ async function start() {
   const placement = new WindowPlacement(
     pet,
     workspace,
-    () => settings.current.skin,
+    () => currentCharacter().manifest.geometry,
     () => artifactWindow.follow(),
   );
   const petDrag = new PetDrag(
@@ -380,12 +543,84 @@ async function start() {
     () => placement.place(),
     petPosition => settings.update({ petPosition }),
   );
-  const pocket = voiceRuntime ? new PocketVoice(voiceRuntime.pocket) : null;
-  const chatterbox = voiceRuntime?.chatterbox
-    ? new ChatterboxVoice(voiceRuntime.chatterbox, { idleMs: 60 * 60_000 })
+  const mlx = voiceRuntime?.mlx ?? null;
+  // Warm engines stay loaded for an hour while selected; Kokoro is small and also stands in
+  // while Chatterbox loads.
+  const kokoro = mlx?.kokoro
+    ? new MlxVoice(
+        mlx,
+        { id: 'kokoro', model: mlx.kokoro, label: 'Kokoro', voice: settings.current.voices.kokoro },
+        { idleMs: 60 * 60_000 },
+      )
     : null;
+  const chatterbox = mlx?.chatterbox
+    ? new MlxVoice(
+        mlx,
+        { id: 'chatterbox-turbo', model: mlx.chatterbox, label: 'Chatterbox Turbo' },
+        { idleMs: 60 * 60_000 },
+      )
+    : null;
+  kokoroVoice = kokoro;
   chatterboxVoice = chatterbox;
-  // Chatterbox speaks only once loaded; until then Jane answers so a reply is never minutes late.
+  type Consume = (pcm: Float32Array, rate: number) => Promise<void>;
+  /** Speak with one exact model and voice. Only Chatterbox understands [laugh]-style tags. */
+  const speakWith = (
+    selection: VoiceSelection,
+    text: string,
+    signal: AbortSignal,
+    consume: Consume,
+  ) => {
+    if (selection.model === 'chatterbox-turbo' && chatterbox)
+      return chatterbox.speak(text, signal, consume, { voice: selection.voice });
+    if (selection.model === 'kokoro' && kokoro)
+      return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
+    if (isCloudVoiceModel(selection.model) && voiceKeys.has(selection.model)) {
+      const provider = selection.model;
+      const words = speakable(text, false);
+      // Cloud voices bill characters on the person's plan; count them once the reply streamed
+      // or was cut off (the provider already generated it).
+      const record = () => {
+        try {
+          repositories.usage.add(
+            {
+              kind: 'voice',
+              provider,
+              model: provider === 'cartesia' ? CARTESIA_MODEL : ELEVENLABS_MODEL,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedTokens: 0,
+              costUsd: null,
+              characters: words.length,
+            },
+            Date.now(),
+          );
+        } catch {
+          // Usage records are best effort; speech never fails because of them.
+        }
+      };
+      return speakCloud(
+        provider,
+        voiceKeys.get(provider),
+        selection.voice,
+        words,
+        signal,
+        consume,
+      ).then(record, (error: unknown) => {
+        if (signal.aborted) record();
+        throw error;
+      });
+    }
+    return Promise.reject(new Error('That voice is not installed on this Mac.'));
+  };
+  const standIn = (): VoiceSelection | null =>
+    kokoro ? { model: 'kokoro', voice: settings.current.voices.kokoro } : null;
+  const warmSelected = () => {
+    const model = settings.current.voiceModel;
+    if (model === 'chatterbox-turbo') {
+      chatterbox?.warm();
+      kokoro?.warm();
+    } else kokoro?.warm(); // Kokoro, or the local stand-in for a cloud voice
+  };
   const expressiveReady = () =>
     settings.current.voiceModel === 'chatterbox-turbo' && chatterbox?.status === 'ready';
   const voice = new VoiceController({
@@ -402,32 +637,50 @@ async function start() {
       }),
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
-    transcribe: transcribePcm,
+    transcribe: (runtime, pcm, signal) =>
+      transcribePcm(runtime, pcm, signal, undefined, companion()),
     speak: async (text, signal, consume) => {
-      if (settings.current.voiceModel === 'chatterbox-turbo') chatterbox?.warm();
-      if (expressiveReady() && chatterbox) {
-        try {
-          await chatterbox.speak(text, signal, consume);
-          return;
-        } catch (error) {
-          if (signal.aborted || !pocket) throw error;
-          // If the expressive engine fails, preserve the talking turn with Jane.
-          await pocket.speak(speakable(text, false), signal, consume);
-          return;
-        }
+      warmSelected();
+      const selected = selectedVoice();
+      // Chatterbox answers once loaded; until then Kokoro keeps the reply prompt.
+      const chosen =
+        selected.model === 'chatterbox-turbo' && chatterbox?.status !== 'ready'
+          ? standIn()
+          : selected;
+      if (!chosen) throw new Error('No voice');
+      let delivered = false;
+      try {
+        await speakWith(chosen, text, signal, (pcm, rate) => {
+          delivered = true;
+          return consume(pcm, rate);
+        });
+      } catch (error) {
+        // A failed engine hands the reply to a local voice, but never repeats audio already heard.
+        const backup = standIn();
+        if (signal.aborted || delivered || !backup || backup.model === chosen.model) throw error;
+        await speakWith(backup, text, signal, consume);
       }
-      if (!pocket) throw new Error('No voice');
-      await pocket.speak(speakable(text, false), signal, consume);
     },
-    warmSpeech: () => {
-      if (settings.current.voiceModel === 'chatterbox-turbo' && chatterbox) chatterbox.warm();
-      else pocket?.warm();
-    },
+    warmSpeech: warmSelected,
     speakReplies: () => settings.current.speakReplies,
     expressiveVoice: expressiveReady,
   });
-  // Chatterbox takes tens of seconds to load. Start now, not after the reply is on screen.
-  if (settings.current.voiceModel === 'chatterbox-turbo') chatterbox?.warm();
+  // Engines take seconds to load. Start now, not after the reply is on screen.
+  warmSelected();
+  const previewVoice = async (selection: VoiceSelection) => {
+    const name = spokenVoiceName(selection);
+    const self = companion();
+    const sample =
+      selection.model === 'chatterbox-turbo'
+        ? `Hi, I'm ${self}. [chuckle] This is how I sound with ${name}.`
+        : `Hi, I'm ${self}. This is how I sound as ${name}.`;
+    const played = await voice.preview(
+      sample,
+      (words, signal, consume) => speakWith(selection, words, signal, consume),
+      selection.model === 'chatterbox-turbo',
+    );
+    if (!played) throw new Error(`${companion()} is using its voice right now.`);
+  };
 
   const mediaPermissions = createMacMediaPermissions({
     workspace,
@@ -438,10 +691,15 @@ async function start() {
   });
   const permissions = mediaPermissions.manager;
   permissionPort.current = permissions;
+  const mood = new CharacterMoodController(value => broadcast([pet], 'edi:character-mood', value));
+  pet.webContents.on('did-finish-load', () =>
+    pet.webContents.send('edi:character-mood', mood.current),
+  );
   const character = new CharacterActions({
     pet,
     card: workspace,
-    skin: () => settings.current.skin,
+    character: () => currentCharacter().manifest,
+    name: () => companion(),
     startVoice: mode => voice.start(mode),
     showContent: () => placement.show(),
     openSettings: () => {
@@ -457,6 +715,7 @@ async function start() {
     createBubble: createStatusBubbleWindow,
     createMenu: createCharacterMenuWindow,
     showExpression: expression => broadcast([pet], 'edi:character-expression', expression),
+    noteActivity: () => mood.noteActivity(),
     quit: () => app.quit(),
   });
 
@@ -520,18 +779,40 @@ async function start() {
     else openArtifact({ callId: artifact.id });
   };
   applyPreferences = async patch => {
-    if (patch.voice === 'chatterbox-turbo' && !voiceRuntime?.chatterbox)
-      throw new Error('Chatterbox Turbo is not installed on this Mac.');
+    if (patch.character && !characters.has(patch.character))
+      throw new Error('That character is not installed. Check availableCharacters.');
+    if (patch.voice && !voiceModels().find(model => model.id === patch.voice)?.available)
+      throw new Error('That voice model is not installed on this Mac.');
+    const model = patch.voice ?? settings.current.voiceModel;
+    const speakingVoice = patch.speakingVoice
+      ? voiceSelectionSchema.safeParse({ model, voice: patch.speakingVoice })
+      : null;
+    if (
+      (speakingVoice && !speakingVoice.success) ||
+      (speakingVoice?.success &&
+        isCloudVoiceModel(model) &&
+        !cloudVoiceLists[model]?.some(entry => entry.id === speakingVoice.data.voice))
+    )
+      throw new Error(`That voice is not one of ${model}'s voices. Check availableVoices.`);
     if (patch.size !== undefined) {
-      const skin = patch.character ?? settings.current.skin;
-      const bounds = resizePetWindow(pet, patch.size, skin);
+      const geometry = characters.get(patch.character ?? settings.current.skin).manifest.geometry;
+      const bounds = resizePetWindow(pet, patch.size, geometry);
       await settings.update({ petScale: patch.size, petPosition: { x: bounds.x, y: bounds.y } });
     }
     await settings.update({
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.character ? { skin: patch.character } : {}),
       ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
       ...(patch.speakReplies !== undefined ? { speakReplies: patch.speakReplies } : {}),
       ...(patch.voice ? { voiceModel: patch.voice } : {}),
+      ...(speakingVoice?.success
+        ? {
+            voices: {
+              ...settings.current.voices,
+              [speakingVoice.data.model]: speakingVoice.data.voice,
+            },
+          }
+        : {}),
     });
     placement.place();
   };
@@ -543,16 +824,64 @@ async function start() {
   settings.onChange(value => {
     const shown = artifactWindow.window;
     broadcast(shown ? [workspace, pet, shown] : [workspace, pet], 'edi:settings', value);
-    if (value.voiceModel === 'chatterbox-turbo') chatterbox?.warm();
-    else chatterbox?.dispose();
+    // Chatterbox is large; unload it when another model is chosen. Kokoro stays small and warm.
+    if (value.voiceModel !== 'chatterbox-turbo') chatterbox?.dispose();
+    warmSelected();
   });
   let previousAgentStatus = agent.state.status;
+  /** Short progress for the bubble, only for real work (a step or a web search); else just dots. */
+  const stepLabels: Record<string, string> = {
+    'workspace.show': 'Putting it together',
+    'workspace.search': 'Looking through your workspace',
+    'workspace.read': 'Reading your workspace',
+    'workspace.update': 'Updating it',
+    'workspace.delete': 'Tidying up',
+    'notes.save': 'Saving your note',
+    'notes.list': 'Checking your notes',
+    'notes.read': 'Reading your note',
+    'notes.edit': 'Editing your note',
+    'notes.delete': 'Removing the note',
+    'notes.show': 'Opening your note',
+    'web.fetch': 'Reading a page',
+    'files.search': 'Searching your files',
+    'files.list': 'Looking in a folder',
+    'files.read': 'Reading a file',
+    'files.move': 'Moving a file',
+    'files.create_folder': 'Making a folder',
+    'files.trash': 'Moving it to the Trash',
+    'edi.open_page': 'Opening that',
+    'edi.change_preferences': 'Adjusting myself',
+    'edi.inspect_setup': 'Checking my settings',
+  };
+  const progressLabel = (state: typeof agent.state) => {
+    const step = [...state.steps]
+      .reverse()
+      .find(item => item.status === 'running' || item.status === 'awaiting-approval');
+    if (step) return stepLabels[step.capability] ?? step.title.slice(0, 40);
+    if (state.activity === 'searching-web') return 'Searching the web';
+    return undefined;
+  };
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     character.showApproval(state.approval);
-    character.setThinking(state.status === 'running' && !state.approval);
+    const running = state.status === 'running' && !state.approval;
+    // A new request gets a warm nod; progress follows unless the person is already watching
+    // the conversation, where the steps are shown in full.
+    if (state.status === 'running' && previousAgentStatus !== 'running') character.acknowledge();
+    const watching = cardOpen() && currentView === 'conversations';
+    character.setThinking(running, running && !watching ? progressLabel(state) : undefined);
     if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();
+    // The reply's mood shows as soon as its tag streams in and lingers a little after it ends;
+    // a failure looks briefly sad.
+    if (state.status === 'running') {
+      mood.noteActivity();
+      const felt = replyMood(state.text);
+      if (felt && felt !== mood.current) mood.set(felt);
+    } else if (previousAgentStatus === 'running') {
+      if (state.status === 'error') mood.set('sad', 5000);
+      else mood.set(replyMood(state.text) ?? 'neutral', 9000);
+    }
     previousAgentStatus = state.status;
     // A new review appears beside Edi first. The person can act there or reveal
     // the already-prepared full review in the content card.
@@ -567,7 +896,10 @@ async function start() {
   screen.on('display-removed', onDisplayChange);
   screen.on('display-metrics-changed', onDisplayChange);
   pet.once('ready-to-show', () => pet.showInactive());
-  workspace.on('focus', () => permissions?.refresh());
+  workspace.on('focus', () => {
+    permissions?.refresh();
+    void fileAccess.refresh();
+  });
   workspace.on('close', event => {
     if (quitting) return;
     event.preventDefault();
@@ -580,10 +912,11 @@ async function start() {
       'noteId' in ref
         ? ref.noteId
         : (() => {
-            const [call] = repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { id: ref.callId });
+            const record = repositories.artifacts.get(ref.callId);
+            if (record)
+              return toArtifactContent(record.content as Parameters<typeof toArtifactContent>[0]);
+            const [call] = repositories.toolCalls.shown(['notes.show'], { id: ref.callId });
             if (!call) throw new Error('That content is no longer available.');
-            if (call.capability === 'workspace.show')
-              return toArtifactContent(call.input as Parameters<typeof toArtifactContent>[0]);
             return String((call.input as { id?: unknown }).id ?? '');
           })();
     if (typeof noteId !== 'string') return noteId;
@@ -597,15 +930,27 @@ async function start() {
       if (!note) throw new Error('That note is no longer in Edi’s history.');
       return note.path;
     }
-    const [call] = repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { id: ref.callId });
-    const output = call?.output as { path?: unknown } | null | undefined;
-    if (call?.capability === 'notes.show') {
-      return artifactPath({ noteId: String((call.input as { id?: unknown }).id ?? '') });
+    const record = repositories.artifacts.get(ref.callId);
+    if (record) {
+      const path = resolve(workspaceFolder, record.path);
+      if (relative(workspaceFolder, path).startsWith('..'))
+        throw new Error('Outside the workspace.');
+      return path;
     }
-    if (typeof output?.path !== 'string') throw new Error('That content has no saved file.');
-    const path = resolve(workspaceFolder, output.path);
-    if (relative(workspaceFolder, path).startsWith('..')) throw new Error('Outside the workspace.');
-    return path;
+    const [call] = repositories.toolCalls.shown(['notes.show'], { id: ref.callId });
+    if (!call) throw new Error('That content is no longer available.');
+    return artifactPath({ noteId: String((call.input as { id?: unknown }).id ?? '') });
+  };
+
+  /** Read a package the person chose or dropped. Only .edichar files, and never large ones. */
+  const inspectCharacterFile = async (path: string) => {
+    const fileName = basename(path);
+    if (!fileName.toLowerCase().endsWith(packageExtension))
+      throw new Error('Characters come as .edichar files.');
+    const info = await stat(path);
+    if (!info.isFile() || info.size > maxPackageBytes)
+      throw new Error('That file is not a character package.');
+    return characters.inspect(await readFile(path), fileName);
   };
 
   // Registered in the same tick as window creation, before any renderer can run.
@@ -630,10 +975,34 @@ async function start() {
       permissions,
       openArtifact,
       artifactAction,
+      previewVoice,
+      setVoiceKey: async (provider, apiKey) => {
+        // A key is saved only after the provider accepts it.
+        const listed = apiKey
+          ? await listCloudVoices(provider, apiKey, AbortSignal.timeout(15_000))
+          : [];
+        await voiceKeys.set(provider, apiKey);
+        if (apiKey) cloudVoiceLists[provider] = listed;
+        else delete cloudVoiceLists[provider];
+        // The first voice on the account is ready to use; switching to it stays the person's call.
+        const first = listed[0];
+        if (first && !settings.current.voices[provider])
+          await settings.update({ voices: { ...settings.current.voices, [provider]: first.id } });
+        if (!apiKey && settings.current.voiceModel === provider)
+          await settings.update({ voiceModel: 'kokoro' });
+        broadcast([workspace], 'edi:settings', settings.current);
+      },
+      // The command schema already allows only http(s) without credentials; parse again here.
+      openLink: url => shell.openExternal(new URL(url).toString()),
       closeArtifact: () => artifactWindow.close(),
+      deleteLibraryItem: async id => {
+        await deleteWorkspaceItem(workspaceDeps, id);
+        artifactWindow.closeIfShowing(id);
+      },
       reportView: view => {
         currentView = view;
       },
+      characters,
       revealLibraryItem: id => {
         const note = repositories.notes.get(id);
         if (!note) throw new Error('That note is no longer in Edi’s history.');
@@ -647,26 +1016,71 @@ async function start() {
     system: () => {
       const selected =
         voiceModels().find(item => item.id === settings.current.voiceModel) ?? voiceModels()[0]!;
+      const speaking = selectedVoice();
       return {
         version: app.getVersion(),
-        voice: { available: selected.available, name: selected.name, models: voiceModels() },
+        voice: {
+          available: selected.available,
+          name: `${spokenVoiceName(speaking)} · ${selected.name}`.slice(0, 120),
+          models: voiceModels(),
+        },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },
         notesFolder: notesFolder(),
       };
     },
     models: () => modelCatalog.list(),
+    usage: async days => ({
+      ...repositories.usage.summary(days, Date.now()),
+      account: await openRouterAccount.get(openRouter.apiKey),
+    }),
+    cloudVoices: provider => {
+      if (!voiceKeys.has(provider)) return Promise.resolve([]);
+      return loadCloudVoices(provider);
+    },
     artifact: resolveArtifact,
     permissions: () => permissions.snapshot(),
+    fileAccess: () => fileAccess.snapshot(),
+    fileAccessAction: action => fileAccess.act(action, workspace.isDestroyed() ? null : workspace),
+    characters: () => characters.list(),
+    pickCharacterPackage: async () => {
+      const result = await dialog.showOpenDialog(workspace, {
+        title: 'Add a character',
+        buttonLabel: 'Check Character',
+        properties: ['openFile'],
+        filters: [{ name: 'Edi character', extensions: [packageExtension.slice(1)] }],
+      });
+      const path = result.filePaths[0];
+      return result.canceled || !path ? null : inspectCharacterFile(path);
+    },
+    inspectCharacterFile,
   });
 
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      { label: 'Edi', submenu: character.menuItems() },
-      { role: 'editMenu' },
-      { role: 'viewMenu' },
-      { role: 'windowMenu' },
-    ]),
-  );
+  // The app menu is still called Edi; its items use the companion's name and follow a rename.
+  const applicationMenu = () =>
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { label: 'Edi', submenu: character.menuItems() },
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' },
+      ]),
+    );
+  applicationMenu();
+  let menuName = companion();
+  settings.onChange(() => {
+    if (companion() === menuName) return;
+    menuName = companion();
+    applicationMenu();
+  });
+  characters.onChange(async list => {
+    broadcast(
+      [workspace, pet, ...(artifactWindow.window ? [artifactWindow.window] : [])],
+      'edi:characters',
+      list,
+    );
+    // A removed character hands the desktop back to Edi.
+    if (!characters.has(settings.current.skin)) await settings.update({ skin: defaultCharacterId });
+  });
   // Hands-free listening starts only from Edi → Listen; reopening Edi shows it instead.
   const reopen = () => {
     pet.showInactive();
@@ -682,8 +1096,8 @@ async function start() {
     agent.stop();
   });
   app.on('will-quit', () => {
-    pocket?.dispose();
     chatterbox?.dispose();
+    kokoro?.dispose();
     database.close();
   });
 }
