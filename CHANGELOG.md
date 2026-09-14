@@ -5,12 +5,6 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ## Unreleased
 
-### Removed
-
-- Pocket TTS and the PyTorch Chatterbox environment. Kokoro is the default local voice and stands in while
-  Chatterbox Turbo (MLX) loads and when a cloud voice fails; a saved Pocket choice moves to Kokoro. The ~5 GB of
-  Pocket and PyTorch Chatterbox environments and models were moved to the Trash.
-
 ### Added
 
 - Settings → Usage: what Edi spent on OpenRouter today, over 7 or 30 days, with a daily chart, answers vs
@@ -186,6 +180,9 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Removed
 
+- Pocket TTS and the PyTorch Chatterbox environment. Kokoro is the default local voice and stands in while
+  Chatterbox Turbo (MLX) loads and when a cloud voice fails; a saved Pocket choice moves to Kokoro. The ~5 GB of
+  Pocket and PyTorch Chatterbox environments and models were moved to the Trash.
 - The Cloud and Sprout characters (saved choices move to Edi).
 - The Mira character.
 - Thought dots and listening rings on the character, and hand flapping and body bobbing while speaking.
