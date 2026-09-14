@@ -26,7 +26,9 @@ cross-app/display checks remain follow-up validation rather than blockers for th
 
 Next: visually accept the repaired character motion and re-close Milestone 0. Then continue Milestone 1 with Edi's truthful runtime snapshot and narrow self-navigation contract, and exercise the
 existing screen explanation, pointing/drawing, approval, cancellation, and note flow as one packaged acceptance path.
-Next window step: multiple saved conversation threads (thread list, New conversation, per-thread history).
+Done 2026-09-14: multiple saved conversations (list, New conversation, per-conversation history, delete; a quiet
+conversation Edi picked up by itself ends after two hours). Also done: desktop context (app, window, page, document,
+selection) and scoped file access.
 
 ## 0. Validate desktop and audio foundations
 
@@ -57,8 +59,8 @@ stop, approve the current request, and open the card.
 
 Render conversation-driven inline graphs, media from supported links, and input questions. No media-type tabs in the main content card; keep example catalogs in developer tooling. Implement linked-video adapters and pending-question lifecycles before enabling remote embeds.
 
-Navigation shell and Home are in place (see Architecture §2). Decide what, if anything, replaces click-to-listen as the hands-free conversation entry point. Add multiple saved conversation threads to Conversations: a thread
-list, New conversation, and history scoped per thread. Rich results open inside Conversations, not a separate Content
+Navigation shell and Home are in place (see Architecture §2). Decide what, if anything, replaces click-to-listen as the hands-free conversation entry point. Multiple saved conversations are done (list, New conversation,
+history per conversation). Rich results open inside Conversations, not a separate Content
 section. Apply the material hierarchy: light glass for the bubble and chrome, content surfaces for conversation and
 results, solid surfaces for settings, forms, code and dense tables. Add image, video/audio, table, code, forms, tool results, and action previews. Implement push-to-talk, transcript display, selected TTS, bounded audio queues, stop controls, progressive SVG drawing, and segment-level speech coordination.
 

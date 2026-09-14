@@ -103,27 +103,39 @@ const parseJson = (text: string | null): unknown => {
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
-  start(run: { id: string; prompt: string; model: string; screens: number; startedAt: number }) {
+  start(run: {
+    id: string;
+    prompt: string;
+    model: string;
+    screens: number;
+    startedAt: number;
+    threadId?: string | null;
+  }) {
     this.db
       .prepare(
-        `INSERT INTO runs (id, prompt, model, status, screens, started_at)
-         VALUES (?, ?, ?, 'running', ?, ?)`,
+        `INSERT INTO runs (id, prompt, model, status, screens, started_at, thread_id)
+         VALUES (?, ?, ?, 'running', ?, ?, ?)`,
       )
-      .run(run.id, run.prompt, run.model, run.screens, run.startedAt);
+      .run(run.id, run.prompt, run.model, run.screens, run.startedAt, run.threadId ?? null);
   }
 
   /**
    * The last completed exchanges, oldest first, as text only: conversation context
    * for the next request. Long turns are clipped to bound tokens.
    */
-  recentExchanges(limit: number, maxChars = { prompt: 2000, reply: 4000 }): Exchange[] {
+  recentExchanges(
+    limit: number,
+    threadId: string | null,
+    maxChars = { prompt: 2000, reply: 4000 },
+  ): Exchange[] {
+    if (threadId === null) return [];
     return this.db
       .prepare(
         `SELECT prompt, text AS reply FROM runs
-         WHERE status = 'done' AND text != ''
+         WHERE status = 'done' AND text != '' AND thread_id = ?
          ORDER BY started_at DESC LIMIT ?`,
       )
-      .all(limit)
+      .all(threadId, limit)
       .map(row => exchangeRow.parse(row))
       .map(turn => ({
         prompt: turn.prompt.slice(0, maxChars.prompt),
@@ -136,14 +148,15 @@ export class RunRepository {
    * Recent finished turns for the chat thread, oldest first. Includes stopped
    * and failed replies so the card remembers what the person already said.
    */
-  thread(limit: number): ThreadTurn[] {
+  thread(limit: number, threadId: string | null): ThreadTurn[] {
+    if (threadId === null) return [];
     return this.db
       .prepare(
         `SELECT id, prompt, text AS reply, status, error FROM runs
-         WHERE status IN ('done', 'error', 'stopped') AND prompt != ''
+         WHERE status IN ('done', 'error', 'stopped') AND prompt != '' AND thread_id = ?
          ORDER BY started_at DESC LIMIT ?`,
       )
-      .all(limit)
+      .all(threadId, limit)
       .map(row => threadRow.parse(row))
       .map(turn => ({
         ...turn,
@@ -164,6 +177,59 @@ export class RunRepository {
          WHERE id = ? AND status = 'running'`,
       )
       .run(result.status, result.text, result.error, result.at, id);
+  }
+}
+
+const conversationRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  turns: z.number(),
+});
+export type ConversationRecord = z.infer<typeof conversationRow>;
+
+/** Conversations: each run belongs to one. Deleting one removes its runs and their tool calls. */
+export class ConversationRepository {
+  constructor(private readonly db: Database) {}
+
+  create(conversation: { id: string; title: string; at: number }) {
+    this.db
+      .prepare(`INSERT INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+      .run(conversation.id, conversation.title.slice(0, 80), conversation.at, conversation.at);
+  }
+
+  touch(id: string, at: number) {
+    this.db.prepare(`UPDATE threads SET updated_at = MAX(updated_at, ?) WHERE id = ?`).run(at, id);
+  }
+
+  get(id: string): ConversationRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT t.id, t.title, t.created_at AS createdAt, t.updated_at AS updatedAt,
+                (SELECT COUNT(*) FROM runs r WHERE r.thread_id = t.id) AS turns
+         FROM threads t WHERE t.id = ?`,
+      )
+      .get(id);
+    return row ? conversationRow.parse(row) : undefined;
+  }
+
+  /** Most recently active first; empty conversations are left out. */
+  list(limit: number): ConversationRecord[] {
+    return this.db
+      .prepare(
+        `SELECT t.id, t.title, t.created_at AS createdAt, t.updated_at AS updatedAt,
+                COUNT(r.id) AS turns
+         FROM threads t JOIN runs r ON r.thread_id = t.id
+         GROUP BY t.id ORDER BY t.updated_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => conversationRow.parse(row));
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
+    if (Number(result.changes) === 0) throw new Error('That conversation no longer exists.');
   }
 }
 
@@ -493,6 +559,7 @@ export interface Repositories {
   notes: NoteRepository;
   artifacts: ArtifactRepository;
   usage: UsageRepository;
+  conversations: ConversationRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -510,6 +577,7 @@ export function createRepositories(db: Database): Repositories {
     notes: new NoteRepository(db),
     artifacts: new ArtifactRepository(db),
     usage: new UsageRepository(db),
+    conversations: new ConversationRepository(db),
 
     activity(limit) {
       const runs = db

@@ -230,6 +230,12 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'disconnect-agent': { from: fromWorkspace, handle: () => agent.disconnect() },
     'ask-agent': { from: fromWorkspace, handle: ({ prompt }) => agent.ask(prompt) },
     'stop-agent': { from: fromWorkspace, handle: () => agent.stop() },
+    'new-conversation': { from: fromWorkspace, handle: () => agent.newConversation() },
+    'open-conversation': { from: fromWorkspace, handle: ({ id }) => agent.openConversation(id) },
+    'delete-conversation': {
+      from: fromWorkspace,
+      handle: ({ id }) => agent.deleteConversation(id),
+    },
     'respond-approval': {
       from: ['workspace', 'bubble'],
       handle: ({ callId, decision }) => agent.respondToApproval(callId, decision),

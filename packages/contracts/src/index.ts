@@ -103,8 +103,23 @@ export const chatMessageSchema = z
   .strict();
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
+/** One saved conversation in the list. */
+export const conversationIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,80}$/);
+export const conversationSummarySchema = z
+  .object({
+    id: conversationIdSchema,
+    title: z.string().max(80),
+    updatedAt: z.number().int().nonnegative(),
+    turns: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+export const conversationListSchema = z.array(conversationSummarySchema).max(200);
+
 export const agentStateSchema = z.object({
   configured: z.boolean(),
+  /** The conversation new questions join; null until the first question of a new one. */
+  conversationId: conversationIdSchema.nullable().default(null),
   model: z.string(),
   status: z.enum(['idle', 'running', 'done', 'stopped', 'error']),
   /** The foreground run, if any; approvals and steps belong to it. */
@@ -130,6 +145,7 @@ export type AgentState = z.infer<typeof agentStateSchema>;
 export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState {
   return {
     configured: false,
+    conversationId: null,
     model: '',
     status: 'idle',
     runId: null,
@@ -357,6 +373,9 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('disconnect-agent') }).strict(),
   z.object({ type: z.literal('ask-agent'), prompt: z.string().trim().min(1).max(8000) }).strict(),
   z.object({ type: z.literal('stop-agent') }).strict(),
+  z.object({ type: z.literal('new-conversation') }).strict(),
+  z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
+  z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
   z
     .object({
       type: z.literal('respond-approval'),
@@ -466,6 +485,8 @@ export interface DesktopBridge {
   system(): Promise<SystemInfo>;
   /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
   models(): Promise<ModelOption[]>;
+  /** Saved conversations, most recently active first. */
+  conversations(): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */
   usage(days: UsagePeriod): Promise<UsageSummary>;
   /** Voices on the person's Cartesia or ElevenLabs account; needs that key. */

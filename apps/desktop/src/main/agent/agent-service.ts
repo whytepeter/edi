@@ -17,6 +17,7 @@ import {
   type ApprovalRequest,
   type ArtifactSummary,
   type ChatMessage,
+  type ConversationSummary,
   type DesktopContext,
   type ToolStep,
 } from '@edi/contracts';
@@ -38,6 +39,8 @@ const MAX_STEPS_SHOWN = 20;
 const GROUNDING_WAIT_MS = 1500;
 /** The longest a question waits for the app, window, page and selection in front. */
 const CONTEXT_WAIT_MS = 2_000;
+/** A conversation Edi picked up by itself is continued only within this long of its last turn. */
+const FRESH_MS = 2 * 60 * 60 * 1000;
 
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
@@ -64,6 +67,7 @@ export type PointTarget = NonNullable<ReturnType<typeof resolvePresentation>>;
 
 interface ActiveRun {
   id: string;
+  conversationId: string;
   /** A voice turn: shown content goes to the bubble rather than taking over the card. */
   spoken: boolean;
   /** Kept in memory for this run only (to map pointing back to displays). Never stored. */
@@ -84,6 +88,10 @@ export class AgentService {
   private run?: ActiveRun;
   /** Finished turns shown in the card; refreshed on load and when a run ends. */
   private cachedThread: ThreadTurn[] = [];
+  /** The conversation new questions join; null starts a new one with the next question. */
+  private conversationId: string | null = null;
+  /** The person chose this conversation, so it continues however long ago it was used. */
+  private conversationChosen = false;
   private cachedArtifacts = new Map<string, ArtifactSummary[]>();
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
   private starting?: object;
@@ -107,6 +115,9 @@ export class AgentService {
   async load() {
     await this.options.credentials.load();
     const { configured, model } = this.options.credentials;
+    // Pick up where the person left off if they were talking recently.
+    const latest = this.options.repositories.conversations.list(1)[0];
+    this.conversationId = latest && Date.now() - latest.updatedAt < FRESH_MS ? latest.id : null;
     this.refreshThread();
     this.state = this.withMessages({ ...this.state, configured, model });
   }
@@ -153,6 +164,7 @@ export class AgentService {
 
     const starting = {};
     this.starting = starting;
+    const conversationId = this.conversationFor(prompt);
     this.update({
       ...this.state,
       status: 'running',
@@ -197,14 +209,16 @@ export class AgentService {
       model: credentials.model,
       screens: screenshots.length,
       startedAt: Date.now(),
+      threadId: conversationId,
     });
+    repositories.conversations.touch(conversationId, Date.now());
     const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model: credentials.model,
       name: this.options.assistantName?.() ?? 'Edi',
       prompt,
-      history: repositories.runs.recentExchanges(HISTORY_TURNS),
+      history: repositories.runs.recentExchanges(HISTORY_TURNS, conversationId),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
       spoken: options.spoken ?? false,
       expressiveVoice: options.expressiveVoice ?? false,
@@ -215,6 +229,7 @@ export class AgentService {
     };
     const run: ActiveRun = {
       id,
+      conversationId,
       spoken: options.spoken ?? false,
       screenshots,
       worker: new Worker(join(__dirname, 'agent-worker.js'), { workerData }),
@@ -259,6 +274,69 @@ export class AgentService {
       );
       check(this.state);
     });
+  }
+
+  /** The next question starts a new conversation. */
+  newConversation() {
+    this.assertIdle();
+    this.conversationId = null;
+    this.conversationChosen = true;
+    this.showConversation();
+  }
+
+  openConversation(id: string) {
+    this.assertIdle();
+    if (!this.options.repositories.conversations.get(id))
+      throw new Error('That conversation no longer exists.');
+    this.conversationId = id;
+    this.conversationChosen = true;
+    this.showConversation();
+  }
+
+  /** Removes the conversation and its turns; what it saved to the workspace stays in Library. */
+  deleteConversation(id: string) {
+    if (this.run?.conversationId === id || (this.starting && this.conversationId === id))
+      throw new Error('Stop the response before deleting this conversation.');
+    this.options.repositories.conversations.remove(id);
+    if (this.conversationId === id) {
+      this.conversationId = null;
+      this.showConversation();
+    }
+  }
+
+  conversations(limit = 100): ConversationSummary[] {
+    return this.options.repositories.conversations
+      .list(limit)
+      .map(({ id, title, updatedAt, turns }) => ({ id, title, updatedAt, turns }));
+  }
+
+  private assertIdle() {
+    if (this.run || this.starting) throw new Error('Stop the response first.');
+  }
+
+  private showConversation() {
+    this.refreshThread();
+    const { configured, model, screenAccess } = this.state;
+    this.update({ ...idle(), configured, model, screenAccess });
+  }
+
+  /**
+   * The conversation this question joins. A conversation picked up automatically goes quiet
+   * after two hours, and the next question then starts a fresh one; one the person opened
+   * continues regardless.
+   */
+  private conversationFor(prompt: string) {
+    const { conversations } = this.options.repositories;
+    const current = this.conversationId ? conversations.get(this.conversationId) : undefined;
+    const stale = current && !this.conversationChosen && Date.now() - current.updatedAt > FRESH_MS;
+    if (current && !stale) return current.id;
+    const id = randomUUID();
+    const title = prompt.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation';
+    conversations.create({ id, title, at: Date.now() });
+    this.conversationId = id;
+    this.conversationChosen = false;
+    this.refreshThread();
+    return id;
   }
 
   stop() {
@@ -361,6 +439,7 @@ export class AgentService {
     const presentation = parsePresentation(this.state.text);
     const { text } = presentation;
     this.options.repositories.runs.finish(run.id, { status, text, error, at: Date.now() });
+    this.options.repositories.conversations.touch(run.conversationId, Date.now());
     this.refreshThread();
     this.update({ ...this.state, status, text, error, approval: null });
     if (status === 'done' && presentation.actions.length)
@@ -434,13 +513,13 @@ export class AgentService {
   }
 
   private refreshThread() {
-    this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS);
+    this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS, this.conversationId);
     this.cachedArtifacts =
       this.options.threadArtifacts?.(this.cachedThread.map(turn => turn.id)) ?? new Map();
   }
 
   private withMessages(state: AgentState): AgentState {
-    return { ...state, messages: this.buildMessages(state) };
+    return { ...state, conversationId: this.conversationId, messages: this.buildMessages(state) };
   }
 
   private buildMessages(state: AgentState): ChatMessage[] {

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { presentationText, type ArtifactRef } from '@edi/contracts';
+import { presentationText, type ArtifactRef, type ConversationSummary } from '@edi/contracts';
 import { ReplyText } from './ReplyText';
-import { Button, EmptyState, Icon, ThinkingDots } from '../../components/ui';
+import { Button, EmptyState, Icon, IconButton, ThinkingDots } from '../../components/ui';
+import { ConversationList } from './ConversationList';
 import type { Command } from '../../lib/bridge';
 import { useAgentState } from '../../hooks/useAgentState';
 import { StepList } from '../../components/StepList';
@@ -27,6 +28,20 @@ export function AgentPanel({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const error = commandError || loadError;
   const running = state.status === 'running';
+  const [browsing, setBrowsing] = useState(false);
+  const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
+
+  // The list follows new questions, finished turns and switches.
+  useEffect(() => {
+    let alive = true;
+    void window.edi
+      ?.conversations()
+      .then(list => alive && setConversations(list))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [browsing, state.conversationId, state.status]);
 
   useEffect(() => {
     if (running) pin.current = true;
@@ -103,11 +118,77 @@ export function AgentPanel({
     );
   }
 
+  const title =
+    conversations?.find(entry => entry.id === state.conversationId)?.title ??
+    (state.messages[0]?.role === 'user' ? state.messages[0].text : '') ??
+    '';
+
+  async function switchTo(value: Command) {
+    if (await command(value)) {
+      setBrowsing(false);
+      pin.current = true;
+      areaRef.current?.focus();
+    }
+  }
+
+  const toolbar = (
+    <div className="conversation-bar">
+      {browsing ? (
+        <IconButton icon="back" label="Back to conversation" onClick={() => setBrowsing(false)} />
+      ) : (
+        <IconButton icon="clock" label="All conversations" onClick={() => setBrowsing(true)} />
+      )}
+      <span className="conversation-bar-title" title={title || undefined}>
+        {browsing ? 'All conversations' : title || 'New conversation'}
+      </span>
+      {!browsing && (
+        <IconButton
+          icon="compose"
+          label="New conversation"
+          disabled={running || busy || state.messages.length === 0}
+          onClick={() => void switchTo({ type: 'new-conversation' })}
+        />
+      )}
+    </div>
+  );
+
+  if (browsing)
+    return (
+      <section className="agent-panel" data-ready>
+        {toolbar}
+        {error && (
+          <p role="alert" className="agent-error agent-error-dock">
+            {error}
+          </p>
+        )}
+        <ConversationList
+          conversations={conversations}
+          currentId={state.conversationId}
+          running={running}
+          onOpen={id =>
+            id === state.conversationId
+              ? setBrowsing(false)
+              : void switchTo({ type: 'open-conversation', id })
+          }
+          onNew={() => void switchTo({ type: 'new-conversation' })}
+          onDelete={id =>
+            void command({ type: 'delete-conversation', id }).then(() =>
+              window.edi
+                ?.conversations()
+                .then(setConversations)
+                .catch(() => {}),
+            )
+          }
+        />
+      </section>
+    );
+
   const lastAssistant = [...state.messages].reverse().find(message => message.role === 'assistant');
   const streamingId = running ? lastAssistant?.id : undefined;
 
   return (
     <section className="agent-panel" data-ready>
+      {toolbar}
       <div
         ref={threadRef}
         className="agent-thread"

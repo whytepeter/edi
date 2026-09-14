@@ -140,13 +140,14 @@ test('schema rejects impossible states', () => {
 
 test('recent exchanges are completed turns, oldest first, clipped', () => {
   const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'question 1', at: 1 });
   for (const [n, status] of [
     [1, 'done'],
     [2, 'error'],
     [3, 'done'],
     [4, 'done'],
   ] as const) {
-    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}` });
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}`, threadId: 'c1' });
     repos.runs.finish(uuid(n), {
       status,
       text: status === 'done' ? `answer ${n}` : '',
@@ -154,25 +155,27 @@ test('recent exchanges are completed turns, oldest first, clipped', () => {
       at: n,
     });
   }
-  assert.deepEqual(repos.runs.recentExchanges(2), [
+  assert.deepEqual(repos.runs.recentExchanges(2, 'c1'), [
     { prompt: 'question 3', reply: 'answer 3' },
     { prompt: 'question 4', reply: 'answer 4' },
   ]);
-  assert.equal(repos.runs.recentExchanges(10, { prompt: 4, reply: 3 })[0]?.reply, 'ans');
+  assert.equal(repos.runs.recentExchanges(10, 'c1', { prompt: 4, reply: 3 })[0]?.reply, 'ans');
+  assert.deepEqual(repos.runs.recentExchanges(10, null), []);
 });
 
 test('thread includes finished turns for the chat, oldest first', () => {
   const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'question 1', at: 1 });
   for (const [n, status, text, error] of [
     [1, 'done', 'answer 1', ''],
     [2, 'error', '', 'Could not reach the model.'],
     [3, 'stopped', 'partial', ''],
     [4, 'done', 'answer 4', ''],
   ] as const) {
-    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}` });
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}`, threadId: 'c1' });
     repos.runs.finish(uuid(n), { status, text, error, at: n });
   }
-  const turns = repos.runs.thread(3);
+  const turns = repos.runs.thread(3, 'c1');
   assert.equal(turns.length, 3);
   assert.deepEqual(
     turns.map(turn => turn.prompt),
@@ -302,7 +305,10 @@ test('migration 3 records existing shown content as workspace artifacts under th
   );
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
-  db.exec('DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;');
+  db.exec(
+    'DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
+      'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
+  );
   migrate(db);
   assert.deepEqual(repos.artifacts.list(10), [
     {
@@ -370,4 +376,70 @@ test('usage totals by kind, model and local day; voice counts characters apart f
   assert.ok(Math.abs(week.daily.find(day => day.day === '2026-09-12')!.costUsd - 0.5) < 1e-9);
   assert.equal(week.byModel[0]?.model, 'anthropic/claude-sonnet-5');
   assert.throws(() => repos.usage.add({ ...call('answer', 'x', -1) }, now));
+});
+
+test('conversations keep their own history and deleting one removes its runs and steps', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'a', title: 'Plan the trip', at: 10 });
+  repos.conversations.create({ id: 'b', title: 'Fix the build', at: 20 });
+  repos.conversations.create({ id: 'empty', title: 'Nothing yet', at: 30 });
+  for (const [n, thread] of [
+    [1, 'a'],
+    [2, 'b'],
+    [3, 'a'],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), n * 10), prompt: `q${n}`, threadId: thread });
+    repos.runs.finish(uuid(n), { status: 'done', text: `a${n}`, error: '', at: n * 10 + 1 });
+    repos.conversations.touch(thread, n * 10 + 1);
+  }
+  repos.toolCalls.create({
+    id: uuid(50),
+    runId: uuid(2),
+    capability: 'notes.save',
+    title: 'Save a note',
+    effect: 'write',
+    input: {},
+    status: 'running',
+    at: 21,
+  });
+  assert.deepEqual(
+    repos.runs.thread(10, 'a').map(turn => turn.prompt),
+    ['q1', 'q3'],
+  );
+  assert.deepEqual(
+    repos.conversations.list(10).map(entry => [entry.id, entry.turns]),
+    [
+      ['a', 2],
+      ['b', 1],
+    ],
+  );
+  repos.conversations.remove('b');
+  assert.equal(repos.conversations.get('b'), undefined);
+  assert.equal(repos.activity(10).length, 2);
+  assert.throws(() => repos.conversations.remove('b'), /no longer exists/);
+});
+
+test('existing history splits into conversations at two-hour gaps', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  const hour = 60 * 60 * 1000;
+  for (const [n, at] of [
+    [1, 0],
+    [2, hour],
+    [3, 4 * hour],
+    [4, 5 * hour],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), at), prompt: `question ${n}` });
+    repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
+  }
+  db.exec('DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;');
+  db.exec('PRAGMA user_version = 4');
+  migrate(db);
+  assert.deepEqual(
+    repos.conversations.list(10).map(entry => [entry.title, entry.turns, entry.updatedAt]),
+    [
+      ['question 3', 2, 5 * hour + 1],
+      ['question 1', 2, hour + 1],
+    ],
+  );
 });

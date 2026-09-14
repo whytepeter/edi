@@ -11,6 +11,7 @@ import {
   type CloudProviderId,
   type CloudVoiceOption,
   type UsagePeriod,
+  type ConversationSummary,
   type UsageSummary,
   type AgentState,
   type Command,
@@ -47,6 +48,7 @@ interface IpcDependencies {
   models(): Promise<ModelOption[]>;
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   usage(days: UsagePeriod): Promise<UsageSummary>;
+  conversations(): ConversationSummary[];
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
   fileAccess(): FileAccess;
@@ -67,6 +69,7 @@ export function registerIpc({
   models,
   cloudVoices,
   usage,
+  conversations,
   artifact,
   permissions,
   fileAccess,
@@ -117,6 +120,10 @@ export function registerIpc({
   ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
     authorize(callerOf(event), ['workspace']);
     return cloudVoices(cloudProviderSchema.parse(provider));
+  });
+  ipcMain.handle('edi:conversations:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return conversations();
   });
   ipcMain.handle('edi:usage:get', (event, days: unknown) => {
     authorize(callerOf(event), ['workspace']);

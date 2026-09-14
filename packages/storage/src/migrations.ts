@@ -110,6 +110,43 @@ export const migrations: readonly { version: number; sql: string }[] = [
       CREATE INDEX usage_at ON usage (at);
     `,
   },
+  {
+    // Conversations. Existing history is split wherever two hours passed between questions (the
+    // same quiet period after which Edi starts a new conversation),
+    // each part titled by its first question.
+    version: 5,
+    sql: `
+      CREATE TABLE threads (
+        id         TEXT PRIMARY KEY,
+        title      TEXT    NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX threads_updated ON threads (updated_at DESC);
+      ALTER TABLE runs ADD COLUMN thread_id TEXT REFERENCES threads (id) ON DELETE CASCADE;
+      CREATE INDEX runs_thread ON runs (thread_id, started_at);
+
+      CREATE TEMP TABLE legacy_turns AS
+        WITH ordered AS (
+          SELECT id, prompt, started_at, COALESCE(finished_at, started_at) AS ended,
+                 LAG(started_at) OVER (ORDER BY started_at) AS previous
+          FROM runs
+        )
+        SELECT id, prompt, started_at, ended,
+               SUM(CASE WHEN previous IS NULL OR started_at - previous > 7200000 THEN 1 ELSE 0 END)
+                 OVER (ORDER BY started_at ROWS UNBOUNDED PRECEDING) AS part
+        FROM ordered;
+      INSERT INTO threads (id, title, created_at, updated_at)
+        SELECT 'earlier-' || part,
+               (SELECT substr(trim(first.prompt), 1, 80) FROM legacy_turns first
+                WHERE first.part = parts.part ORDER BY first.started_at LIMIT 1),
+               MIN(started_at), MAX(ended)
+        FROM legacy_turns parts GROUP BY part;
+      UPDATE runs SET thread_id =
+        (SELECT 'earlier-' || part FROM legacy_turns WHERE legacy_turns.id = runs.id);
+      DROP TABLE legacy_turns;
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

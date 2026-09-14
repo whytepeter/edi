@@ -7,6 +7,12 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Multiple conversations. Conversations has a toolbar with the current conversation's title, All conversations and
+  New conversation; the list shows each conversation's title (its first question), when it was last used and how
+  many questions it has, and conversations can be opened or deleted (their turns go; anything saved stays in
+  Library). Each conversation keeps its own history for the model. Edi continues a conversation it picked up by
+  itself for two hours after its last turn, then starts a new one; one you opened continues however old. Existing
+  history is split into conversations wherever two hours passed between questions.
 - Desktop context. Each question now carries what you have in front of you: the app and window (not Edi's own), and
   with Accessibility the page address, open document and selected text, so "this page", "my selection" or "what
   I'm working on" work without a screenshot. Gathered locally in a few milliseconds, sent only with that question,

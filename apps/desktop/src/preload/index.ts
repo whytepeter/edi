@@ -19,6 +19,7 @@ import {
   fileAccessActionSchema,
   fileAccessSchema,
   usagePeriodSchema,
+  conversationListSchema,
   usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
@@ -70,6 +71,8 @@ const bridge: DesktopBridge = {
     cloudVoiceListSchema.parse(
       await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),
     ),
+  conversations: async () =>
+    conversationListSchema.parse(await ipcRenderer.invoke('edi:conversations:get')),
   usage: async days =>
     usageSummarySchema.parse(
       await ipcRenderer.invoke('edi:usage:get', usagePeriodSchema.parse(days)),

@@ -1036,6 +1036,7 @@ async function start() {
       };
     },
     models: () => modelCatalog.list(),
+    conversations: () => agent.conversations(),
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),
