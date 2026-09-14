@@ -71,8 +71,8 @@ Make Conversations, Library, Skills, Connectors, Appearance, every Settings page
 agent-addressable as each surface ships. Navigation uses a versioned destination
 contract, never arbitrary routes.
 
-Add Pocket TTS and Chatterbox Turbo as explicit local choices, with Pocket selected by default. Add Cartesia and
-ElevenLabs as optional cloud choices with separate user-supplied credentials. Keep personality and semantic moods
+Local speech is Kokoro (default) and Chatterbox Turbo on MLX; Pocket TTS and the PyTorch Chatterbox build were removed
+2026-09-14. Cartesia and ElevenLabs are optional cloud choices with separate user-supplied credentials. Keep personality and semantic moods
 (neutral, curious, thinking, happy, excited, confused, concerned, playful, and proud) independent of provider and
 skin; adapters map moods to the expression each provider supports.
 
@@ -195,8 +195,8 @@ a rule every milestone follows rather than a feature with its own gate.
 | 2 | Skill library: trust levels, declared requirements, declarative first | 3 (local/curated), 8 (community) | Built-in skills listed in Skills; installs planned |
 | 3 | Open-source distribution: signed builds, website, auto-update | 4 | Planned |
 | 4 | Download and anonymous usage analytics, off by default, inspectable | 4 | Planned; Privacy page states no analytics are collected |
-| 5 | Local-first preferences, secrets separate, preference vs availability | 0–2 | Done for current settings; Jane fallback while Chatterbox loads |
-| 6 | Voice providers: Pocket, Chatterbox Turbo, Cartesia, ElevenLabs | 2 | Pocket and Chatterbox wired; cloud providers planned |
+| 5 | Local-first preferences, secrets separate, preference vs availability | 0–2 | Done for current settings; Kokoro stands in while Chatterbox loads |
+| 6 | Voice providers: local, Cartesia, ElevenLabs | 2 | Done: Kokoro and Chatterbox Turbo (MLX), Cartesia and ElevenLabs with the person's keys; Pocket removed |
 | 7 | Computer use as a separate, off-by-default, interruptible capability | 8 | Planned; listed as not available |
 | 8 | Self-awareness from runtime state | 1 | Done (setup snapshot, abilities, not-yet-available list, location) |
 | 9 | Conversational navigation of Edi itself | 1–2 | Done for every page; preference changes and close/sleep too |
@@ -257,7 +257,7 @@ Initial targets to validate, not public guarantees: immediate input feedback, vi
 ## Open decisions
 
 - Validate the provisional minimum chip/RAM on lower-end hardware; decide whether Intel Macs are supported.
-- Pocket/Jane is the wired default; Chatterbox Turbo is the expressive local option; ElevenLabs and Cartesia are optional cloud choices. Subjective Jane acceptance and measured provider/hardware support remain open.
+- Kokoro is the default local voice and Chatterbox Turbo the expressive one (both MLX); ElevenLabs and Cartesia are optional cloud choices. Pocket was removed 2026-09-14. Measured support on lower-end hardware remains open.
 - Default voice must be female. Later custom voice enrollment may use the user's girlfriend's voice with her explicit consent; include recording/upload disclosure and deletion controls. Defer cloning until after the current audio foundation work.
 - First connector and its desktop OAuth feasibility.
 - SVG versus Rive after trying the character interaction.
