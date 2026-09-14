@@ -37,6 +37,7 @@ import {
 import { petScaleSchema } from './skin-geometry';
 import type { UsagePeriod, UsageSummary } from './usage';
 import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
+import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -47,6 +48,7 @@ import {
 export * from './artifacts';
 export * from './usage';
 export * from './tasks';
+export * from './schedules';
 export {
   placeArtifact,
   placeCard,
@@ -399,6 +401,23 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('set-task-budget'), budgetUsd: taskBudgetSchema }).strict(),
+  z
+    .object({
+      type: z.literal('create-schedule'),
+      prompt: z.string().trim().min(1).max(8000),
+      when: scheduleWhenSchema,
+      notify: scheduleNotifySchema,
+      budgetUsd: taskBudgetSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('set-schedule-enabled'),
+      id: z.string().uuid(),
+      enabled: z.boolean(),
+    })
+    .strict(),
+  z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
   z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
   z
@@ -514,6 +533,9 @@ export interface DesktopBridge {
   /** Background tasks, active first then most recent. */
   tasks(): Promise<Task[]>;
   onTasks(callback: (tasks: Task[]) => void): () => void;
+  /** Schedules and watches, enabled first then by next run. */
+  schedules(): Promise<Schedule[]>;
+  onSchedules(callback: (schedules: Schedule[]) => void): () => void;
   /** Saved conversations, most recently active first. */
   conversations(query?: string): Promise<ConversationSummary[]>;
   /** What Edi used over the last 1, 7 or 30 days. */

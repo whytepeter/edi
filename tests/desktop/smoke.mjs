@@ -260,6 +260,24 @@ try {
   await workspace.getByLabel('Spending cap in dollars').fill('99');
   await expect(startTask).toBeDisabled();
   expect(await workspace.evaluate(() => window.edi.tasks())).toEqual([]);
+  // A weekday watch is created from the composer, shown with its rhythm, paused and removed.
+  await workspace.getByLabel('Spending cap in dollars').fill('0.25');
+  await workspace
+    .getByPlaceholder('What should Edi work on in the background?')
+    .fill('Check the MacBook Air price');
+  await workspace.getByRole('combobox').selectOption('weekdays');
+  await workspace.getByLabel('Time').fill('08:30');
+  await workspace.getByLabel('Only tell me when it changes').check();
+  await workspace.getByRole('button', { name: 'Start watch' }).click();
+  await expect(workspace.getByText(/Every weekday at 08:30 · Next/)).toBeVisible();
+  const [watch] = await workspace.evaluate(() => window.edi.schedules());
+  expect([watch.notify, watch.budgetUsd, watch.enabled]).toEqual(['on-change', 0.25, true]);
+  await workspace.getByRole('switch', { name: /Pause Check the MacBook Air price/ }).click();
+  await expect(workspace.getByText(/Every weekday at 08:30 · Paused/)).toBeVisible();
+  await workspace.getByRole('button', { name: /Remove Check the MacBook Air price/ }).click();
+  await workspace.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect.poll(() => workspace.evaluate(() => window.edi.schedules())).toEqual([]);
+  expect(await workspace.evaluate(() => window.edi.tasks())).toEqual([]);
   // Edi's own navigation reaches nested pages through the closed destination list.
   await workspace.evaluate(() =>
     window.edi.command({ type: 'show-workspace', view: 'settings.keyboard' }),

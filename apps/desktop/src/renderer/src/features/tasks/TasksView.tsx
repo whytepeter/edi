@@ -1,9 +1,18 @@
 import { useState, type FormEvent } from 'react';
-import { isActiveTask, type ArtifactRef, type Task, type TaskStatus } from '@edi/contracts';
-import { Button, EmptyState, Icon, IconButton } from '../../components/ui';
+import {
+  describeWhen,
+  isActiveTask,
+  type ArtifactRef,
+  type Schedule,
+  type ScheduleWhen,
+  type Task,
+  type TaskStatus,
+} from '@edi/contracts';
+import { Button, EmptyState, Icon, IconButton, Switch } from '../../components/ui';
 import { ReplyText } from '../../components/ReplyText';
 import { ActionTrail } from '../../components/ActionTrail';
 import { useTasks } from '../../hooks/useTasks';
+import { useSchedules } from '../../hooks/useSchedules';
 import './tasks.css';
 
 const statusLabel: Record<TaskStatus, string> = {
@@ -16,6 +25,22 @@ const statusLabel: Record<TaskStatus, string> = {
   cancelled: 'Stopped',
   interrupted: 'Interrupted',
 };
+type WhenChoice = 'now' | 'daily' | 'weekdays' | 'hours' | 'once';
+const pad = (value: number) => String(value).padStart(2, '0');
+/** The next whole hour, as a datetime-local value. */
+function nextHour() {
+  const date = new Date(Date.now() + 60 * 60 * 1000);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:00`;
+}
+function nextRunLabel(at: number | null) {
+  if (at === null) return 'Done';
+  const date = new Date(at);
+  const today = new Date();
+  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (date.toDateString() === today.toDateString()) return `Next today, ${time}`;
+  return `Next ${date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}, ${time}`;
+}
+
 const money = (usd: number) => `$${usd < 1 ? usd.toFixed(2) : usd.toFixed(2).replace(/\.00$/, '')}`;
 
 /** Tasks: hand Edi longer work, watch it, and read what it found. */
@@ -29,6 +54,12 @@ export function TasksView({
   onOpenUsage(): void;
 }) {
   const tasks = useTasks();
+  const schedules = useSchedules();
+  const [when, setWhen] = useState<WhenChoice>('now');
+  const [time, setTime] = useState('09:00');
+  const [hours, setHours] = useState('4');
+  const [onceAt, setOnceAt] = useState(nextHour);
+  const [watch, setWatch] = useState(false);
   const [draft, setDraft] = useState('');
   const [budget, setBudget] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -47,12 +78,33 @@ export function TasksView({
     }
   }
 
+  const rule: ScheduleWhen | null =
+    when === 'daily'
+      ? { kind: 'daily', time }
+      : when === 'weekdays'
+        ? { kind: 'daily', time, days: ['mon', 'tue', 'wed', 'thu', 'fri'] }
+        : when === 'hours'
+          ? { kind: 'every', hours: Math.min(24, Math.max(1, Math.round(Number(hours) || 1))) }
+          : when === 'once'
+            ? { kind: 'once', at: onceAt }
+            : null;
+  const repeating = when !== 'now' && when !== 'once';
+
   async function start(event: FormEvent) {
     event.preventDefault();
     const prompt = draft.trim();
     if (!prompt || !capValid || busy) return;
     setBusy(true);
-    if (await send({ type: 'start-task', prompt, budgetUsd: cap })) {
+    const ok = rule
+      ? await send({
+          type: 'create-schedule',
+          prompt,
+          when: rule,
+          notify: repeating && watch ? 'on-change' : 'always',
+          budgetUsd: cap,
+        })
+      : await send({ type: 'start-task', prompt, budgetUsd: cap });
+    if (ok) {
       setDraft('');
       setBudget('');
     }
@@ -80,6 +132,58 @@ export function TasksView({
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void start(event);
           }}
         />
+        <div className="task-when">
+          <label>
+            <span className="ds-visually-hidden">When</span>
+            <select value={when} onChange={event => setWhen(event.target.value as WhenChoice)}>
+              <option value="now">Now</option>
+              <option value="daily">Every day at</option>
+              <option value="weekdays">Every weekday at</option>
+              <option value="hours">Every few hours</option>
+              <option value="once">Once, later</option>
+            </select>
+          </label>
+          {(when === 'daily' || when === 'weekdays') && (
+            <input
+              type="time"
+              aria-label="Time"
+              value={time}
+              onChange={event => setTime(event.target.value)}
+            />
+          )}
+          {when === 'hours' && (
+            <label className="task-hours">
+              every
+              <input
+                type="number"
+                min={1}
+                max={24}
+                aria-label="Hours between runs"
+                value={hours}
+                onChange={event => setHours(event.target.value)}
+              />
+              hours
+            </label>
+          )}
+          {when === 'once' && (
+            <input
+              type="datetime-local"
+              aria-label="Date and time"
+              value={onceAt}
+              onChange={event => setOnceAt(event.target.value)}
+            />
+          )}
+          {repeating && (
+            <label className="task-watch">
+              <input
+                type="checkbox"
+                checked={watch}
+                onChange={event => setWatch(event.target.checked)}
+              />
+              Only tell me when it changes
+            </label>
+          )}
+        </div>
         <div className="task-composer-row">
           <label className="task-cap">
             <span>Up to $</span>
@@ -102,7 +206,7 @@ export function TasksView({
             size="small"
             disabled={!draft.trim() || !capValid || busy}
           >
-            Start task
+            {when === 'now' ? 'Start task' : repeating && watch ? 'Start watch' : 'Schedule'}
           </Button>
         </div>
         <p className="task-composer-hint">
@@ -119,9 +223,20 @@ export function TasksView({
         </p>
       )}
 
+      {schedules && schedules.length > 0 && (
+        <section className="task-group" aria-label="Scheduled">
+          <h2 className="ds-group-title">Scheduled</h2>
+          <ul className="schedule-list">
+            {schedules.map(schedule => (
+              <ScheduleRow key={schedule.id} schedule={schedule} send={send} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {tasks === null ? (
         <p className="ds-footnote ds-secondary">Loading…</p>
-      ) : tasks.length === 0 ? (
+      ) : tasks.length === 0 && !schedules?.length ? (
         <EmptyState icon="tasks" title="Hand Edi longer work.">
           <p className="ds-body ds-secondary">
             Tasks keep going while you do other things: “find senior frontend roles posted this
@@ -150,6 +265,66 @@ export function TasksView({
         </>
       )}
     </div>
+  );
+}
+
+function ScheduleRow({
+  schedule,
+  send,
+}: {
+  schedule: Schedule;
+  send(command: Parameters<NonNullable<typeof window.edi>['command']>[0]): Promise<boolean>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const watch = schedule.notify === 'on-change';
+  return (
+    <li className="schedule-row" data-enabled={schedule.enabled || undefined}>
+      <div className="schedule-text">
+        <span className="schedule-title">
+          {schedule.title}
+          {watch && <span className="schedule-badge">Watch</span>}
+        </span>
+        <span className="schedule-detail">
+          {describeWhen(schedule.when)} ·{' '}
+          {schedule.enabled ? nextRunLabel(schedule.nextRunAt) : 'Paused'} · up to{' '}
+          {money(schedule.budgetUsd)}
+        </span>
+        {watch && schedule.lastResult && (
+          <span className="schedule-latest">Last check: {schedule.lastResult}</span>
+        )}
+      </div>
+      {confirming ? (
+        <span className="task-confirm">
+          <Button size="small" onClick={() => setConfirming(false)}>
+            Keep
+          </Button>
+          <Button
+            size="small"
+            variant="prominent"
+            onClick={() => void send({ type: 'delete-schedule', id: schedule.id })}
+          >
+            Remove
+          </Button>
+        </span>
+      ) : (
+        <span className="schedule-controls">
+          {schedule.nextRunAt !== null && (
+            <Switch
+              label={`${schedule.enabled ? 'Pause' : 'Resume'} ${schedule.title}`}
+              checked={schedule.enabled}
+              onChange={enabled =>
+                void send({ type: 'set-schedule-enabled', id: schedule.id, enabled })
+              }
+            />
+          )}
+          <IconButton
+            icon="trash"
+            label={`Remove ${schedule.title}`}
+            onClick={() => setConfirming(true)}
+          />
+        </span>
+      )}
+    </li>
   );
 }
 

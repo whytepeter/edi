@@ -3,6 +3,8 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  Notification,
+  powerMonitor,
   dialog,
   globalShortcut,
   Menu,
@@ -46,6 +48,8 @@ import {
   artifactExport,
   artifactPreview,
   taskBudgetSchema,
+  describeWhen,
+  scheduleWhenSchema,
   assistantName,
   isCloudVoiceModel,
   voiceCatalog,
@@ -78,6 +82,7 @@ import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
+import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
@@ -365,6 +370,10 @@ async function start() {
           name: 'Run longer work as background tasks with a spending cap, and report how they are going',
           asksFirst: true,
         },
+        {
+          name: 'Schedule tasks for later or on repeat, and watch things, telling you only when they change',
+          asksFirst: true,
+        },
         { name: 'Point at and draw on the screen', asksFirst: false },
       ],
       notYetAvailable: [
@@ -560,6 +569,127 @@ async function start() {
         };
       },
     }),
+    defineCapability({
+      id: 'schedules.create',
+      title: 'Schedule a task',
+      description:
+        'Run a task later or repeatedly, as a background task each time: “every weekday at 9 ' +
+        'summarize my tech news”, “tomorrow at 3pm check the order status”, “every 4 hours”. For ' +
+        '“tell me when X changes” make it a watch (notify on-change): it compares each check with ' +
+        'the last and only tells the user when something changed. Instructions must stand on ' +
+        'their own. Use local times. Pass budgetUsd only when the user named an amount per run.',
+      effect: 'write',
+      timeoutMs: 5_000,
+      input: z
+        .object({
+          title: z.string().trim().min(1).max(80).describe('A short name'),
+          instructions: z.string().trim().min(1).max(8000).describe('What each run should do'),
+          when: scheduleWhenSchema.describe(
+            'once {at: "YYYY-MM-DDTHH:MM"}, daily {time: "HH:MM", days?: ["mon",…]} or every {hours}',
+          ),
+          notify: z
+            .enum(['always', 'on-change'])
+            .describe('always: tell the user each result; on-change: a watch'),
+          budgetUsd: taskBudgetSchema
+            .optional()
+            .describe('Spending cap per run, if the user named one'),
+        })
+        .strict(),
+      prepare({ title, instructions, when, notify, budgetUsd }) {
+        const budget = budgetUsd ?? settings.current.taskBudgetUsd;
+        const rhythm = describeWhen(when);
+        return {
+          preview: {
+            title: notify === 'on-change' ? 'Start a watch' : 'Schedule a task',
+            action: notify === 'on-change' ? 'Start Watch' : 'Schedule',
+            summary: `${rhythm}: “${title}”, up to $${budget.toFixed(2)} each time.`,
+            fields: [
+              { label: 'When', value: rhythm },
+              {
+                label: 'Tells you',
+                value: notify === 'on-change' ? 'Only when something changes' : 'Each result',
+              },
+            ],
+            body: instructions.slice(0, 4000),
+          },
+          async execute() {
+            const schedule = scheduler.create({
+              title,
+              prompt: instructions,
+              when,
+              notify,
+              budgetUsd: budget,
+            });
+            return {
+              summary: `${notify === 'on-change' ? 'Watching' : 'Scheduled'} “${schedule.title}”: ${rhythm.toLowerCase()}.`,
+              output: {
+                scheduleId: schedule.id,
+                nextRun: schedule.nextRunAt ? new Date(schedule.nextRunAt).toString() : null,
+              },
+            };
+          },
+        };
+      },
+    }),
+    defineCapability({
+      id: 'schedules.list',
+      title: 'Check schedules',
+      description:
+        'List schedules and watches: what they do, when they run next, and their latest result. ' +
+        'Use it before changing or removing one, or when the user asks what is scheduled.',
+      effect: 'read',
+      timeoutMs: 5_000,
+      input: z.object({}).strict(),
+      prepare() {
+        return {
+          preview: {
+            title: 'Check schedules',
+            action: 'Check',
+            summary: 'Check schedules.',
+            fields: [],
+          },
+          async execute() {
+            const list = scheduler.list().map(schedule => ({
+              id: schedule.id,
+              title: schedule.title,
+              when: describeWhen(schedule.when),
+              watch: schedule.notify === 'on-change',
+              enabled: schedule.enabled,
+              nextRun: schedule.nextRunAt ? new Date(schedule.nextRunAt).toString() : null,
+              latest: schedule.lastResult.slice(0, 1000),
+            }));
+            return {
+              summary: list.length === 1 ? '1 schedule.' : `${list.length} schedules.`,
+              output: { schedules: list },
+            };
+          },
+        };
+      },
+    }),
+    defineCapability({
+      id: 'schedules.delete',
+      title: 'Remove a schedule',
+      description: 'Stop and remove a schedule or watch by id from schedules_list.',
+      effect: 'write',
+      timeoutMs: 5_000,
+      input: z.object({ id: z.string().uuid() }).strict(),
+      prepare({ id }) {
+        const schedule = repositories.schedules.get(id);
+        if (!schedule) throw new Error('That schedule no longer exists.');
+        return {
+          preview: {
+            title: 'Remove a schedule',
+            action: 'Remove',
+            summary: `Stop “${schedule.title}” (${describeWhen(schedule.when).toLowerCase()}).`,
+            fields: [],
+          },
+          async execute() {
+            scheduler.remove(id);
+            return { summary: `Removed “${schedule.title}”.` };
+          },
+        };
+      },
+    }),
   ];
   const tasks = new TaskService({
     credentials: openRouter,
@@ -569,6 +699,8 @@ async function start() {
     assistantName: () => companion(),
     readerModel: () => readerModel,
     finished: task => {
+      // Scheduled runs speak through the scheduler: watches stay quiet unless something changed.
+      if (scheduler.finished(task)) return;
       if (cardOpen()) return;
       character.showVoiceStatus({
         notice:
@@ -578,6 +710,27 @@ async function start() {
               ? `Couldn’t finish: ${task.title}`
               : `Stopped: ${task.title}`,
       });
+    },
+  });
+  const scheduler = new Scheduler({
+    repositories,
+    tasks,
+    notify: (schedule, task, summary) => {
+      const watch = schedule.notify === 'on-change';
+      if (!cardOpen())
+        character.showVoiceStatus({
+          notice: `${watch ? 'Changed' : 'Ready'}: ${schedule.title}`,
+        });
+      // Results can arrive while the person is away, so they also go to Notification Center.
+      if (Notification.isSupported()) {
+        const note = new Notification({
+          title: watch ? `${schedule.title} changed` : schedule.title,
+          body: summary.replace(/\s+/g, ' ').slice(0, 180) || `${task.title} is ready.`,
+          silent: true,
+        });
+        note.on('click', () => openSetup('tasks'));
+        note.show();
+      }
     },
   });
   agent = new AgentService({
@@ -969,6 +1122,9 @@ async function start() {
     'web.fetch': 'Reading a page',
     'tasks.start': 'Starting a background task',
     'tasks.list': 'Checking your tasks',
+    'schedules.create': 'Scheduling it',
+    'schedules.list': 'Checking your schedules',
+    'schedules.delete': 'Removing the schedule',
     'files.search': 'Searching your files',
     'files.list': 'Looking in a folder',
     'files.read': 'Reading a file',
@@ -1041,6 +1197,10 @@ async function start() {
   });
   // Queued tasks start once the windows exist; work that was running when Edi quit is marked.
   tasks.resume();
+  scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
+  scheduler.start();
+  // A Mac waking from sleep checks for anything that came due meanwhile.
+  powerMonitor.on('resume', () => scheduler.tick());
   workspace.on('show', approvalSurface);
   workspace.on('hide', approvalSurface);
 
@@ -1106,6 +1266,7 @@ async function start() {
       settings,
       agent,
       tasks,
+      scheduler,
       placement,
       petDrag,
       character,
@@ -1169,6 +1330,7 @@ async function start() {
     models: () => modelCatalog.list(),
     conversations: query => agent.conversations(query),
     tasks: () => tasks.list(),
+    schedules: () => scheduler.list(),
     usage: async days => ({
       ...repositories.usage.summary(days, Date.now()),
       account: await openRouterAccount.get(openRouter.apiKey),
@@ -1236,6 +1398,7 @@ async function start() {
     agent.stop();
   });
   app.on('will-quit', () => {
+    scheduler.dispose();
     tasks.dispose();
     chatterbox?.dispose();
     kokoro?.dispose();

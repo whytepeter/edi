@@ -8,6 +8,7 @@ import type {
 } from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
 import type { TaskService } from '../agent/task-service';
+import type { Scheduler } from '../agent/scheduler';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
@@ -24,6 +25,7 @@ interface CommandDependencies {
   settings: SettingsStore;
   agent: AgentService;
   tasks: TaskService;
+  scheduler: Scheduler;
   placement: WindowPlacement;
   petDrag: PetDrag;
   character: CharacterActions;
@@ -61,6 +63,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     settings,
     agent,
     tasks,
+    scheduler,
     placement,
     petDrag,
     character,
@@ -263,6 +266,22 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ id, addUsd }) => tasks.raiseBudget(id, addUsd),
     },
+    'create-schedule': {
+      from: fromWorkspace,
+      handle: ({ prompt, when, notify, budgetUsd }) => {
+        scheduler.create({
+          prompt,
+          when,
+          notify,
+          budgetUsd: budgetUsd ?? settings.current.taskBudgetUsd,
+        });
+      },
+    },
+    'set-schedule-enabled': {
+      from: fromWorkspace,
+      handle: ({ id, enabled }) => scheduler.setEnabled(id, enabled),
+    },
+    'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
     'set-task-budget': {
       from: fromWorkspace,
       handle: ({ budgetUsd }) => settings.update({ taskBudgetUsd: budgetUsd }),

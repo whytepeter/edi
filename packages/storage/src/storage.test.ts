@@ -306,7 +306,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
@@ -434,7 +434,7 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
   db.exec(
-    'DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
   );
   db.exec('PRAGMA user_version = 4');
@@ -533,4 +533,78 @@ test('tasks: queue order, spending from their runs, recovery and deletion with t
   repos.tasks.remove(uuid(103));
   assert.equal(repos.activity(10).length, 0);
   assert.throws(() => repos.tasks.remove(uuid(103)), /no longer exists/);
+});
+
+test('schedules: due ones earliest first, disabled and broken rules never due, removal', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  const base = {
+    prompt: 'Check the news',
+    notify: 'always' as const,
+    budgetUsd: 0.25,
+    enabled: true,
+    createdAt: 1,
+  };
+  repos.schedules.create({
+    ...base,
+    id: uuid(201),
+    title: 'Later',
+    when: { kind: 'every', hours: 2 },
+    nextRunAt: 300,
+  });
+  repos.schedules.create({
+    ...base,
+    id: uuid(202),
+    title: 'Sooner',
+    when: { kind: 'daily', time: '09:00' },
+    nextRunAt: 100,
+  });
+  repos.schedules.create({
+    ...base,
+    id: uuid(203),
+    title: 'Off',
+    when: { kind: 'every', hours: 1 },
+    nextRunAt: 50,
+    enabled: false,
+  });
+  repos.schedules.create({
+    ...base,
+    id: uuid(204),
+    title: 'Broken',
+    when: { kind: 'every', hours: 3 },
+    nextRunAt: 60,
+  });
+  db.prepare(`UPDATE schedules SET when_json = '{"kind":"yearly"}' WHERE id = ?`).run(uuid(204));
+
+  assert.deepEqual(
+    repos.schedules.due(400).map(entry => entry.title),
+    ['Sooner', 'Later'],
+  );
+  assert.deepEqual(
+    repos.schedules.due(200).map(entry => entry.title),
+    ['Sooner'],
+  );
+  repos.schedules.update(uuid(202), { nextRunAt: 1000, lastRunAt: 100, lastResult: 'Quiet day.' });
+  assert.deepEqual(repos.schedules.get(uuid(202))?.lastResult, 'Quiet day.');
+  assert.deepEqual(
+    repos.schedules.list(10).map(entry => [entry.title, entry.enabled]),
+    [
+      ['Later', true],
+      ['Sooner', true],
+      ['Off', false],
+    ],
+  );
+  repos.tasks.create({
+    id: uuid(205),
+    title: 'Run',
+    prompt: 'x',
+    budgetUsd: 0.25,
+    conversationId: null,
+    scheduleId: uuid(201),
+    at: 5,
+  });
+  assert.equal(repos.tasks.get(uuid(205))?.scheduleId, uuid(201));
+  repos.schedules.remove(uuid(201));
+  assert.equal(repos.tasks.get(uuid(205))?.scheduleId, null);
+  assert.throws(() => repos.schedules.remove(uuid(201)), /no longer exists/);
 });

@@ -10,6 +10,7 @@ export {
   UsageRepository,
   ConversationRepository,
   TaskRepository,
+  ScheduleRepository,
   type Repositories,
   type NoteRecord,
   type ArtifactRecord,

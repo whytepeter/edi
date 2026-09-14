@@ -7,6 +7,12 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Schedules and watches. Tasks can run later or on repeat (every day or weekday at a time, every few hours, once at
+  a date) from the Tasks composer or by asking Edi ("every weekday at 9 summarize my tech news", "tell me when the
+  MacBook Air price changes"). A watch compares each check with the last and only notifies when something changed;
+  results go to Notification Center and the bubble. The scheduler checks every 30 seconds and on wake, runs a
+  missed schedule once (never in a burst), and skips a turn while the previous run is still going. Each run uses the
+  schedule's spending cap. Schedules can be paused or removed from Tasks, and Edi can list and remove them.
 - Background tasks. Hand Edi longer work from Tasks or by asking in a conversation ("do this in the background");
   it keeps running while you do other things, up to two at a time with the rest queued. Each task has its own
   steps, reviews (with "Always allow" for that task), result text and anything it saved to Library, and a quiet

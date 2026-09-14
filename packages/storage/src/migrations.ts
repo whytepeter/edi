@@ -196,6 +196,27 @@ export const migrations: readonly { version: number; sql: string }[] = [
       CREATE INDEX runs_task ON runs (task_id);
     `,
   },
+  {
+    // Schedules and watches start tasks; when_json holds the validated timing rule.
+    version: 8,
+    sql: `
+      CREATE TABLE schedules (
+        id          TEXT PRIMARY KEY,
+        title       TEXT    NOT NULL,
+        prompt      TEXT    NOT NULL,
+        when_json   TEXT    NOT NULL,
+        notify      TEXT    NOT NULL CHECK (notify IN ('always', 'on-change')),
+        budget_usd  REAL    NOT NULL CHECK (budget_usd > 0),
+        enabled     INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        created_at  INTEGER NOT NULL,
+        last_run_at INTEGER,
+        next_run_at INTEGER,
+        last_result TEXT    NOT NULL DEFAULT ''
+      );
+      CREATE INDEX schedules_due ON schedules (enabled, next_run_at);
+      ALTER TABLE tasks ADD COLUMN schedule_id TEXT REFERENCES schedules (id) ON DELETE SET NULL;
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

@@ -35,6 +35,8 @@ export const taskSchema = z
     finishedAt: z.number().int().nonnegative().nullable(),
     budgetUsd: taskBudgetSchema,
     spentUsd: z.number().nonnegative(),
+    /** The schedule or watch that started it, if any. */
+    scheduleId: z.string().uuid().nullable(),
     /** What it is doing now, or what it last did. */
     progress: z.string().max(200),
     steps: z.array(toolStepSchema).max(40),

@@ -200,3 +200,96 @@
 .task-card .action-trail {
   width: 100%;
 }
+
+.task-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.task-when select,
+.task-when input[type='time'],
+.task-when input[type='datetime-local'],
+.task-hours input {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: var(--fill);
+  color: var(--label);
+  font: var(--text-footnote);
+}
+.task-hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-hours input {
+  width: 44px;
+}
+.task-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-watch input {
+  accent-color: var(--accent-strong);
+}
+.schedule-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 14px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.schedule-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px var(--space-3) 10px var(--space-4);
+}
+.schedule-row + .schedule-row {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+.schedule-row:not([data-enabled]) .schedule-text {
+  opacity: 0.6;
+}
+.schedule-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.schedule-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--text-body);
+  font-weight: 500;
+  color: var(--label);
+}
+.schedule-badge {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--accent-softer);
+  color: var(--accent-strong);
+  font: var(--text-caption);
+  font-weight: 600;
+}
+.schedule-detail,
+.schedule-latest {
+  overflow: hidden;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.schedule-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}

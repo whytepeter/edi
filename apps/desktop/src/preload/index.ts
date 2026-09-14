@@ -21,6 +21,7 @@ import {
   usagePeriodSchema,
   conversationListSchema,
   taskListSchema,
+  scheduleListSchema,
   usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
@@ -56,6 +57,15 @@ const bridge: DesktopBridge = {
       await ipcRenderer.invoke('edi:file-access:act', fileAccessActionSchema.parse(action)),
     ),
   tasks: async () => taskListSchema.parse(await ipcRenderer.invoke('edi:tasks:get')),
+  schedules: async () => scheduleListSchema.parse(await ipcRenderer.invoke('edi:schedules:get')),
+  onSchedules: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = scheduleListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:schedules', listener);
+    return () => ipcRenderer.removeListener('edi:schedules', listener);
+  },
   onTasks: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = taskListSchema.safeParse(value);

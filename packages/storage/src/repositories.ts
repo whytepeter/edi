@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   runStatusSchema,
   toolCallStatusSchema,
+  scheduleNotifySchema,
+  scheduleWhenSchema,
   usageEntrySchema,
   usageKindSchema,
   usageProviderSchema,
@@ -12,6 +14,7 @@ import {
   type UsageTotals,
   type RunStatus,
   type ToolCallStatus,
+  type Schedule,
   type ToolStep,
 } from '@edi/contracts';
 import { transaction, type Database } from './database';
@@ -313,6 +316,7 @@ const taskRow = z.object({
     'interrupted',
   ]),
   conversationId: z.string().nullable(),
+  scheduleId: z.string().nullable(),
   budgetUsd: z.number(),
   result: z.string(),
   error: z.string(),
@@ -323,6 +327,7 @@ const taskRow = z.object({
 });
 export type TaskRecord = z.infer<typeof taskRow>;
 const taskColumns = `t.id, t.title, t.prompt, t.status, t.conversation_id AS conversationId,
+  t.schedule_id AS scheduleId,
   t.budget_usd AS budgetUsd, t.result, t.error, t.created_at AS createdAt,
   t.started_at AS startedAt, t.finished_at AS finishedAt,
   COALESCE((SELECT SUM(u.cost_usd) FROM usage u JOIN runs r ON r.id = u.run_id
@@ -338,12 +343,14 @@ export class TaskRepository {
     prompt: string;
     budgetUsd: number;
     conversationId: string | null;
+    scheduleId?: string | null;
     at: number;
   }) {
     this.db
       .prepare(
-        `INSERT INTO tasks (id, title, prompt, status, conversation_id, budget_usd, created_at)
-         VALUES (?, ?, ?, 'queued', ?, ?, ?)`,
+        `INSERT INTO tasks (id, title, prompt, status, conversation_id, budget_usd, created_at,
+                            schedule_id)
+         VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -352,6 +359,7 @@ export class TaskRepository {
         task.conversationId,
         task.budgetUsd,
         task.at,
+        task.scheduleId ?? null,
       );
   }
 
@@ -440,6 +448,120 @@ export class TaskRepository {
         )
         .run(at).changes,
     );
+  }
+}
+
+const scheduleRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  prompt: z.string(),
+  when: z.string(),
+  notify: scheduleNotifySchema,
+  budgetUsd: z.number(),
+  enabled: z.number(),
+  createdAt: z.number(),
+  lastRunAt: z.number().nullable(),
+  nextRunAt: z.number().nullable(),
+  lastResult: z.string(),
+});
+const scheduleColumns = `id, title, prompt, when_json AS "when", notify, budget_usd AS budgetUsd,
+  enabled, created_at AS createdAt, last_run_at AS lastRunAt, next_run_at AS nextRunAt,
+  last_result AS lastResult`;
+
+/** Schedules and watches. A row whose rule no longer parses is skipped, never run. */
+export class ScheduleRepository {
+  constructor(private readonly db: Database) {}
+
+  private static parse(row: unknown): Schedule | null {
+    const raw = scheduleRow.parse(row);
+    const when = scheduleWhenSchema.safeParse(JSON.parse(raw.when));
+    if (!when.success) return null;
+    return { ...raw, when: when.data, enabled: raw.enabled === 1 };
+  }
+
+  create(schedule: Omit<Schedule, 'lastRunAt' | 'lastResult'>) {
+    this.db
+      .prepare(
+        `INSERT INTO schedules (id, title, prompt, when_json, notify, budget_usd, enabled,
+                                created_at, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        schedule.id,
+        schedule.title.slice(0, 120),
+        schedule.prompt,
+        JSON.stringify(scheduleWhenSchema.parse(schedule.when)),
+        schedule.notify,
+        schedule.budgetUsd,
+        schedule.enabled ? 1 : 0,
+        schedule.createdAt,
+        schedule.nextRunAt,
+      );
+  }
+
+  get(id: string): Schedule | undefined {
+    const row = this.db.prepare(`SELECT ${scheduleColumns} FROM schedules WHERE id = ?`).get(id);
+    return (row && ScheduleRepository.parse(row)) || undefined;
+  }
+
+  list(limit: number): Schedule[] {
+    return this.db
+      .prepare(
+        `SELECT ${scheduleColumns} FROM schedules
+         ORDER BY enabled DESC, next_run_at IS NULL, next_run_at, created_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => ScheduleRepository.parse(row))
+      .filter((schedule): schedule is Schedule => schedule !== null);
+  }
+
+  /** Enabled schedules whose next run is at or before `now`, earliest first. */
+  due(now: number): Schedule[] {
+    return this.db
+      .prepare(
+        `SELECT ${scheduleColumns} FROM schedules
+         WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+         ORDER BY next_run_at`,
+      )
+      .all(now)
+      .map(row => ScheduleRepository.parse(row))
+      .filter((schedule): schedule is Schedule => schedule !== null);
+  }
+
+  update(
+    id: string,
+    change: {
+      enabled?: boolean;
+      nextRunAt?: number | null;
+      lastRunAt?: number;
+      lastResult?: string;
+    },
+  ) {
+    const fields: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (change.enabled !== undefined) {
+      fields.push('enabled = ?');
+      values.push(change.enabled ? 1 : 0);
+    }
+    if (change.nextRunAt !== undefined) {
+      fields.push('next_run_at = ?');
+      values.push(change.nextRunAt);
+    }
+    if (change.lastRunAt !== undefined) {
+      fields.push('last_run_at = ?');
+      values.push(change.lastRunAt);
+    }
+    if (change.lastResult !== undefined) {
+      fields.push('last_result = ?');
+      values.push(change.lastResult.slice(0, 8000));
+    }
+    if (!fields.length) return;
+    this.db.prepare(`UPDATE schedules SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM schedules WHERE id = ?`).run(id);
+    if (Number(result.changes) === 0) throw new Error('That schedule no longer exists.');
   }
 }
 
@@ -771,6 +893,7 @@ export interface Repositories {
   usage: UsageRepository;
   conversations: ConversationRepository;
   tasks: TaskRepository;
+  schedules: ScheduleRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -790,6 +913,7 @@ export function createRepositories(db: Database): Repositories {
     usage: new UsageRepository(db),
     conversations: new ConversationRepository(db),
     tasks: new TaskRepository(db),
+    schedules: new ScheduleRepository(db),
 
     activity(limit) {
       const runs = db

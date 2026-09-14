@@ -115,6 +115,7 @@ export class TaskService {
     title?: string;
     budgetUsd: number;
     conversationId: string | null;
+    scheduleId?: string | null;
   }) {
     if (!this.options.credentials.configured) throw new Error('Set up OpenRouter first.');
     const id = randomUUID();
@@ -128,6 +129,7 @@ export class TaskService {
       prompt: input.prompt,
       budgetUsd: input.budgetUsd,
       conversationId: input.conversationId,
+      scheduleId: input.scheduleId ?? null,
       at: this.now(),
     });
     this.pump();
@@ -437,6 +439,7 @@ export class TaskService {
       finishedAt: record.finishedAt,
       budgetUsd: record.budgetUsd,
       spentUsd: Math.round(record.spentUsd * 10_000) / 10_000,
+      scheduleId: record.scheduleId,
       progress: progress.slice(0, 200),
       steps,
       result: record.result,
