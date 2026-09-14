@@ -48,3 +48,42 @@ export const emptyPermissionSnapshot: PermissionSnapshot = {
   permissions: permissionIds.map(id => ({ id, status: 'unknown', requested: false })),
   active: null,
 };
+
+/**
+ * Files & Folders. macOS cannot be asked whether Edi may use a protected folder without
+ * prompting, so each folder shows what Edi last learned by touching it. Full Disk Access is
+ * probed by reading a file only it unlocks, which never prompts.
+ */
+export const folderAccessStatusSchema = z.enum(['allowed', 'off', 'not-checked', 'missing']);
+export type FolderAccessStatus = z.infer<typeof folderAccessStatusSchema>;
+
+export const fileAccessSchema = z
+  .object({
+    folders: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(80),
+            name: z.string().min(1).max(120),
+            /** Shown with ~ for the home folder. */
+            path: z.string().max(1024),
+            kind: z.enum(['desktop', 'documents', 'downloads', 'added']),
+            status: folderAccessStatusSchema,
+          })
+          .strict(),
+      )
+      .max(40),
+    fullDiskAccess: z.boolean(),
+  })
+  .strict();
+export type FileAccess = z.infer<typeof fileAccessSchema>;
+
+export const fileAccessActionSchema = z.discriminatedUnion('type', [
+  /** Touch the folder so macOS asks, then record the answer. */
+  z.object({ type: z.literal('check'), id: z.string().min(1).max(80) }).strict(),
+  /** Choose a folder in a macOS open panel. */
+  z.object({ type: z.literal('add') }).strict(),
+  z.object({ type: z.literal('remove'), id: z.string().min(1).max(80) }).strict(),
+  z.object({ type: z.literal('open-settings'), pane: z.enum(['files', 'full-disk']) }).strict(),
+]);
+export type FileAccessAction = z.infer<typeof fileAccessActionSchema>;

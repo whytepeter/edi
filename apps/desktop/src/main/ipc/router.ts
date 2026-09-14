@@ -7,6 +7,7 @@ import {
   artifactRefSchema,
   cloudProviderSchema,
   usagePeriodSchema,
+  fileAccessActionSchema,
   type CloudProviderId,
   type CloudVoiceOption,
   type UsagePeriod,
@@ -18,6 +19,8 @@ import {
   type Settings,
   type SystemInfo,
   type PermissionSnapshot,
+  type FileAccess,
+  type FileAccessAction,
   type CharacterDescriptor,
   type CharacterInspection,
 } from '@edi/contracts';
@@ -46,6 +49,8 @@ interface IpcDependencies {
   usage(days: UsagePeriod): Promise<UsageSummary>;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;
+  fileAccess(): FileAccess;
+  fileAccessAction(action: FileAccessAction): Promise<FileAccess>;
   characters(): CharacterDescriptor[];
   pickCharacterPackage(): Promise<CharacterInspection | null>;
   inspectCharacterFile(path: string): Promise<CharacterInspection>;
@@ -64,6 +69,8 @@ export function registerIpc({
   usage,
   artifact,
   permissions,
+  fileAccess,
+  fileAccessAction,
   characters,
   pickCharacterPackage,
   inspectCharacterFile,
@@ -114,6 +121,14 @@ export function registerIpc({
   ipcMain.handle('edi:usage:get', (event, days: unknown) => {
     authorize(callerOf(event), ['workspace']);
     return usage(usagePeriodSchema.parse(days));
+  });
+  ipcMain.handle('edi:file-access:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return fileAccess();
+  });
+  ipcMain.handle('edi:file-access:act', (event, action: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return fileAccessAction(fileAccessActionSchema.parse(action));
   });
   ipcMain.handle('edi:permissions:get', event => {
     authorize(callerOf(event), ['workspace']);

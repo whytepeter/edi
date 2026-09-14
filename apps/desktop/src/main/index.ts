@@ -30,6 +30,7 @@ recordMicrophoneStatus('boot');
 import {
   deleteWorkspaceItem,
   ediSetupCapabilities,
+  fileCapabilities,
   notesCapabilities,
   readLibraryNote,
   toArtifactContent,
@@ -72,6 +73,7 @@ import { transcribePcm } from './voice/transcription-process';
 import { speakable, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
+import { FileAccessManager } from './platform/file-access';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
@@ -163,6 +165,9 @@ async function start() {
   const companion = () => assistantName(settings.current, currentCharacter().manifest.name);
   // One user-visible workspace. Structured generated content and human notes remain distinct.
   const workspaceFolder = join(app.getPath('documents'), 'Edi');
+  // The person's own folders for the file tools (Settings → Privacy & Permissions).
+  const fileAccess = new FileAccessManager(() => workspaceFolder);
+  await fileAccess.load();
   const notesFolder = () => join(workspaceFolder, 'Notes');
   moveLegacyNotes(join(app.getPath('documents'), 'Edi Notes'), notesFolder(), repositories.notes);
   const permissionPort: { current?: PermissionManager } = {};
@@ -332,6 +337,14 @@ async function start() {
         { name: 'Search and read everything in the workspace', asksFirst: false },
         { name: 'Save or edit notes, and update generated content', asksFirst: true },
         { name: 'Move workspace items to the Trash', asksFirst: true },
+        {
+          name: 'Search, list and read files in allowed folders (Desktop, Documents, Downloads, added folders)',
+          asksFirst: false,
+        },
+        {
+          name: 'Rename, move, create folders and move files to the Trash in allowed folders',
+          asksFirst: true,
+        },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
           name: 'Change its character, size, pin, voice and whether replies are spoken',
@@ -430,6 +443,13 @@ async function start() {
         shown: artifact => showArtifact(artifact),
       }),
       ...workspaceCapabilities(workspaceDeps),
+      ...fileCapabilities({
+        home: app.getPath('home'),
+        roots: () => fileAccess.roots(),
+        workspace: workspaceFolder,
+        trash: path => shell.trashItem(path),
+        accessResult: (root, allowed) => fileAccess.record(root, allowed),
+      }),
       ...webCapabilities({
         // A link the person typed is read on their behalf; robots.txt applies to the model's picks.
         suppliedByUser: url => {
@@ -823,6 +843,12 @@ async function start() {
     'notes.delete': 'Removing the note',
     'notes.show': 'Opening your note',
     'web.fetch': 'Reading a page',
+    'files.search': 'Searching your files',
+    'files.list': 'Looking in a folder',
+    'files.read': 'Reading a file',
+    'files.move': 'Moving a file',
+    'files.create_folder': 'Making a folder',
+    'files.trash': 'Moving it to the Trash',
     'edi.open_page': 'Opening that',
     'edi.change_preferences': 'Adjusting myself',
     'edi.inspect_setup': 'Checking my settings',
@@ -870,7 +896,10 @@ async function start() {
   screen.on('display-removed', onDisplayChange);
   screen.on('display-metrics-changed', onDisplayChange);
   pet.once('ready-to-show', () => pet.showInactive());
-  workspace.on('focus', () => permissions?.refresh());
+  workspace.on('focus', () => {
+    permissions?.refresh();
+    void fileAccess.refresh();
+  });
   workspace.on('close', event => {
     if (quitting) return;
     event.preventDefault();
@@ -1010,6 +1039,8 @@ async function start() {
     },
     artifact: resolveArtifact,
     permissions: () => permissions.snapshot(),
+    fileAccess: () => fileAccess.snapshot(),
+    fileAccessAction: action => fileAccess.act(action, workspace.isDestroyed() ? null : workspace),
     characters: () => characters.list(),
     pickCharacterPackage: async () => {
       const result = await dialog.showOpenDialog(workspace, {

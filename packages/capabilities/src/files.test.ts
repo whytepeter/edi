@@ -1,0 +1,149 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileCapabilities, type FileRoot } from './index';
+
+const context = {
+  callId: '00000000-0000-4000-8000-000000000001',
+  runId: '00000000-0000-4000-8000-000000000002',
+};
+const live = () => new AbortController().signal;
+
+async function home() {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'edi-files-')));
+  for (const folder of [
+    'Desktop',
+    'Documents/Edi/Notes',
+    'Downloads/Invoices',
+    'Secret',
+    'Library',
+  ])
+    await mkdir(join(base, folder), { recursive: true });
+  await writeFile(join(base, 'Downloads/Invoices/march-invoice.txt'), 'Total: 42 EUR');
+  await writeFile(join(base, 'Downloads/.hidden-invoice.txt'), 'hidden');
+  await writeFile(
+    join(base, 'Downloads/photo.png'),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0]),
+  );
+  await writeFile(join(base, 'Desktop/notes.md'), `# Plan\n${'x'.repeat(50_000)}`);
+  await writeFile(join(base, 'Documents/Edi/Notes/list.md'), '- milk');
+  await writeFile(join(base, 'Secret/passwords.txt'), 'nope');
+  await symlink(join(base, 'Secret'), join(base, 'Downloads/escape'));
+  const roots: FileRoot[] = [
+    { name: 'Desktop', path: join(base, 'Desktop'), access: 'allowed' },
+    { name: 'Documents', path: join(base, 'Documents'), access: 'allowed' },
+    { name: 'Downloads', path: join(base, 'Downloads'), access: 'not-checked' },
+  ];
+  const trashed: string[] = [];
+  const results: [string, boolean][] = [];
+  const tools = fileCapabilities({
+    home: base,
+    roots: () => roots,
+    workspace: join(base, 'Documents/Edi'),
+    trash: async path => {
+      trashed.push(path);
+    },
+    accessResult: (root, allowed) => results.push([root.name, allowed]),
+    spotlight: async () => [],
+  });
+  const tool = (id: string) => tools.find(entry => entry.id === id)!;
+  const run = async (id: string, input: unknown) =>
+    (await tool(id).prepare(input as never, context)).execute(live());
+  return { base, roots, trashed, results, tool, run };
+}
+
+test('search finds by name across allowed folders, skipping hidden items and refused folders', async () => {
+  const { run, roots, results } = await home();
+  const found = (await run('files.search', { query: 'invoice' })).output as {
+    results: { path: string; kind: string }[];
+  };
+  assert.deepEqual(found.results.map(entry => entry.path).sort(), [
+    '~/Downloads/Invoices',
+    '~/Downloads/Invoices/march-invoice.txt',
+  ]);
+  // Touching Downloads recorded that macOS allowed it.
+  assert.deepEqual(results, [['Downloads', true]]);
+
+  roots[2] = { ...roots[2]!, access: 'off' };
+  const none = (await run('files.search', { query: 'invoice' })).output as { results: unknown[] };
+  assert.equal(none.results.length, 0);
+  await assert.rejects(
+    run('files.list', { path: '~/Downloads' }),
+    /doesn’t have access to Downloads/,
+  );
+});
+
+test('paths outside the allowed folders, including through a symlink, are refused', async () => {
+  const { run } = await home();
+  await assert.rejects(
+    run('files.read', { path: '~/Secret/passwords.txt' }),
+    /outside the folders/,
+  );
+  await assert.rejects(
+    run('files.read', { path: '~/Downloads/escape/passwords.txt' }),
+    /outside the folders/,
+  );
+  await assert.rejects(run('files.read', { path: 'Downloads/x' }), /full path/);
+});
+
+test('list and read: folders first, text in parts, binary refused', async () => {
+  const { run } = await home();
+  const listed = (await run('files.list', { path: '~/Downloads' })).output as {
+    items: { name: string; kind: string }[];
+  };
+  assert.deepEqual(
+    listed.items.map(item => [item.name, item.kind]),
+    [
+      ['escape', 'file'],
+      ['Invoices', 'folder'],
+      ['photo.png', 'file'],
+    ].sort((a, b) => (a[1] === b[1] ? a[0]!.localeCompare(b[0]!) : a[1] === 'folder' ? -1 : 1)),
+  );
+  const first = (await run('files.read', { path: '~/Desktop/notes.md' })).output as {
+    text: string;
+    nextStartIndex?: number;
+  };
+  assert.equal(first.text.length, 40_000);
+  assert.equal(first.nextStartIndex, 40_000);
+  await assert.rejects(run('files.read', { path: '~/Downloads/photo.png' }), /isn’t text/);
+  // Edi's workspace can be read, never changed, by these tools.
+  const note = (await run('files.read', { path: '~/Documents/Edi/Notes/list.md' })).output as {
+    text: string;
+  };
+  assert.equal(note.text, '- milk');
+});
+
+test('changes are previewed exactly and refuse the workspace, Library, roots and overwrites', async () => {
+  const { base, run, tool, trashed } = await home();
+  const prepared = await tool('files.move').prepare(
+    { from: '~/Downloads/Invoices/march-invoice.txt', to: '~/Desktop/march.txt' } as never,
+    context,
+  );
+  assert.equal(prepared.preview.action, 'Move');
+  assert.deepEqual(prepared.preview.fields, [
+    { label: 'From', value: '~/Downloads/Invoices/march-invoice.txt' },
+    { label: 'To', value: '~/Desktop/march.txt' },
+  ]);
+  await prepared.execute(live());
+  assert.ok((await readdir(join(base, 'Desktop'))).includes('march.txt'));
+
+  const rename = await tool('files.move').prepare(
+    { from: '~/Desktop/march.txt', to: '~/Desktop/notes.md' } as never,
+    context,
+  );
+  assert.equal(rename.preview.action, 'Rename');
+  await assert.rejects(rename.execute(live()), /already exists/);
+
+  for (const path of ['~/Documents/Edi/Notes/list.md', '~/Downloads', '~/Library/x'])
+    await assert.rejects(
+      tool('files.trash').prepare({ path } as never, context) as Promise<unknown>,
+      /workspace|Downloads itself|Library/,
+    );
+
+  await run('files.create_folder', { path: '~/Desktop/Receipts' });
+  assert.ok((await readdir(join(base, 'Desktop'))).includes('Receipts'));
+  await run('files.trash', { path: '~/Desktop/Receipts' });
+  assert.deepEqual(trashed, [join(base, 'Desktop/Receipts')]);
+});

@@ -16,6 +16,8 @@ import {
   settingsSchema,
   systemInfoSchema,
   permissionSnapshotSchema,
+  fileAccessActionSchema,
+  fileAccessSchema,
   usagePeriodSchema,
   usageSummarySchema,
   workspaceViewSchema,
@@ -46,6 +48,11 @@ const bridge: DesktopBridge = {
     ),
   permissions: async () =>
     permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
+  fileAccess: async () => fileAccessSchema.parse(await ipcRenderer.invoke('edi:file-access:get')),
+  fileAccessAction: async action =>
+    fileAccessSchema.parse(
+      await ipcRenderer.invoke('edi:file-access:act', fileAccessActionSchema.parse(action)),
+    ),
   onPermissions: callback => {
     const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
       const parsed = permissionSnapshotSchema.safeParse(status);

@@ -27,7 +27,12 @@ export * from './screen-intent';
 export * from './voice';
 export * from './voice-session';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
-import { permissionIdSchema, type PermissionSnapshot } from './permissions';
+import {
+  permissionIdSchema,
+  type FileAccess,
+  type FileAccessAction,
+  type PermissionSnapshot,
+} from './permissions';
 import { petScaleSchema } from './skin-geometry';
 import type { UsagePeriod, UsageSummary } from './usage';
 import {
@@ -440,6 +445,9 @@ export const commandSchema = z.discriminatedUnion('type', [
 export type Command = z.infer<typeof commandSchema>;
 export interface DesktopBridge {
   permissions(): Promise<PermissionSnapshot>;
+  /** Which folders Edi's file tools may use, and whether Full Disk Access is on. */
+  fileAccess(): Promise<FileAccess>;
+  fileAccessAction(action: FileAccessAction): Promise<FileAccess>;
   onPermissions(callback: (snapshot: PermissionSnapshot) => void): () => void;
   onNavigate(callback: (view: WorkspaceView) => void): () => void;
   /** Main asks the artifact window to show different content (the window is reused). */

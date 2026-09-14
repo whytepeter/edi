@@ -45,3 +45,10 @@ export {
   type EdiPreferences,
   type EdiSetupSnapshot,
 } from './builtins/edi-setup';
+export {
+  displayPath,
+  fileCapabilities,
+  locateFile,
+  type FileDependencies,
+  type FileRoot,
+} from './builtins/files';
