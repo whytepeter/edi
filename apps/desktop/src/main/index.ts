@@ -788,6 +788,7 @@ async function start() {
         `${waiting.app.name} is connected now. Continue my earlier request: ${waiting.request}`,
         {
           conversationId: waiting.conversationId,
+          note: `${waiting.app.name} is connected. Continuing your request.`,
         },
       )
       .catch(() => undefined);

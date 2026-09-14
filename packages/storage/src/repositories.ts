@@ -78,6 +78,8 @@ export type Exchange = z.infer<typeof exchangeRow>;
 const threadRow = z.object({
   id: z.string(),
   prompt: z.string(),
+  /** Set when Edi started the turn itself; shown instead of the prompt. */
+  note: z.string().nullable(),
   reply: z.string(),
   status: runStatusSchema,
   error: z.string(),
@@ -120,11 +122,12 @@ export class RunRepository {
     startedAt: number;
     threadId?: string | null;
     taskId?: string | null;
+    note?: string | null;
   }) {
     this.db
       .prepare(
-        `INSERT INTO runs (id, prompt, model, status, screens, started_at, thread_id, task_id)
-         VALUES (?, ?, ?, 'running', ?, ?, ?, ?)`,
+        `INSERT INTO runs (id, prompt, model, status, screens, started_at, thread_id, task_id, note)
+         VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)`,
       )
       .run(
         run.id,
@@ -134,6 +137,7 @@ export class RunRepository {
         run.startedAt,
         run.threadId ?? null,
         run.taskId ?? null,
+        run.note ?? null,
       );
   }
 
@@ -170,7 +174,7 @@ export class RunRepository {
     if (threadId === null) return [];
     return this.db
       .prepare(
-        `SELECT id, prompt, text AS reply, status, error FROM runs
+        `SELECT id, prompt, note, text AS reply, status, error FROM runs
          WHERE status IN ('done', 'error', 'stopped') AND prompt != '' AND thread_id = ?
          ORDER BY started_at DESC LIMIT ?`,
       )

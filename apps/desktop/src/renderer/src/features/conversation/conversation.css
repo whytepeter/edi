@@ -39,6 +39,15 @@
   gap: 8px;
   max-width: 86%;
 }
+/* A line from Edi itself between turns, e.g. "Todoist is connected. Continuing your request." */
+.agent-note {
+  align-self: center;
+  max-width: 90%;
+  margin: 0;
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+  text-align: center;
+}
 .agent-turn[data-role='user'] {
   align-self: end;
   justify-items: end;

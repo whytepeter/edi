@@ -194,6 +194,8 @@ export class AgentService {
       expressiveVoice?: boolean;
       /** Continue this conversation (for example after an app finished connecting). */
       conversationId?: string;
+      /** Edi started this turn itself: the conversation shows this instead of the prompt. */
+      note?: string;
     } = {},
   ): Promise<string | undefined> {
     const { credentials, repositories } = this.options;
@@ -208,6 +210,7 @@ export class AgentService {
       status: 'running',
       runId: null,
       prompt,
+      note: options.note ?? '',
       text: '',
       error: '',
       steps: [],
@@ -248,6 +251,7 @@ export class AgentService {
       screens: screenshots.length,
       startedAt: Date.now(),
       threadId: conversationId,
+      note: options.note ?? null,
     });
     repositories.conversations.touch(conversationId, Date.now());
     const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
@@ -622,7 +626,11 @@ export class AgentService {
     for (const turn of this.cachedThread) {
       if (state.status === 'running' && turn.id === state.runId) continue;
       seen.add(turn.id);
-      messages.push({ id: `${turn.id}-u`, role: 'user', text: turn.prompt });
+      messages.push(
+        turn.note
+          ? { id: `${turn.id}-u`, role: 'note', text: turn.note }
+          : { id: `${turn.id}-u`, role: 'user', text: turn.prompt },
+      );
       const reply = turn.reply || turn.error;
       const artifacts = this.cachedArtifacts.get(turn.id);
       if (reply || artifacts?.length)
@@ -638,7 +646,11 @@ export class AgentService {
       (state.status === 'running' || !state.runId || !seen.has(state.runId));
     if (live) {
       const id = state.runId ?? 'pending';
-      messages.push({ id: `${id}-u`, role: 'user', text: state.prompt });
+      messages.push(
+        state.note
+          ? { id: `${id}-u`, role: 'note', text: state.note }
+          : { id: `${id}-u`, role: 'user', text: state.prompt },
+      );
       if (state.text || state.status === 'running' || state.artifacts.length) {
         messages.push({
           id: `${id}-a`,

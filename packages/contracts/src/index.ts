@@ -107,7 +107,8 @@ export const modelIdSchema = z
 export const chatMessageSchema = z
   .object({
     id: z.string().min(1).max(80),
-    role: z.enum(['user', 'assistant']),
+    /** `note`: a line from Edi itself, such as continuing a request once an app connected. */
+    role: z.enum(['user', 'assistant', 'note']),
     text: z.string().max(32000),
     /** Content Edi showed during this turn, rendered inline in the conversation. */
     artifacts: z.array(artifactSummarySchema).max(6).optional(),
@@ -140,6 +141,8 @@ export const agentStateSchema = z.object({
   runId: z.string().uuid().nullable(),
   /** The live user turn; empty when there is no foreground prompt. */
   prompt: z.string().max(8000),
+  /** Shown instead of the prompt when Edi started the live turn itself. */
+  note: z.string().max(300).default(''),
   text: z.string().max(32000),
   error: z.string(),
   steps: z.array(toolStepSchema).max(20),
@@ -164,6 +167,7 @@ export function emptyAgentState(overrides: Partial<AgentState> = {}): AgentState
     status: 'idle',
     runId: null,
     prompt: '',
+    note: '',
     text: '',
     error: '',
     steps: [],

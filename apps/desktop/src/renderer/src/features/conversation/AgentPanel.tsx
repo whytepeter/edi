@@ -213,6 +213,12 @@ export function AgentPanel({
           </div>
         )}
         {state.messages.map(message => {
+          if (message.role === 'note')
+            return (
+              <p key={message.id} className="agent-note" role="note">
+                {message.text}
+              </p>
+            );
           const pending = message.id === streamingId;
           const body = message.role === 'assistant' ? presentationText(message.text) : message.text;
           return (

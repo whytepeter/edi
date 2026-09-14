@@ -187,6 +187,25 @@ test('thread includes finished turns for the chat, oldest first', () => {
   assert.equal(turns[1].reply, 'partial');
 });
 
+test('a turn Edi started itself keeps its note for the chat and its prompt for the model', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'todo', at: 1 });
+  repos.runs.start({ ...run(uuid(1), 1), prompt: 'Add milk to my Todoist', threadId: 'c1' });
+  repos.runs.finish(uuid(1), { status: 'done', text: 'Connect Todoist first.', error: '', at: 1 });
+  repos.runs.start({
+    ...run(uuid(2), 2),
+    prompt: 'Todoist is connected now. Continue my earlier request: Add milk',
+    note: 'Todoist is connected. Continuing your request.',
+    threadId: 'c1',
+  });
+  repos.runs.finish(uuid(2), { status: 'done', text: 'Added.', error: '', at: 2 });
+  assert.deepEqual(
+    repos.runs.thread(10, 'c1').map(turn => turn.note),
+    [null, 'Todoist is connected. Continuing your request.'],
+  );
+  assert.match(repos.runs.recentExchanges(10, 'c1')[1]!.prompt, /Continue my earlier request/);
+});
+
 test('activity reports how many screens were sent', () => {
   const repos = createRepositories(openDatabase(':memory:'));
   repos.runs.start({ ...run(uuid(1)), screens: 2 });
@@ -306,7 +325,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
@@ -434,7 +453,7 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
   db.exec(
-    'DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
   );
   db.exec('PRAGMA user_version = 4');

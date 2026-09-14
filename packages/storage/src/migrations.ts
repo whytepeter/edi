@@ -276,6 +276,12 @@ export const migrations: readonly { version: number; sql: string }[] = [
       ALTER TABLE connectors ADD COLUMN composio_connection_id TEXT;
     `,
   },
+  {
+    // A turn Edi started itself (continuing a request once an app connected): the prompt is
+    // for the model, the note is what the conversation shows instead of a message from the person.
+    version: 13,
+    sql: `ALTER TABLE runs ADD COLUMN note TEXT;`,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;
