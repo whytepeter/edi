@@ -69,6 +69,11 @@ interface AgentServiceOptions {
   skills?: () => { name: string; description: string }[];
   /** The companion's current name (the person's choice, or its character's). */
   assistantName?: () => string;
+  /**
+   * The least reasoning the model allows, for spoken turns: thinking before the first word is
+   * most of the wait in a voice reply. Undefined keeps the model's default.
+   */
+  spokenEffort?: (model: string) => WorkerInput['reasoningEffort'];
   /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
   readerModel?: () => string | null;
   /** What the person has in front of them, gathered when they ask; null when off or unknown. */
@@ -271,6 +276,9 @@ export class AgentService {
     });
     repositories.conversations.touch(conversationId, Date.now());
     const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
+    const reasoningEffort = options.spoken
+      ? this.options.spokenEffort?.(credentials.model)
+      : undefined;
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model: credentials.model,
@@ -288,6 +296,7 @@ export class AgentService {
       skills: this.options.skills?.() ?? [],
       desktopContext,
       ...(readerModel ? { readerModel } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {

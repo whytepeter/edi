@@ -15,7 +15,42 @@ const catalogEntry = z.object({
   pricing: z.object({ prompt: z.string().optional() }).optional(),
   created: z.number().optional(),
   supported_parameters: z.array(z.string()).optional(),
+  reasoning: z
+    .object({
+      mandatory: z.boolean().optional(),
+      supported_efforts: z.array(z.string()).optional(),
+    })
+    .nullish(),
 });
+
+/** Reasoning levels Edi asks for on spoken turns, least thinking first. */
+export const quickEfforts = ['none', 'minimal', 'low', 'medium'] as const;
+export type QuickEffort = (typeof quickEfforts)[number];
+
+/**
+ * The least thinking a model allows, so a spoken answer starts sooner. A model that may skip
+ * reasoning gets none; one that must reason gets its lowest listed level. Anything unknown
+ * (no reasoning field, no levels listed, only high levels) keeps the model's own default.
+ */
+export function quickEffort(
+  reasoning: z.infer<typeof catalogEntry>['reasoning'],
+): QuickEffort | undefined {
+  if (!reasoning) return undefined;
+  if (reasoning.mandatory === false) return 'none';
+  return quickEfforts.find(effort => reasoning.supported_efforts?.includes(effort));
+}
+
+/** Each model's quickest reasoning level, for every model that has one. */
+export function quickEffortsFrom(raw: unknown): Map<string, QuickEffort> {
+  const efforts = new Map<string, QuickEffort>();
+  const entries = z.object({ data: z.array(z.unknown()) }).safeParse(raw);
+  for (const value of entries.data?.data ?? []) {
+    const entry = catalogEntry.safeParse(value);
+    const effort = entry.success ? quickEffort(entry.data.reasoning) : undefined;
+    if (entry.success && effort) efforts.set(entry.data.id, effort);
+  }
+  return efforts;
+}
 
 /**
  * Keeps models Edi can actually run: image input for screen questions and tool calling
@@ -89,10 +124,19 @@ export function readerModelFrom(models: readonly ModelOption[]): string | null {
 
 /** OpenRouter's public model list. No key or user data is sent; results are cached for an hour. */
 export class ModelCatalog {
-  private cached?: { at: number; models: ModelOption[] };
+  private cached?: { at: number; models: ModelOption[]; efforts: Map<string, QuickEffort> };
   private pending?: Promise<ModelOption[]>;
 
   constructor(private readonly fetcher: typeof fetch = fetch) {}
+
+  /**
+   * The quickest reasoning level for a model, from the last catalog Edi fetched; undefined until
+   * one has loaded. Never waits: a spoken turn is not held up by the network.
+   */
+  quickEffort(id: string): QuickEffort | undefined {
+    if (!this.cached || Date.now() - this.cached.at >= CACHE_MS) void this.list().catch(() => {});
+    return this.cached?.efforts.get(id);
+  }
 
   list(): Promise<ModelOption[]> {
     if (this.cached && Date.now() - this.cached.at < CACHE_MS)
@@ -109,8 +153,9 @@ export class ModelCatalog {
       headers: { accept: 'application/json' },
     });
     if (!response.ok) throw new Error(`Model catalog returned ${response.status}.`);
-    const models = compatibleModels(await response.json());
-    this.cached = { at: Date.now(), models };
+    const raw: unknown = await response.json();
+    const models = compatibleModels(raw);
+    this.cached = { at: Date.now(), models, efforts: quickEffortsFrom(raw) };
     return models;
   }
 }

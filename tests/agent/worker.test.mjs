@@ -118,7 +118,9 @@ function launch(mode, tools = [], context = {}) {
         history: context.history ?? [],
         screenshots: context.screenshots ?? [],
         ...(context.pointer ? { pointer: context.pointer } : {}),
-        spoken: false,
+        spoken: context.spoken ?? false,
+        ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),
+        ...(context.selfContext ? { selfContext: context.selfContext } : {}),
         tools,
         mode,
       },
@@ -189,6 +191,24 @@ test('real SDK worker streams mocked OpenRouter text', async () => {
     },
   );
   assert.match(JSON.stringify(requests[0].messages[0].content), /Use web_search for current/);
+});
+
+test('what changes each turn goes last, so the system prompt stays the same for the cache', async () => {
+  const typed = await collect(launch('success', [], { selfContext: '{"location":"card"}' }));
+  const spoken = await collect(
+    launch('success', [], { spoken: true, reasoningEffort: 'low', selfContext: '{"location":"pet"}' }),
+  );
+  const system = run => JSON.stringify(run.requests[0].messages[0]);
+  // Spoken or typed, whatever the setup and the time: one system prompt.
+  assert.equal(system(spoken), system(typed));
+  assert.doesNotMatch(system(typed), /It is now|"location"|spoken aloud/);
+  const note = run => run.requests[0].messages.at(-1).content.at(-1).text;
+  assert.match(note(typed), /^<turn>\nIt is now .+\nCurrent Edi setup \(trusted runtime data\): \{"location":"card"\}\n<\/turn>$/);
+  assert.doesNotMatch(note(typed), /spoken aloud/);
+  assert.match(note(spoken), /This question was spoken aloud/);
+  // Only a spoken turn lowers reasoning, to the level main chose.
+  assert.deepEqual(spoken.requests[0].reasoning, { effort: 'low' });
+  assert.equal(typed.requests[0].reasoning, undefined);
 });
 
 test('provider errors do not expose request metadata', async () => {
