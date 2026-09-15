@@ -23,7 +23,8 @@ const host = join(build, 'Edi.app');
 const stamp = join(build, '.edi-host-version');
 const signStamp = join(build, '.edi-host-signing');
 const plist = join(host, 'Contents/Info.plist');
-const entitlements = join(root, 'build/entitlements.mac.plist');
+// Kept outside build/, which only holds generated files and may be deleted.
+const entitlements = join(root, 'signing/entitlements.mac.plist');
 
 function plutil(args) {
   return execFileSync('plutil', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
