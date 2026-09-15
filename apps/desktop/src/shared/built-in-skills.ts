@@ -1,6 +1,7 @@
 import { parseSkill, type SkillDefinition } from '@edi/contracts';
 import communicationCoach from '@edi/skills/communication-coach/SKILL.md?raw';
 import dailyBrief from '@edi/skills/daily-brief/SKILL.md?raw';
+import explainOnScreen from '@edi/skills/explain-on-screen/SKILL.md?raw';
 import developerCompanion from '@edi/skills/developer-companion/SKILL.md?raw';
 import fileTidy from '@edi/skills/file-tidy/SKILL.md?raw';
 import followUps from '@edi/skills/follow-ups/SKILL.md?raw';
@@ -23,6 +24,7 @@ export const builtInSkills: SkillDefinition[] = [
   ['communication-coach', communicationCoach],
   ['daily-brief', dailyBrief],
   ['developer-companion', developerCompanion],
+  ['explain-on-screen', explainOnScreen],
   ['file-tidy', fileTidy],
   ['follow-ups', followUps],
   ['inbox-triage', inboxTriage],

@@ -4,7 +4,8 @@ description: >
   Teaches the user how to do something in the app in front of them, one step at a time,
   pointing at and circling exactly where to click on their screen, with a diagram when the
   flow is long. Use when the user asks how to do something in an app ("how do I…", "where is…",
-  "walk me through…", "show me how"), or seems stuck on what's on screen.
+  "walk me through…", "show me how"), or seems stuck on what's on screen. To explain what
+  something on screen means rather than how to do it, use explain-on-screen.
 license: Proprietary
 metadata:
   title: Screen Tutor
