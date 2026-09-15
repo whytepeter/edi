@@ -235,6 +235,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Tasks need specialist reasoning contexts | Bounded subagents with inherited grants |
 | Untrusted executable marketplace | Enforced isolation, signing, review, revocation |
 | Additional operating systems | Platform adapters and separate QA |
+| Edi plays the games it makes (parked by owner, 2026-09-15) | Any interactive page Edi builds (chess, tic-tac-toe, quizzes, flashcards) can talk to Edi through a scoped two-way message channel: the page posts small messages (a move, the board state) that start a turn in the conversation the page belongs to, and a `workspace.message_page` tool posts Edi's reply back into the open page. The sandbox stays closed (no network, storage, files or tools); page messages are untrusted input, only flow while the page is open, and are capped in size and rate. The page checks every move and asks again when one is illegal, or bundles a small engine while Edi comments. Artifacts record how they talk so Library reopens still work. The conversation card shows one compact line per move. |
 
 ## Verification and performance
 
