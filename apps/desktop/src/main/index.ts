@@ -1694,7 +1694,15 @@ async function start() {
       const path = result.filePaths[0];
       if (result.canceled || !path) return null;
       try {
-        return { ok: true as const, voice: await personalVoices.add(path, name) };
+        const voice = await personalVoices.add(path, name);
+        // A voice someone just added is the one they want to hear: select it, or replies keep
+        // the previous voice (after removing a voice that is Calm, which sounds like someone else).
+        personalVoiceList = await personalVoices.list();
+        await settings.update({
+          voiceModel: 'chatterbox-turbo',
+          voices: { ...settings.current.voices, 'chatterbox-turbo': voice.id },
+        });
+        return { ok: true as const, voice };
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
         return {

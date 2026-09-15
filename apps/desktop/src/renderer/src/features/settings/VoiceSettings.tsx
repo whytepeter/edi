@@ -585,7 +585,11 @@ export function VoiceSettings({
                   <Button size="small" onClick={() => setAdding(true)}>
                     Add Voice…
                   </Button>
-                  {addedName && <span className="voice-added">Added {addedName}.</span>}
+                  {addedName && (
+                    <span className="voice-added">
+                      Added {addedName}. {assistant} speaks with it now.
+                    </span>
+                  )}
                 </span>
               )}
             </div>
