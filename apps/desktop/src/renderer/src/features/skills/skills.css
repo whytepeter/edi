@@ -1,65 +1,45 @@
-/* Skills: those by Fewerlabs, then the person's own. */
+/* Skills: segments for who made them, groups by category, and a page per skill. */
 .skills-page {
   display: grid;
   gap: var(--space-5);
 }
 
-.skill-detail {
-  display: grid;
-  gap: 4px;
+.skills-intro,
+.skills-note {
+  margin: 0;
+  padding: 0 var(--space-1);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
 }
-/* Descriptions are written for the model to match requests; two lines are enough to scan. */
-.skill-description {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.skill-apps {
-  font: var(--text-caption);
+.skills-note {
   color: var(--label-tertiary);
 }
-.skill-apps [data-connected] {
-  color: var(--label-secondary);
+
+/* One line in the list; the whole description is on the skill's page. The row's text column
+   must be allowed to shrink, or the line runs under the On/Off value. */
+.skills-page .ds-group-row-text {
+  grid-template-columns: minmax(0, 1fr);
+}
+.skill-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.skill-remove {
-  justify-self: start;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: var(--text-footnote);
-  color: #c4372d;
-  cursor: pointer;
-}
-.skill-remove:focus-visible,
-.skills-folder:focus-visible {
-  outline: 2px solid var(--accent-strong);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.skill-confirm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  font: var(--text-footnote);
-  color: var(--label-secondary);
-}
-
-.skills-yours {
-  display: grid;
-  gap: var(--space-3);
-}
 .skills-yours-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  gap: var(--space-3);
 }
-.skills-yours-header .ds-group-title {
+.skills-yours-header .skills-intro {
   flex: 1;
-  margin: 0;
 }
 .skills-folder {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
   padding: 2px 8px;
   border: 0;
   border-radius: 6px;
@@ -71,9 +51,164 @@
 .skills-folder:hover {
   background: var(--fill-hover);
 }
+
 .skills-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-4);
+  border-radius: 12px;
+  background: var(--fill);
+  text-align: center;
+  color: var(--label-tertiary);
+}
+.skills-empty p {
+  max-width: 300px;
   margin: 0;
-  padding: 0 var(--space-1);
   font: var(--text-footnote);
   color: var(--label-secondary);
+}
+
+/* ── A skill's page ── */
+.skill-detail-page {
+  display: grid;
+  gap: var(--space-5);
+}
+.skill-back {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: calc(-1 * var(--space-2));
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: var(--text-footnote);
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+.skill-back:hover {
+  background: var(--fill-hover);
+}
+
+.skill-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+}
+.skill-hero-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.skill-hero-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.skill-hero-title {
+  margin: 0;
+  font: var(--text-title3, var(--text-headline));
+  font-weight: 600;
+  color: var(--label);
+}
+.skill-hero-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.skill-hero-by .ds-icon {
+  color: var(--accent-strong);
+}
+
+.skill-section {
+  display: grid;
+  gap: var(--space-2);
+}
+.skill-section .ds-group-title {
+  margin: 0;
+}
+.skill-description {
+  margin: 0;
+  padding: 0 var(--space-1);
+  font: var(--text-callout, var(--text-body));
+  color: var(--label);
+}
+
+.skill-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.skill-example {
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  font: var(--text-footnote);
+  color: var(--label);
+  text-align: left;
+  cursor: pointer;
+}
+.skill-example:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.skill-example:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.skill-instructions {
+  max-height: min(360px, 50vh);
+  margin: calc(-1 * var(--space-3)) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 10px;
+  background: var(--fill);
+  font:
+    12px/1.5 ui-monospace,
+    'SF Mono',
+    Menlo,
+    monospace;
+  color: var(--label-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-remove-row {
+  padding: 0 var(--space-1);
+}
+.skill-remove {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: var(--text-footnote);
+  color: #c4372d;
+  cursor: pointer;
+}
+.skill-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.skill-back:focus-visible,
+.skill-example:focus-visible,
+.skill-remove:focus-visible,
+.skills-folder:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }

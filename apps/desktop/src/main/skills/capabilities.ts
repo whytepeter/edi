@@ -68,6 +68,17 @@ export function skillCapabilities(library: SkillLibrary) {
           .array(z.string().regex(/^[a-z0-9_]{1,40}$/))
           .max(12)
           .optional(),
+        category: z
+          .string()
+          .trim()
+          .max(40)
+          .optional()
+          .describe('Group on the Skills page, e.g. Your day, Development, Writing, Research'),
+        examples: z
+          .array(z.string().trim().min(1).max(120))
+          .max(5)
+          .optional()
+          .describe('Two or three requests that should use it, as the user would say them'),
       })
       .strict(),
     prepare(input) {

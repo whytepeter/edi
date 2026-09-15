@@ -10,6 +10,9 @@ import { z } from 'zod';
  * - `title`: the name people see ("Meeting Prep"); defaults to the name, title-cased
  * - `author`, `version`: shown on the Skills page
  * - `apps`: connected apps that make it better, space-separated catalog ids ("gmail slack")
+ * - `category`: the group it's listed under ("Your day", "Development")
+ * - `icon`: an Edi icon name ("calendar", "code"); anything unknown shows the default
+ * - `examples`: requests to try, separated by `|` ("What’s my day like? | Plan tomorrow")
  */
 
 export const skillNameSchema = z
@@ -31,6 +34,10 @@ export interface SkillDefinition {
   license: string;
   /** Catalog ids of connected apps that help. */
   apps: string[];
+  category: string;
+  icon: string;
+  /** Requests to try, as the person would say them. */
+  examples: string[];
   /** The Markdown instructions after the frontmatter. */
   body: string;
 }
@@ -153,6 +160,13 @@ export function parseSkill(
       version: (metadata.get('version') ?? '').slice(0, 20),
       license: (fields.get('license') ?? '').slice(0, 120),
       apps,
+      category: (metadata.get('category') ?? '').slice(0, 40),
+      icon: /^[a-z-]{1,30}$/.test(metadata.get('icon') ?? '') ? metadata.get('icon')! : '',
+      examples: (metadata.get('examples') ?? '')
+        .split('|')
+        .map(example => example.trim().slice(0, 120))
+        .filter(Boolean)
+        .slice(0, 5),
       body,
     },
     problems,
@@ -166,6 +180,8 @@ export function formatSkill(skill: {
   description: string;
   body: string;
   apps?: string[];
+  examples?: string[];
+  category?: string;
 }) {
   const quote = (value: string) => JSON.stringify(value);
   return [
@@ -175,7 +191,13 @@ export function formatSkill(skill: {
     'metadata:',
     `  title: ${quote(skill.title)}`,
     `  author: ${quote('You')}`,
+    ...(skill.category ? [`  category: ${quote(skill.category)}`] : []),
     ...(skill.apps?.length ? [`  apps: ${quote(skill.apps.join(' '))}`] : []),
+    ...(skill.examples?.length
+      ? [
+          `  examples: ${quote(skill.examples.map(example => example.replace(/\|/g, '/')).join(' | '))}`,
+        ]
+      : []),
     '---',
     '',
     skill.body.trim(),
@@ -193,6 +215,12 @@ export const skillSummarySchema = z
     version: z.string().max(20),
     trust: skillTrustSchema,
     enabled: z.boolean(),
+    license: z.string().max(120),
+    category: z.string().max(40),
+    icon: z.string().max(30),
+    examples: z.array(z.string().max(120)).max(5),
+    /** The instructions Edi follows, shown on the skill's page. */
+    instructions: z.string().max(30_000),
     /** Connected apps that help, and whether each is connected now. */
     apps: z
       .array(
@@ -205,3 +233,14 @@ export const skillSummarySchema = z
   .strict();
 export type SkillSummary = z.infer<typeof skillSummarySchema>;
 export const skillListSchema = z.array(skillSummarySchema).max(200);
+
+/** Everything the Skills page shows, including skill folders that couldn't be read. */
+export const skillsStateSchema = z
+  .object({
+    skills: skillListSchema,
+    issues: z
+      .array(z.object({ folder: z.string().max(200), message: z.string().max(300) }).strict())
+      .max(50),
+  })
+  .strict();
+export type SkillsState = z.infer<typeof skillsStateSchema>;

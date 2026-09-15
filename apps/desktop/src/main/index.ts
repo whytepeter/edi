@@ -83,7 +83,7 @@ import {
   type LibraryItem,
   type SystemInfo,
   type WorkspaceView,
-  type SkillSummary,
+  type SkillsState,
 } from '@edi/contracts';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
@@ -1377,26 +1377,34 @@ async function start() {
   approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
   connectors.onChange(list => broadcast([workspace], 'edi:connectors', list));
   // A skill's apps show whether each is connected, so connector changes update Skills too.
-  const skillSummaries = (): SkillSummary[] => {
+  const skillSummaries = (): SkillsState => {
     const connected = new Set(
       connectors
         .list()
         .filter(connector => connector.status === 'connected')
         .map(connector => connector.catalogId),
     );
-    return skills.list().map(skill => ({
-      name: skill.name,
-      title: skill.title,
-      description: skill.description,
-      author: skill.author,
-      version: skill.version,
-      trust: skill.trust,
-      enabled: skill.enabled,
-      apps: skill.apps.flatMap(id => {
-        const entry = connectorCatalog.find(item => item.id === id);
-        return entry ? [{ id, name: entry.name, connected: connected.has(id) }] : [];
-      }),
-    }));
+    return {
+      skills: skills.list().map(skill => ({
+        name: skill.name,
+        title: skill.title,
+        description: skill.description,
+        author: skill.author || (skill.trust === 'fewerlabs' ? 'Fewerlabs' : ''),
+        version: skill.version,
+        trust: skill.trust,
+        enabled: skill.enabled,
+        license: skill.license,
+        category: skill.category,
+        icon: skill.icon,
+        examples: skill.examples,
+        instructions: skill.body,
+        apps: skill.apps.flatMap(id => {
+          const entry = connectorCatalog.find(item => item.id === id);
+          return entry ? [{ id, name: entry.name, connected: connected.has(id) }] : [];
+        }),
+      })),
+      issues: skills.problems().slice(0, 50),
+    };
   };
   skills.onChange(() => broadcast([workspace], 'edi:skills', skillSummaries()));
   connectors.onChange(() => broadcast([workspace], 'edi:skills', skillSummaries()));
@@ -1474,6 +1482,12 @@ async function start() {
       approvalRules,
       connectors,
       skills,
+      revealSkill: name => {
+        const skill = skills.get(name);
+        if (skill?.trust !== 'local')
+          throw new Error('Only your own skills are in the Skills folder.');
+        shell.showItemInFolder(join(skillsFolder(), name, 'SKILL.md'));
+      },
       openSkillsFolder: async () => {
         await mkdir(skillsFolder(), { recursive: true });
         await shell.openPath(skillsFolder());

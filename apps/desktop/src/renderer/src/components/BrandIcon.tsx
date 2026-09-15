@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import './brand-icon.css';
 
 /** Brand-colored icons for known apps; falls back to a colored initial. */
 
@@ -145,11 +146,7 @@ export function BrandIcon({ catalogId, name }: { catalogId: string | null; name:
   const letter = name.slice(0, 1).toUpperCase();
 
   return (
-    <span
-      className="connector-initial"
-      aria-hidden="true"
-      style={{ background: bg, color: fg }}
-    >
+    <span className="brand-icon" aria-hidden="true" style={{ background: bg, color: fg }}>
       {slug && !iconFailed ? (
         <img
           src={`https://cdn.simpleicons.org/${slug}/${darkGlyph.has(slug) ? '050038' : 'white'}`}

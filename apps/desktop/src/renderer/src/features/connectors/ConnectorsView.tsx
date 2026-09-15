@@ -8,7 +8,7 @@ import {
   type ConnectorTool,
 } from '@edi/contracts';
 import { Button, GroupedList, GroupedRow, Icon, Switch, TextField } from '../../components/ui';
-import { BrandIcon } from './BrandIcon';
+import { BrandIcon } from '../../components/BrandIcon';
 import './connectors.css';
 
 const statusText: Record<ConnectorStatus, string> = {

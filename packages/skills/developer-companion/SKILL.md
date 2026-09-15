@@ -11,6 +11,9 @@ metadata:
   title: Developer Companion
   author: Fewerlabs
   version: "1.0"
+  category: "Development"
+  icon: code
+  examples: "Why is this failing? | Review this pull request | Write my commit message | What did I do yesterday?"
   apps: github gitlab linear jira
 ---
 

@@ -10,6 +10,9 @@ metadata:
   title: Skill Creator
   author: Fewerlabs
   version: "1.0"
+  category: "Make your own"
+  icon: sparkles
+  examples: "Make a skill for my weekly update | From now on, when I ask for a recap, do this"
 ---
 
 # Skill Creator
@@ -38,13 +41,16 @@ If the user already described all of this, don't ask; draft it.
   the Edi tools to use (`calendar_events`, `files_search`, `workspace_show`, `web_search`, a
   connected app's tools), what the result looks like, and a short "Don't" list.
 - **apps:** catalog ids of connected apps it relies on, if any (for example `gmail slack`).
+- **examples:** two or three requests that should use it, as the user would say them.
+- **category:** where it's listed: Your day, Development, Writing, Research, or another short name.
 
 Show the draft with `workspace_show` as a document so the user can read it. Adjust until they're
 happy.
 
 ## 3. Save it
 
-Call `skills_create` with the name, title, description, instructions and apps. The user reviews
+Call `skills_create` with the name, title, description, instructions, apps, examples and
+category. The user reviews
 it before it's saved to Documents › Edi › Skills, and it's on right away. Then say how to use it
 in one sentence ("Say 'write my weekly update' and I'll use it.").
 

@@ -30,19 +30,6 @@
   border-radius: 4px;
 }
 
-.connector-initial {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--accent-fill, var(--fill-hover));
-  color: var(--on-accent, var(--label));
-  font: var(--text-footnote);
-  font-weight: 600;
-  flex-shrink: 0;
-}
 
 .connector-header-text {
   flex: 1;
@@ -323,11 +310,6 @@
 .connector-row-actions {
   display: flex;
   gap: var(--space-2);
-}
-.connector-initial img {
-  display: block;
-  width: 16px;
-  height: 16px;
 }
 
 /* ── Connected app: problem notice, provider line ── */

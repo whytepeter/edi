@@ -27,6 +27,9 @@ test('a SKILL.md is read the Agent Skills way, and problems are explained', () =
       '  title: "Weekly Update"',
       '  author: Sam',
       '  apps: gmail slack',
+      '  category: "Your day"',
+      '  icon: calendar',
+      '  examples: "Write my update | What did I ship?"',
       '---',
       '',
       '# Weekly Update',
@@ -42,6 +45,9 @@ test('a SKILL.md is read the Agent Skills way, and problems are explained', () =
     version: '',
     license: 'MIT',
     apps: ['gmail', 'slack'],
+    category: 'Your day',
+    icon: 'calendar',
+    examples: ['Write my update', 'What did I ship?'],
     body: '# Weekly Update\nSteps.',
   });
 
@@ -60,12 +66,14 @@ test('a SKILL.md is read the Agent Skills way, and problems are explained', () =
     description: 'Says "hi".\nUse when greeting.',
     body: 'Do it.',
     apps: ['gmail'],
+    examples: ['Say hi | wave', 'Greet Sam'],
   });
   const back = parseSkill(written, { folderName: 'quote-test' }).skill!;
   assert.equal(back.title, 'Quote "Test"');
   assert.equal(back.description, 'Says "hi".\nUse when greeting.');
   assert.equal(back.author, 'You');
   assert.deepEqual(back.apps, ['gmail']);
+  assert.deepEqual(back.examples, ['Say hi / wave', 'Greet Sam']);
 });
 
 test('every skill by Fewerlabs passes the same check, with a title and author', async () => {
@@ -84,6 +92,10 @@ test('every skill by Fewerlabs passes the same check, with a title and author', 
     assert.ok(skill, `${folder}: ${problems.map(problem => problem.message).join('; ')}`);
     assert.equal(skill.author, 'Fewerlabs');
     assert.match(skill.description, /Use when/);
+    assert.ok(
+      skill.category && skill.icon && skill.examples.length > 0,
+      `${folder} needs category, icon, examples`,
+    );
     assert.ok(skill.body.split('\n').length < 200, `${folder} is too long`);
   }
 });

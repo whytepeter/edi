@@ -24,7 +24,7 @@ import {
   scheduleListSchema,
   approvalRulesSchema,
   connectorListSchema,
-  skillListSchema,
+  skillsStateSchema,
   usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
@@ -64,10 +64,10 @@ const bridge: DesktopBridge = {
   approvalRules: async () =>
     approvalRulesSchema.parse(await ipcRenderer.invoke('edi:approval-rules:get')),
   connectors: async () => connectorListSchema.parse(await ipcRenderer.invoke('edi:connectors:get')),
-  skills: async () => skillListSchema.parse(await ipcRenderer.invoke('edi:skills:get')),
+  skills: async () => skillsStateSchema.parse(await ipcRenderer.invoke('edi:skills:get')),
   onSkills: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
-      const parsed = skillListSchema.safeParse(value);
+      const parsed = skillsStateSchema.safeParse(value);
       if (parsed.success) callback(parsed.data);
     };
     ipcRenderer.on('edi:skills', listener);

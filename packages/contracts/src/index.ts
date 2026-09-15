@@ -44,7 +44,7 @@ import type { UsagePeriod, UsageSummary } from './usage';
 import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
 import { connectorUrlSchema, type Connector } from './connectors';
-import { skillNameSchema, type SkillSummary } from './skills';
+import { skillNameSchema, type SkillsState } from './skills';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -473,6 +473,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     .object({ type: z.literal('set-skill-enabled'), name: skillNameSchema, enabled: z.boolean() })
     .strict(),
   z.object({ type: z.literal('remove-skill'), name: skillNameSchema }).strict(),
+  z.object({ type: z.literal('reveal-skill'), name: skillNameSchema }).strict(),
   z.object({ type: z.literal('open-skills-folder') }).strict(),
   z.object({ type: z.literal('remove-connector'), id: z.string().uuid() }).strict(),
   z
@@ -608,8 +609,8 @@ export interface DesktopBridge {
   /** Connected apps and their tools. */
   connectors(): Promise<Connector[]>;
   /** Every skill, re-reading Documents › Edi › Skills first. */
-  skills(): Promise<SkillSummary[]>;
-  onSkills(callback: (skills: SkillSummary[]) => void): () => void;
+  skills(): Promise<SkillsState>;
+  onSkills(callback: (skills: SkillsState) => void): () => void;
   onConnectors(callback: (connectors: Connector[]) => void): () => void;
   /** Whether the Composio API key has been configured. */
   composioConfigured(): Promise<boolean>;

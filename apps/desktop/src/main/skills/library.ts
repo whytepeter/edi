@@ -114,6 +114,8 @@ export class SkillLibrary {
     description: string;
     body: string;
     apps?: string[];
+    examples?: string[];
+    category?: string;
   }) {
     const name = skillNameSchema.parse(skill.name);
     if (this.options.builtIn.some(entry => entry.name === name))

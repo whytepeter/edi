@@ -55,6 +55,9 @@ const paths = {
 
 export type IconName = keyof typeof paths;
 
+/** Whether a name from data (a skill's metadata, say) is one of these icons. */
+export const isIconName = (name: string): name is IconName => Object.hasOwn(paths, name);
+
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return (
     <svg

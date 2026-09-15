@@ -17,7 +17,7 @@ import {
   type Schedule,
   type ApprovalRule,
   type Connector,
-  type SkillSummary,
+  type SkillsState,
   type UsageSummary,
   type AgentState,
   type Command,
@@ -59,7 +59,7 @@ interface IpcDependencies {
   schedules(): Schedule[];
   approvalRules(): ApprovalRule[];
   connectors(): Connector[];
-  skills(): Promise<SkillSummary[]>;
+  skills(): Promise<SkillsState>;
   composioConfigured(): boolean;
   artifact(ref: ArtifactRef): Promise<Artifact>;
   permissions(): PermissionSnapshot;

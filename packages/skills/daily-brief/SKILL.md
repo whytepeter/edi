@@ -10,6 +10,9 @@ metadata:
   title: Daily Brief
   author: Fewerlabs
   version: "1.0"
+  category: "Your day"
+  icon: clock
+  examples: "What’s my day like? | Plan tomorrow | Brief me every weekday at 8"
   apps: googlecalendar outlook gmail slack todoist googletasks
 ---
 

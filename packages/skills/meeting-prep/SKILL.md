@@ -10,6 +10,9 @@ metadata:
   title: Meeting Prep
   author: Fewerlabs
   version: "1.0"
+  category: "Your day"
+  icon: calendar
+  examples: "Prep me for my next meeting | Who am I meeting at 3pm, and about what?"
   apps: googlecalendar outlook gmail slack microsoft_teams linkedin hubspot
 ---
 
