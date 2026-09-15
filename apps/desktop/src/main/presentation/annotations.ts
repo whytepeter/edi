@@ -24,10 +24,14 @@ interface AnnotationOptions {
  * overlay takes the drag; the mark stays until the answer is done, so the screenshot Edi takes
  * contains it. Nothing here moves or clicks their pointer.
  */
+/** A mark waits this long for the question it belongs to, then clears itself. */
+const UNUSED_MS = 45_000;
+
 export class Annotations {
   private window?: BrowserWindow;
   private display?: Display;
   private marks: Mark[] = [];
+  private timer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly options: AnnotationOptions) {}
 
@@ -41,11 +45,16 @@ export class Annotations {
     return this.window && !this.window.isDestroyed() ? this.window : undefined;
   }
 
-  /** Edi started listening: let a drag draw on the display the person is working on. */
+  /**
+   * Edi started listening: let a drag draw on the display the person is working on. Each hold
+   * starts the question afresh, so anything left from a previous one goes.
+   */
   arm() {
     const display = this.options.displayUnderCursor();
+    this.stopTimer();
     const existing = this.live;
     if (existing && this.display?.id === display.id) {
+      this.marks = [];
       existing.setIgnoreMouseEvents(false);
       existing.showInactive();
       return;
@@ -68,7 +77,21 @@ export class Annotations {
   release() {
     this.live?.setIgnoreMouseEvents(true);
     // Nothing drawn: no reason to keep a layer over their screen.
-    if (!this.marks.length) this.clear();
+    if (!this.marks.length) return this.clear();
+    // A question may not follow at all (nothing was said, or it was not about the screen).
+    // The ink is not allowed to outlive it either way.
+    this.stopTimer();
+    this.timer = setTimeout(() => this.clear(), UNUSED_MS);
+  }
+
+  /** A question is under way: the marks belong to it, and go when it is answered. */
+  keep() {
+    this.stopTimer();
+  }
+
+  private stopTimer() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
   }
 
   owns(sender: Electron.WebContents) {
@@ -101,6 +124,7 @@ export class Annotations {
    * goes with the marks, so the next question starts on a clean one.
    */
   clear() {
+    this.stopTimer();
     this.marks = [];
     this.live?.destroy();
     this.window = undefined;

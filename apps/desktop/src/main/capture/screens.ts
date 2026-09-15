@@ -165,12 +165,9 @@ export async function captureScreens(options: { closeUp?: boolean } = {}): Promi
     };
   }
 
-  if (access !== 'granted' && !macScreenCaptureGranted()) {
-    return {
-      screenshots: [],
-      access,
-    };
-  }
+  // macOS remembers its first “no” for the life of the process, so a permission granted while
+  // Edi is running still reads as denied. The capture is tried anyway: one that works proves it.
+  const believed = access === 'granted' || macScreenCaptureGranted();
 
   const shown = new Set(keepVisible());
   const ownWindows = BrowserWindow.getAllWindows().filter(
@@ -191,8 +188,11 @@ export async function captureScreens(options: { closeUp?: boolean } = {}): Promi
     // Prefer native ScreenCaptureKit.
     const native = await captureDisplaysNative(displays);
 
-    // Fall back to Electron if native capture produced nothing.
-    const captured = (native.length ? native : await captureDisplaysElectron(displays))
+    // Electron's own path can record a denial without ever prompting, so it is a fallback only
+    // when macOS already says yes.
+    const captured = (
+      native.length ? native : believed ? await captureDisplaysElectron(displays) : []
+    )
       // Put the display containing the cursor first.
       .sort(
         (a, b) =>
@@ -221,6 +221,8 @@ export async function captureScreens(options: { closeUp?: boolean } = {}): Promi
       text: 'text' in row ? row.text : undefined,
     }));
 
+    // Nothing came back and macOS never said yes: the person still has to allow it.
+    if (!screenshots.length && !believed) return { screenshots: [], access };
     return {
       screenshots,
       access: currentScreenAccess(),

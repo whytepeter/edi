@@ -1423,6 +1423,7 @@ async function start() {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     // Their marks belong to the question they asked; once it is answered, the screen is theirs.
+    if (state.status === 'running') annotations.keep();
     if (state.status !== 'running' && previousAgentStatus === 'running') annotations.clear();
     // One place to decide: the card's own review while it is open, the bubble otherwise.
     character.showApproval(cardOpen() ? null : (state.approval ?? tasks.currentApproval));

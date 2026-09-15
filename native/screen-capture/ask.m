@@ -531,13 +531,19 @@ void edi_start_screen_capture_ask(void) {
 
 int edi_screen_capture_ask_state(void) { return atomic_load(&edi_ask_state); }
 
-bool edi_screen_capture_granted(void) { return CGPreflightScreenCaptureAccess(); }
+/**
+ * macOS caches the preflight answer for the life of the process: once it says no, it keeps
+ * saying no even after the person grants the permission in Settings. A capture that actually
+ * worked proves the permission, so it counts from then on and no relaunch is needed.
+ */
+static atomic_bool edi_capture_proven = false;
 
+bool edi_screen_capture_granted(void) {
+  return CGPreflightScreenCaptureAccess() || atomic_load(&edi_capture_proven);
+}
+
+/** A capture is tried even when the preflight says no, for the same reason. */
 void edi_start_display_capture(uint32_t display_id, int max_edge, int quality) {
-  if (!CGPreflightScreenCaptureAccess()) {
-    edi_store_jpeg(nil, 0, 0);
-    return;
-  }
   const int gen = atomic_fetch_add(&edi_cap_gen, 1) + 1;
   atomic_store(&edi_cap_state, EDI_CAP_PENDING);
   edi_last_jpeg = nil;
@@ -584,6 +590,7 @@ void edi_start_display_capture(uint32_t display_id, int max_edge, int quality) {
                                         edi_store_jpeg(nil, 0, 0);
                                         return;
                                       }
+                                      atomic_store(&edi_capture_proven, true);
                                       edi_capture_with_image(image, max_edge, quality, display_id);
                                     }];
         }];
@@ -591,6 +598,7 @@ void edi_start_display_capture(uint32_t display_id, int max_edge, int quality) {
   }
 
   CGImageRef image = CGDisplayCreateImage(display_id);
+  if (image) atomic_store(&edi_capture_proven, true);
   edi_capture_with_image(image, max_edge, quality, display_id);
   if (image) CGImageRelease(image);
 }
