@@ -79,6 +79,7 @@ interface ActiveTask {
 
 const failures = {
   auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
+  'key-limit': 'Your OpenRouter key reached its spending limit.',
   credits: 'OpenRouter has no available credits.',
   model: 'The selected model is unavailable or incompatible.',
   tools: 'The model couldn’t write out all of those actions at once.',

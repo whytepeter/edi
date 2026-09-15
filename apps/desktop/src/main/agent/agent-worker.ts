@@ -245,6 +245,9 @@ function failureKind(error: unknown): FailureKind {
       )
         return 'tools';
       const status = Number(record.statusCode ?? record.status);
+      // OpenRouter answers 403 "Key limit exceeded" when the key's own spending cap is used up:
+      // the key is fine, its limit needs raising.
+      if (status === 403 && /key limit|limit exceeded/i.test(said)) return 'key-limit';
       if (status === 401 || status === 403) return 'auth';
       if (status === 402) return 'credits';
       if (status === 404 || status === 400 || status === 422) return 'model';

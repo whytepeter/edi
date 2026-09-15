@@ -50,6 +50,8 @@ function launch(mode, tools = [], context = {}) {
       parentPort.postMessage({ type: 'debug-request', body });
       requests++;
       if (testMode === 'error') return new Response('test-only-secret must not escape', { status: 401 });
+      if (testMode === 'key-limit')
+        return new Response(JSON.stringify({ error: { code: 403, message: 'Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys' } }), { status: 403 });
       if (testMode === 'malformed')
         return new Response(JSON.stringify({ error: { code: 502, message: 'Provider returned error',
           metadata: { provider_name: 'Google AI Studio', raw: 'finish_reason: MALFORMED_FUNCTION_CALL' } } }), { status: 502 });
@@ -193,6 +195,12 @@ test('provider errors do not expose request metadata', async () => {
   assert.equal(JSON.stringify(messages).includes('test-only-secret'), false);
   assert.equal(messages.at(-1).detail.status, 401);
   assert.equal(messages.at(-1).type, 'error');
+});
+
+test('a key that reached its spending limit is not reported as a rejected key', async () => {
+  const { messages } = await collect(launch('key-limit'));
+  assert.equal(messages.at(-1).kind, 'key-limit');
+  assert.equal(messages.at(-1).detail.status, 403);
 });
 
 test('worker accepts cancellation during a request', async () => {

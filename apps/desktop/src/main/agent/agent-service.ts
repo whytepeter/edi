@@ -503,6 +503,8 @@ export class AgentService {
       recordFailure(this.options.repositories, run.id, this.options.credentials.model, message);
       const errors = {
         auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
+        'key-limit':
+          'Your OpenRouter key reached its spending limit. Raise the limit for this key on openrouter.ai.',
         credits: 'OpenRouter has no available credits. Add credits, then try again.',
         model:
           'The selected OpenRouter model is unavailable or incompatible. Choose another model in Settings → AI.',

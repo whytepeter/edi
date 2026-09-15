@@ -111,7 +111,7 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('error'),
       kind: z
-        .enum(['auth', 'credits', 'model', 'tools', 'temporary', 'unknown'])
+        .enum(['auth', 'key-limit', 'credits', 'model', 'tools', 'temporary', 'unknown'])
         .default('unknown'),
       detail: providerFailureSchema.optional(),
     })
