@@ -74,9 +74,14 @@ async function launch() {
   // Permissions are requested by the feature that needs them, never at launch.
   await expect.poll(cardVisible).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
-  // Home is where the card opens; without an AI connection it offers setup, not a composer.
+  // Home is where the card opens; without an AI connection it offers the setup list, not a composer.
   await expect(workspace.getByRole('heading', { name: /^(Good|Still up)/ })).toBeVisible();
   await expect(workspace.getByRole('textbox', { name: 'Ask Edi' })).toHaveCount(0);
+  // The setup list: what is left to do, and a count. (Voice may already be done from the
+  // development copy of the models, so only the steps that cannot be are asserted here.)
+  await expect(workspace.getByRole('heading', { name: 'Set up' })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: /a brain/ })).toBeVisible();
+  await expect(workspace.getByText(/of 3 done/)).toBeVisible();
   await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   return { workspace, pet };
 }
@@ -102,7 +107,7 @@ try {
   // Edi is the default character.
   await expect(pet.getByRole('img', { name: /^Edi avatar/ })).toBeVisible();
   await checkGeometry(pet, 'edi');
-  await workspace.getByRole('button', { name: /^Set up AI/ }).click();
+  await workspace.getByRole('button', { name: /a brain/ }).click();
   await expect(workspace.getByLabel('OpenRouter API key')).toHaveAttribute('type', 'password');
   // Without the online catalog the picker falls back to typing a model ID.
   await expect(workspace.getByLabel('OpenRouter model ID')).toBeVisible();
@@ -230,7 +235,7 @@ try {
   await workspace.getByRole('menuitem', { name: /Settings/ }).click();
   await workspace.getByRole('button', { name: /^Voice/ }).click();
   // Speech model first (voices are offline in tests, so each shows as not installed).
-  for (const model of [/^Kokoro/, /^Chatterbox Turbo/])
+  for (const model of [/^Kokoro/, /^Chatterbox/])
     await expect(workspace.getByRole('radio', { name: model })).toBeVisible();
   // A cloud voice opens its key panel in place and closes again on a second tap.
   const cartesia = workspace.getByRole('radio', { name: /^Cartesia/ });
