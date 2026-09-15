@@ -47,12 +47,50 @@ export const workerInputSchema = z
           .strict(),
       )
       .max(4),
+    /**
+     * Where the person's own mouse was when they asked, in that screen's pixels: “this” and
+     * “here” mean whatever is under it. Edi never moves their pointer.
+     */
+    pointer: z
+      .object({
+        screen: z.number().int().min(1).max(4),
+        x: z.number().int().min(0),
+        y: z.number().int().min(0),
+        closeUp: z
+          .object({ label: z.string().min(1).max(160), jpeg: bytesWithin(4 * 1024 * 1024) })
+          .strict()
+          .optional(),
+        /** What sits under it, and where that control is in the same screen's pixels. */
+        element: z
+          .object({
+            text: z.string().min(1).max(300),
+            box: z
+              .object({
+                x: z.number().int(),
+                y: z.number().int(),
+                width: z.number().int().positive(),
+                height: z.number().int().positive(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .nullish()
+      .default(null),
     /** The question was spoken and the reply will be read aloud. */
     spoken: z.boolean(),
     /** A background task works on its own for longer; chat answers the person in front of it. */
     mode: z.enum(['chat', 'task']).default('chat'),
     /** Model steps allowed in this run. */
     maxSteps: z.number().int().min(1).max(40).default(10),
+    /**
+     * How much the model thinks before answering, when main lowers it (spoken turns); absent
+     * keeps the model's default. Main picks a level the model's catalog entry allows.
+     */
+    reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium']).optional(),
     /** Selected speech engine supports Chatterbox paralinguistic expression tags. */
     expressiveVoice: z.boolean().default(false),
     /** What the person had in front of them when they asked; data from other apps. */

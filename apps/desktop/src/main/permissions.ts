@@ -72,6 +72,16 @@ interface ScreenAskLibrary extends KoffiLib {
       callback: (error: unknown, written: number) => void,
     ): void;
   } | null;
+  /** Absent in an older helper; Edi then knows where the pointer is but not what is under it. */
+  elementAt: {
+    async(
+      x: number,
+      y: number,
+      dest: Uint8Array,
+      capacity: number,
+      callback: (error: unknown, written: number) => void,
+    ): void;
+  } | null;
   accessibilityTrusted: ((prompt: boolean) => boolean) | null;
   /** Absent in an older helper; Reminders and Calendar are then unavailable. */
   eventKit: {
@@ -142,6 +152,18 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
             'void *',
             'int',
           ]) as unknown as NonNullable<ScreenAskLibrary['frontContext']>;
+        } catch {
+          return null;
+        }
+      })(),
+      elementAt: (() => {
+        try {
+          return loaded.func('edi_element_at', 'int', [
+            'double',
+            'double',
+            'void *',
+            'int',
+          ]) as unknown as NonNullable<ScreenAskLibrary['elementAt']>;
         } catch {
           return null;
         }
@@ -400,6 +422,25 @@ export function eventKit() {
       return result;
     },
   };
+}
+
+/**
+ * Raw JSON for whatever sits under a point on screen (the person's own pointer), or null when
+ * the helper is older or Accessibility isn't granted. Runs off the main thread.
+ */
+export function elementAtPointJson(x: number, y: number): Promise<string | null> {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.elementAt) return Promise.resolve(null);
+  const buffer = Buffer.alloc(8 * 1024);
+  return new Promise(resolve => {
+    try {
+      lib.elementAt!.async(x, y, buffer, buffer.length, (error, written) => {
+        resolve(!error && written > 0 ? buffer.subarray(0, written).toString('utf8') : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 /** Raw JSON describing the front window that is not Edi's, or null. Runs off the main thread. */

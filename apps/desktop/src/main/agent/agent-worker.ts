@@ -198,6 +198,11 @@ const POINTING = [
   'the same exact-text rule. Use positive sizes, keep shapes inside the screenshot, and add',
   ':screenN before ] when needed.',
   'These are temporary visual annotations, never clicks or changes to another app.',
+  'The person’s own mouse position comes with the screens. When they say “this”, “here”, “that”',
+  'or point without naming a thing, they mean whatever is under their pointer: answer about that,',
+  'and mark it rather than hunting the screen. A close-up image may follow the screens; it is the',
+  'area around the pointer, not a display, so read it but give every tag’s coordinates in that',
+  'screen’s own pixels. Never move or click the person’s pointer; Edi only draws with its hand.',
 ].join(' ');
 
 // The face shows how a reply feels; main reads the tag and strips it from text and speech.
@@ -531,6 +536,33 @@ function conversation(): ModelMessage[] {
     { type: 'text' as const, text: shot.label },
     { type: 'file' as const, data: shot.jpeg, mediaType: 'image/jpeg' },
   ]);
+  const under = input.pointer?.element;
+  const box = under?.box;
+  const pointer = input.pointer
+    ? [
+        {
+          type: 'text' as const,
+          text:
+            `The person’s mouse pointer is at ${input.pointer.x},${input.pointer.y} in screen ` +
+            `${input.pointer.screen}’s pixels.` +
+            (under ? ` It is over ${under.text}.` : '') +
+            (box
+              ? ` That sits at ${box.x},${box.y} and is ${box.width}x${box.height} pixels, so mark` +
+                ' it from those numbers rather than estimating.'
+              : ''),
+        },
+        ...(input.pointer.closeUp
+          ? [
+              { type: 'text' as const, text: input.pointer.closeUp.label },
+              {
+                type: 'file' as const,
+                data: input.pointer.closeUp.jpeg,
+                mediaType: 'image/jpeg' as const,
+              },
+            ]
+          : []),
+      ]
+    : [];
   const context = describeDesktopContext(input.desktopContext);
   return [
     ...history,
@@ -540,6 +572,7 @@ function conversation(): ModelMessage[] {
         { type: 'text', text: input.prompt },
         ...(context ? [{ type: 'text' as const, text: `<context>\n${context}\n</context>` }] : []),
         ...screens,
+        ...pointer,
       ],
     },
   ];

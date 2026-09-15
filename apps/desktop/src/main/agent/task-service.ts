@@ -272,6 +272,8 @@ export class TaskService {
       prompt: record.prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS, record.conversationId),
       screenshots: [],
+      // A background task works without the screen, so there is nothing to point at.
+      pointer: null,
       spoken: false,
       mode: 'task',
       maxSteps: TASK_STEPS,

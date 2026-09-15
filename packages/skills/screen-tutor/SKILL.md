@@ -26,7 +26,13 @@ shoulder: one step, show where, wait.
 Read the screenshot: which app, which screen, what state it's in. If the thing they asked about
 isn't reachable from this screen, say where to go first.
 
-## 2. One step at a time
+## 2. Follow their pointer
+
+Their mouse position comes with the screens, with what sits under it. “Where do I click from
+here?” or “what's this one?” is about that control: name it and carry on from there. Edi never
+moves their pointer; it points with its own hand.
+
+## 3. One step at a time
 
 - Give the next step only (or the next two when they're trivial), in plain words: "Click
   **Filters** at the top right."
@@ -35,12 +41,12 @@ isn't reachable from this screen, say where to go first.
 - Then stop and let the user do it. When they come back ("done", "next", or a new question with a
   new screenshot), look again before the next step: the screen may have changed.
 
-## 3. Longer flows
+## 4. Longer flows
 
 For more than five steps, also show the whole path once with `workspace_show` as a checklist
 ("Set up a form: 1. … 2. …") so the user can see where they are, then still guide step by step.
 
-## 4. When you can't see it
+## 5. When you can't see it
 
 If the control isn't visible (scrolled off, in a collapsed menu), say how to reveal it rather
 than guessing coordinates. If the app is unfamiliar, check the app's help pages with

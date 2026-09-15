@@ -749,6 +749,97 @@ static AXUIElementRef edi_ax_child(AXUIElementRef element, CFStringRef attribute
   return (AXUIElementRef)value;
 }
 
+/** A string attribute, trimmed to keep a whole text field out of the answer. */
+static NSString *edi_ax_short(AXUIElementRef element, CFStringRef attribute, NSUInteger limit) {
+  NSString *text = edi_ax_text(element, attribute);
+  if (!text.length) return nil;
+  NSString *flat = [[text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]
+      componentsJoinedByString:@" "];
+  return flat.length > limit ? [[flat substringToIndex:limit] stringByAppendingString:@"…"] : flat;
+}
+
+/**
+ * What sits under a point on screen, as JSON: its kind, name, value and frame, so "what's this?"
+ * has a subject and can be marked exactly. Needs Accessibility; reads only the element under the
+ * pointer, never the window's contents, and never a password field's value.
+ * Returns the byte length written, the negative length needed if `capacity` is too small, or 0.
+ */
+int edi_element_at(double x, double y, char *dest, int capacity) {
+  @autoreleasepool {
+    if (!AXIsProcessTrusted()) return 0;
+    AXUIElementRef system = AXUIElementCreateSystemWide();
+    AXUIElementSetMessagingTimeout(system, 0.25f);
+    AXUIElementRef element = NULL;
+    AXError status = AXUIElementCopyElementAtPosition(system, (float)x, (float)y, &element);
+    CFRelease(system);
+    if (status != kAXErrorSuccess || !element) return 0;
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSString *role = edi_ax_short(element, kAXRoleAttribute, 60);
+    NSString *subrole = edi_ax_short(element, kAXSubroleAttribute, 60);
+    NSString *kind = edi_ax_short(element, kAXRoleDescriptionAttribute, 60) ?: role;
+    if (kind.length) result[@"kind"] = kind;
+    if (role.length) result[@"role"] = role;
+    NSString *name = edi_ax_short(element, kAXTitleAttribute, 120);
+    if (!name.length) name = edi_ax_short(element, kAXDescriptionAttribute, 120);
+    if (!name.length) name = edi_ax_short(element, kAXHelpAttribute, 120);
+    if (name.length) result[@"name"] = name;
+    // A password field's contents never leave the app.
+    if (![subrole isEqualToString:(__bridge NSString *)kAXSecureTextFieldSubrole]) {
+      CFTypeRef raw = NULL;
+      if (AXUIElementCopyAttributeValue(element, kAXValueAttribute, &raw) == kAXErrorSuccess && raw) {
+        if (CFGetTypeID(raw) == CFStringGetTypeID()) {
+          NSString *value = (__bridge NSString *)raw;
+          if (value.length) result[@"value"] = value.length > 200 ? [[value substringToIndex:200]
+              stringByAppendingString:@"…"] : value;
+        } else if (CFGetTypeID(raw) == CFNumberGetTypeID()) {
+          result[@"value"] = [(__bridge NSNumber *)raw stringValue];
+        } else if (CFGetTypeID(raw) == CFBooleanGetTypeID()) {
+          result[@"value"] = CFBooleanGetValue((CFBooleanRef)raw) ? @"on" : @"off";
+        }
+        CFRelease(raw);
+      }
+    }
+
+    CFTypeRef positionValue = NULL;
+    CFTypeRef sizeValue = NULL;
+    CGPoint origin = CGPointZero;
+    CGSize size = CGSizeZero;
+    if (AXUIElementCopyAttributeValue(element, kAXPositionAttribute, &positionValue) == kAXErrorSuccess &&
+        positionValue) {
+      AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &origin);
+      CFRelease(positionValue);
+    }
+    if (AXUIElementCopyAttributeValue(element, kAXSizeAttribute, &sizeValue) == kAXErrorSuccess &&
+        sizeValue) {
+      AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+      CFRelease(sizeValue);
+    }
+    if (size.width > 0 && size.height > 0) {
+      result[@"frame"] = @{
+        @"x" : @(lround(origin.x)),
+        @"y" : @(lround(origin.y)),
+        @"width" : @(lround(size.width)),
+        @"height" : @(lround(size.height))
+      };
+    }
+    pid_t pid = 0;
+    if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
+      NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+      if (app.localizedName) result[@"app"] = app.localizedName;
+      if (app.bundleIdentifier) result[@"bundleId"] = app.bundleIdentifier;
+    }
+    CFRelease(element);
+    if (!result.count) return 0;
+
+    NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    if (!json) return 0;
+    if ((int)json.length > capacity) return -(int)json.length;
+    memcpy(dest, json.bytes, json.length);
+    return (int)json.length;
+  }
+}
+
 /**
  * What the person has in front of them, as JSON: the frontmost normal window that is not Edi's
  * (so asking from Edi's own card still describes the app behind it), its app, and, with

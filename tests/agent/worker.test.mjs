@@ -117,6 +117,7 @@ function launch(mode, tools = [], context = {}) {
         prompt: 'Hello',
         history: context.history ?? [],
         screenshots: context.screenshots ?? [],
+        ...(context.pointer ? { pointer: context.pointer } : {}),
         spoken: false,
         tools,
         mode,
@@ -279,6 +280,38 @@ test('history and every screenshot reach the model, in order', async () => {
   assert.equal(parts.filter(p => p.type === 'image_url').length, 2);
   assert.match(parts.find(p => p.type === 'image_url').image_url.url, /^data:image\/jpeg;base64,/);
   assert.match(JSON.stringify(parts), /cursor is on this screen/);
+});
+
+test('where the person’s own mouse is reaches the model, with its close-up after the screens', async () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const { requests } = await collect(
+    launch('success', [], {
+      screenshots: [{ label: 'screen 1 of 1 — cursor is on this screen (primary focus)', jpeg }],
+      pointer: {
+        screen: 1,
+        x: 640,
+        y: 300,
+        closeUp: { label: 'close-up around the mouse pointer on screen 1', jpeg },
+        element: {
+          text: 'button “Export” in Numbers',
+          box: { x: 600, y: 280, width: 90, height: 28 },
+        },
+      },
+    }),
+  );
+  const current = requests[0].messages.filter(m => m.role !== 'system').at(-1);
+  const texts = current.content.filter(part => part.type === 'text').map(part => part.text);
+  const where = texts.find(text => /mouse pointer is at 640,300 in screen 1/.test(text));
+  assert.ok(where);
+  // What it is over, and its real box, so marks land on it instead of an estimate.
+  assert.match(where, /button “Export” in Numbers/);
+  assert.match(where, /600,280 and is 90x28 pixels/);
+  // The close-up is an extra image after the screens, labelled as a close-up, not a display.
+  assert.equal(current.content.filter(part => part.type === 'image_url').length, 2);
+  const labels = texts.map((text, index) => [index, text]);
+  const screenAt = labels.find(([, text]) => /screen 1 of 1/.test(text))[0];
+  const closeUpAt = labels.find(([, text]) => /close-up around the mouse pointer/.test(text))[0];
+  assert.ok(closeUpAt > screenAt);
 });
 
 const webFetch = {

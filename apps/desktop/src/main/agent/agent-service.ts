@@ -226,7 +226,7 @@ export class AgentService {
       (this.options.desktopContext?.() ?? Promise.resolve(null)).catch(() => null),
       new Promise<null>(resolve => setTimeout(() => resolve(null), CONTEXT_WAIT_MS)),
     ]);
-    const [{ screenshots, access }, desktopContext] = await Promise.all([
+    const [{ screenshots, access, pointer }, desktopContext] = await Promise.all([
       (options.screens
         ? Promise.resolve(options.screens)
         : this.options.captureScreens(prompt)
@@ -266,6 +266,8 @@ export class AgentService {
       prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS, conversationId),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
+      // Where their own mouse was: “this” and “here” have a subject.
+      pointer: pointer ?? null,
       spoken: options.spoken ?? false,
       mode: 'chat',
       maxSteps: 10,

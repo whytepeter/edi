@@ -21,7 +21,11 @@ import {
   localizeActions,
   presentationScriptSchema,
   presentationText,
+  describePointerElement,
   needsScreenContext,
+  pointsAtCursor,
+  privateContextApps,
+  screenPointToScreenshot,
   createScreenContextSession,
   permissionSnapshotSchema,
 } from './index';
@@ -349,6 +353,51 @@ test('screen context is attached only for requests about visible content', () =>
     'Read this image',
   ])
     assert.equal(needsScreenContext(prompt), true, prompt);
+});
+
+test('the pointer maps into a screenshot, and pointing words ask for its close-up', () => {
+  const display = { x: 1512, y: 0, width: 1512, height: 982 };
+  const image = { width: 1280, height: 831 };
+  // A point on the second display becomes that screenshot's own pixels.
+  assert.deepEqual(screenPointToScreenshot({ x: 2268, y: 491 }, image, display), { x: 640, y: 416 });
+  // Anything off the display is clamped to its edge rather than sent as a wild coordinate.
+  assert.deepEqual(screenPointToScreenshot({ x: 9000, y: -50 }, image, display), {
+    x: 1280,
+    y: 0,
+  });
+  // The round trip lands back where it started.
+  const at = screenPointToScreenshot({ x: 2000, y: 300 }, image, display);
+  const back = screenshotPointToScreen(at, image, display);
+  assert.ok(Math.abs(back.x - 2000) <= 2 && Math.abs(back.y - 300) <= 2);
+
+  for (const prompt of ["What's this?", 'Explain this chart', 'What does it do?', 'Where am I pointing?'])
+    assert.equal(pointsAtCursor(prompt), true, prompt);
+  for (const prompt of ['Summarize my screen', 'Read the visible chart', 'What can you do?'])
+    assert.equal(pointsAtCursor(prompt), false, prompt);
+});
+
+test('what the pointer is over reads as one line, and a password field keeps its value', () => {
+  assert.equal(
+    describePointerElement({
+      kind: 'button',
+      name: 'Export',
+      app: 'Numbers',
+      frame: { x: 10, y: 20, width: 90, height: 28 },
+    }),
+    'button “Export” in Numbers',
+  );
+  assert.equal(
+    describePointerElement({ role: 'AXTextField', name: 'Subject', value: 'Launch plan' }),
+    'textfield “Subject”, showing “Launch plan”',
+  );
+  // The helper omits a secure field's value; nothing invents one back.
+  assert.equal(
+    describePointerElement({ kind: 'secure text field', app: '1Password' }),
+    'secure text field in 1Password',
+  );
+  assert.equal(describePointerElement({}), 'something');
+  // A password manager is filtered by bundle id before it ever reaches this.
+  assert.equal(privateContextApps.has('com.1password.1password'), true);
 });
 
 test('short follow-ups recapture only during an active visual conversation', () => {
