@@ -348,3 +348,8 @@
   font: var(--text-body);
   color: var(--label);
 }
+
+/* Settings → Voice → Words to recognize: one field inside the grouped list. */
+.voice-words {
+  padding: var(--space-3) var(--space-4);
+}

@@ -7,6 +7,8 @@ export interface VoiceRuntime {
   transcription: TranscriptionRuntime;
   /** whisper.cpp's server, which keeps the model loaded between turns; null until built. */
   transcriptionServer: string | null;
+  /** The server was built with Metal: let it use the GPU. */
+  transcriptionGpu?: boolean;
   /** MLX engines; each model folder is null until provisioned. */
   mlx: (MlxRuntime & { kokoro: string | null; chatterbox: string | null }) | null;
 }
@@ -37,6 +39,20 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
   };
   const server = join(transcription, build ?? 'missing', 'build/bin/whisper-server');
   if (existsSync(server)) runtime.transcriptionServer = server;
+  // Owner A/B only: EDI_TRANSCRIPTION_MODEL=large-v3-turbo uses the large model on the Metal
+  // build. small.en stays the default: on accented synthetic voices it matched turbo once given
+  // the person's words, spelled "Edi" reliably, and needs no first-launch GPU compile.
+  const turbo = join(transcription, 'ggml-large-v3-turbo-q5_0.bin');
+  const metal = join(transcription, build ?? 'missing', 'build-metal/bin/whisper-server');
+  if (
+    process.env.EDI_TRANSCRIPTION_MODEL === 'large-v3-turbo' &&
+    existsSync(turbo) &&
+    existsSync(metal)
+  ) {
+    runtime.transcription.model = turbo;
+    runtime.transcriptionServer = metal;
+    runtime.transcriptionGpu = true;
+  }
   // Provisioned by benchmarks/voice/provision_mlx.py. A model counts only if its weights exist.
   const mlx = {
     python: join(voice, 'mlx-venv/bin/python'),

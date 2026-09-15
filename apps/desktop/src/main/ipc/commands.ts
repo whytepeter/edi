@@ -196,6 +196,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ speakReplies: enabled }),
     },
+    'set-voice-words': {
+      from: fromWorkspace,
+      handle: ({ words }) => settings.update({ voiceWords: words }),
+    },
     'set-voice-input': {
       from: fromWorkspace,
       handle: ({ input }) => settings.update({ voiceInput: input }),

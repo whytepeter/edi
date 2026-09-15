@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pcmWave, transcribePcm } from '../../apps/desktop/src/main/voice/transcription-process';
+import {
+  pcmWave,
+  transcribePcm,
+  transcriptionPrompt,
+} from '../../apps/desktop/src/main/voice/transcription-process';
 
 test('WAV boundary produces fixed mono PCM16 and rejects malformed input', () => {
   const wav = pcmWave(new Uint8Array(32000));
@@ -69,4 +73,26 @@ http.createServer((req, res) => {
   );
   assert.equal((await readFile(log, 'utf8')).trim().split('\n').length, 1);
   server.dispose();
+});
+
+test('the recognition prompt carries the name, the person’s words and the end of the last reply', () => {
+  assert.equal(
+    transcriptionPrompt(),
+    'Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.',
+  );
+  const prompt = transcriptionPrompt({
+    name: 'Mochi',
+    words: ['Skaletek', 'Glown', 'edi'],
+    context: 'You have two meetings today: the Glown Update at nine, and Skaletek at noon.',
+  });
+  assert.equal(
+    prompt,
+    'Mochi. Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira. Skaletek. Glown. ' +
+      'You have two meetings today: the Glown Update at nine, and Skaletek at noon.',
+  );
+  // A long reply keeps its end, cut at a word, and the whole prompt stays short.
+  const long = transcriptionPrompt({ context: `${'start '.repeat(200)}the final words` });
+  assert.ok(long.length <= 700);
+  assert.ok(long.endsWith('the final words'));
+  assert.ok(!/\bstar\b|\bst\b/.test(long.split('Naira.')[1] ?? ''), 'no half word');
 });

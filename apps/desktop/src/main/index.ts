@@ -97,6 +97,7 @@ import { progressLabel } from './agent/step-labels';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { cartesiaTranscriber, streamCartesiaSpeech } from './voice/cartesia-realtime';
 import { localTranscriber, WhisperServer } from './voice/transcription-server';
+import { transcriptionPrompt } from './voice/transcription-process';
 import { speakable, spokenFailure, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
@@ -1064,8 +1065,17 @@ async function start() {
   // Whisper stays loaded between turns (and pause checks) instead of starting for each one.
   const whisper = voiceRuntime
     ? new WhisperServer(voiceRuntime.transcription, voiceRuntime.transcriptionServer, {
-        name: companion,
+        // The person's words, and the end of Edi's last reply so follow-ups spell its names.
+        prompt: () =>
+          transcriptionPrompt({
+            name: companion(),
+            words: settings.current.voiceWords,
+            context: speakable(
+              agent.state.messages.findLast(message => message.role === 'assistant')?.text ?? '',
+            ),
+          }),
         idleMs: 30 * 60_000,
+        gpu: voiceRuntime.transcriptionGpu,
       })
     : null;
   const transcribeLocally = (pcm: Uint8Array, signal: AbortSignal) => {
@@ -1162,6 +1172,7 @@ async function start() {
     },
     speakReplies: () => settings.current.speakReplies,
     expressiveVoice: expressiveReady,
+    companionName: companion,
   });
   // Engines take seconds to load. Start now, not after the reply is on screen.
   warmSelected();

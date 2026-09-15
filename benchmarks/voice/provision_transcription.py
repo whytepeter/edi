@@ -14,6 +14,10 @@ ASSETS = [
     # base.en remains available for benchmark comparison and older checkouts.
     ("ggml-small.en.bin", "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en.bin",
      487614201, "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"),
+    # large-v3-turbo (quantized), for comparing against small.en with real voices
+    # (EDI_TRANSCRIPTION_MODEL=large-v3-turbo; see TRANSCRIPTION.md). Owner approved 2026-09-15.
+    ("ggml-large-v3-turbo-q5_0.bin", "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+     574041195, "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
     ("ggml-silero-v6.2.0.bin", "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin",
      885098, "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"),
     ("cmake-4.4.3-py3-none-macosx_10_10_universal2.whl",
@@ -53,7 +57,7 @@ def fetch(asset):
 
 if __name__ == "__main__":
     ROOT.mkdir(parents=True, exist_ok=True)
-    assert sum(asset[2] for asset in ASSETS) < 1_000_000_000
+    assert sum(asset[2] for asset in ASSETS) < 1_400_000_000
     with ThreadPoolExecutor(max_workers=4) as pool:
         records = list(pool.map(fetch, ASSETS))
     (ROOT / "downloads.json").write_text(json.dumps({"source_commit": COMMIT, "assets": records}, indent=2))

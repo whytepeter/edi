@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   VoiceController,
+  addressName,
   cleanTranscript,
   speakable,
   takeSpeech,
@@ -788,4 +789,24 @@ test('an answer after a long tool is still spoken when the first stream was clos
   assert.equal(streams.length, 2, 'a fresh stream for the answer');
   assert.deepEqual(streams[1]?.said, ['You have two meetings today.']);
   assert.equal(h.voice.phase, 'idle');
+});
+
+test('Edi’s name is spelled right where she is addressed, and nowhere else', async () => {
+  assert.equal(
+    addressName('Hey Eddie, can you check my calendar?'),
+    'Hey Edi, can you check my calendar?',
+  );
+  assert.equal(addressName('Oh, hey, Eddy. How are you?'), 'Oh, hey, Edi. How are you?');
+  assert.equal(addressName('Edy, what time is it?'), 'Edi, what time is it?');
+  assert.equal(addressName('Thanks Eddie.'), 'Thanks Edi.');
+  assert.equal(addressName('Email Eddie about the launch.'), 'Email Eddie about the launch.');
+  assert.equal(addressName('Hey Eddie, hi.', 'Mochi'), 'Hey Eddie, hi.', 'only for Edi');
+
+  const h = harness({ listen: fakeListener(() => 'Hey Eddie, what is my day like?').listen });
+  const stopPlaying = h.autoPlay();
+  const generation = await holdAndSpeak(h);
+  h.voice.clientEvent(generation, 'captured');
+  await wait(10);
+  stopPlaying();
+  assert.equal(h.asked[0]?.prompt, 'Hey Edi, what is my day like?');
 });

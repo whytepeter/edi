@@ -151,6 +151,19 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petPosition, null);
   // Preferences saved before speech could be turned off keep speaking.
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).speakReplies, true);
+  // Words for recognition: trimmed, unique, bounded; anything malformed is dropped, not fatal.
+  assert.deepEqual(
+    settingsSchema.parse({
+      skin: 'edi',
+      pinned: false,
+      voiceWords: [' Skaletek ', 'Glown', 'Glown'],
+    }).voiceWords,
+    ['Skaletek', 'Glown'],
+  );
+  assert.deepEqual(
+    settingsSchema.parse({ skin: 'edi', pinned: false, voiceWords: ['x'.repeat(41)] }).voiceWords,
+    [],
+  );
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petScale, 1);
   assert.equal(
     commandSchema.safeParse({ type: 'set-pet-scale', scale: 3, commit: true }).success,

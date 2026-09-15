@@ -54,7 +54,7 @@ try {
           () => {},
           {
             getUserMedia: async () => stream.stream,
-            createContext: () => new AudioContext(),
+            createContext: () => new AudioContext({ sampleRate: 16000 }),
           },
         );
         await new Promise(resolve => {

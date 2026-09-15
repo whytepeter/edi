@@ -2,6 +2,8 @@ import { SpeechActivity, type DesktopBridge, type SpeechCue, type VoiceMode } fr
 import { FRAME_MS, FRAME_SAMPLES, openPcmCapture, type PcmCapture } from './PcmCapture';
 import { PcmPlayer } from './PcmPlayer';
 
+/** Audio still captured after push-to-talk is released, so the last word is not clipped. */
+const RELEASE_TAIL_MS = 200;
 /** Microphone audio goes to main in chunks of this many 20 ms frames. */
 const CHUNK_FRAMES = 5;
 /** Audio kept from just before speech is detected, so the first word is not clipped. */
@@ -172,14 +174,20 @@ export function startVoiceClient(
     }
   }
 
-  /** Push-to-talk released: release the microphone, send what is left, then say so. */
+  /**
+   * Push-to-talk released: keep listening a moment (people let go while finishing the last
+   * word), then release the microphone, send what is left, and say so.
+   */
   function finish(generation: number) {
     const current = capture;
     if (!current || current.generation !== generation) return;
-    current.capture?.stop();
-    capture = undefined;
-    flush(current);
-    report(generation, 'captured');
+    setTimeout(() => {
+      if (capture !== current) return;
+      current.capture?.stop();
+      capture = undefined;
+      flush(current);
+      report(generation, 'captured');
+    }, RELEASE_TAIL_MS);
   }
 
   /** Follows the loudness of what is actually playing, so the mouth moves with the words. */

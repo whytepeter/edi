@@ -15,7 +15,9 @@ export const FRAME_MS = 20;
 
 const defaults: PcmCaptureDependencies = {
   getUserMedia: constraints => navigator.mediaDevices.getUserMedia(constraints),
-  createContext: () => new AudioContext(),
+  // At 16 kHz Chromium resamples the microphone with a proper filter. Linear downsampling from
+  // 48 kHz added about half a point of word error rate in a like-for-like test.
+  createContext: () => new AudioContext({ sampleRate: CAPTURE_RATE }),
 };
 const abortError = () => new DOMException('Microphone capture cancelled', 'AbortError');
 const stopTracks = (stream: MediaStream) => stream.getTracks().forEach(track => track.stop());
@@ -68,7 +70,7 @@ async function acquire(
 }
 
 /**
- * Converts the device rate to 16 kHz with linear interpolation, keeping its position across
+ * Fallback when the context cannot run at 16 kHz: converts the device rate with linear interpolation, keeping its position across
  * buffers, and emits fixed 20 ms frames with their loudness.
  */
 export class Resampler {

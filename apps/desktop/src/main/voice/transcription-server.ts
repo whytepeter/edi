@@ -42,7 +42,10 @@ export class WhisperServer {
     private readonly runtime: TranscriptionRuntime,
     private readonly server: string | null,
     private readonly options: {
-      name?: () => string;
+      /** A Metal build: run on the GPU instead of passing -ng. */
+      gpu?: boolean;
+      /** Built fresh for each request: the person's words and Edi's last reply change. */
+      prompt?: () => string;
       idleMs?: number;
       readyMs?: number;
       fetch?: Fetch;
@@ -59,19 +62,19 @@ export class WhisperServer {
   }
 
   async transcribe(pcm: Uint8Array, signal: AbortSignal): Promise<string> {
-    const name = this.options.name?.() ?? 'Edi';
-    if (!this.server) return transcribePcm(this.runtime, pcm, signal, undefined, name);
+    const prompt = this.options.prompt?.() ?? transcriptionPrompt();
+    if (!this.server) return transcribePcm(this.runtime, pcm, signal, undefined, prompt);
     let base: string;
     try {
       base = await this.ensure();
     } catch {
-      return transcribePcm(this.runtime, pcm, signal, undefined, name);
+      return transcribePcm(this.runtime, pcm, signal, undefined, prompt);
     }
     clearTimeout(this.idleTimer);
     const form = new FormData();
     form.set('file', new Blob([new Uint8Array(pcmWave(pcm))], { type: 'audio/wav' }), 'turn.wav');
     form.set('response_format', 'json');
-    form.set('prompt', transcriptionPrompt(name));
+    form.set('prompt', prompt);
     try {
       const response = await (this.options.fetch ?? fetch)(`${base}/inference`, {
         method: 'POST',
@@ -88,7 +91,7 @@ export class WhisperServer {
       // A server that stopped answering is replaced on the next turn; this one still gets words.
       this.dispose();
       if (error instanceof Error && error.message === 'Transcript too long') throw error;
-      return transcribePcm(this.runtime, pcm, signal, undefined, name);
+      return transcribePcm(this.runtime, pcm, signal, undefined, prompt);
     } finally {
       this.scheduleIdle();
     }
@@ -120,7 +123,17 @@ export class WhisperServer {
         server,
         [
           ...['-m', this.runtime.model, '--vad', '-vm', this.runtime.vadModel],
-          ...['-l', 'en', '-t', '4', '-ng', '--host', '127.0.0.1', '--port', String(port)],
+          ...[
+            '-l',
+            'en',
+            '-t',
+            '4',
+            ...(this.options.gpu ? [] : ['-ng']),
+            '--host',
+            '127.0.0.1',
+            '--port',
+            String(port),
+          ],
         ],
         { stdio: 'ignore', env: { PATH: '/usr/bin:/bin' } },
       );

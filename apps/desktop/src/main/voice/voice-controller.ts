@@ -56,6 +56,8 @@ export interface VoiceDependencies<Screens> {
   speakReplies?(): boolean;
   /** Whether the selected speech engine understands paralinguistic tags. */
   expressiveVoice?(): boolean;
+  /** The companion's name, spelled right when a recognizer mishears it. Defaults to Edi. */
+  companionName?(): string;
   /** Tests shorten these. */
   timing?: Partial<ProgressTiming & { idleMs: number; tickMs: number }>;
   now?(): number;
@@ -79,6 +81,23 @@ export function cleanTranscript(text: string) {
     .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** How recognizers spell "Edi" (turbo heard "Eddie" and "Edy" in half the addressed samples). */
+const EDI_SPELLINGS = 'eddie|eddy|edy|edie|eddi|edee';
+const greeting = new RegExp(
+  `\\b(hey|hi|hello|okay|ok|yo|thanks|thank you)(,?\\s+)(?:${EDI_SPELLINGS})\\b`,
+  'gi',
+);
+const opening = new RegExp(`^((?:oh|so|um|uh)?,?\\s*)(?:${EDI_SPELLINGS})(?=[,.!?]|$)`, 'i');
+
+/**
+ * Spells the companion's name right where the person is talking to her ("Hey Eddie," →
+ * "Hey Edi,"). Anywhere else, "Eddie" may be someone else, so it is left alone.
+ */
+export function addressName(text: string, name = 'Edi') {
+  if (name.toLowerCase() !== 'edi') return text;
+  return text.replace(greeting, `$1$2${name}`).replace(opening, `$1${name}`);
 }
 
 /** Plain words for speech: no Markdown, no pointing tags, a sentence boundary under the cap. */
@@ -309,6 +328,10 @@ export class VoiceController<Screens> {
     ack.resolve();
   }
 
+  private heardText(raw: string) {
+    return addressName(cleanTranscript(raw), this.deps.companionName?.());
+  }
+
   private beginUtterance() {
     this.utterance?.transcriber.close();
     this.utterance = { transcriber: this.deps.listen(), epoch: 0 };
@@ -332,7 +355,10 @@ export class VoiceController<Screens> {
     if (!utterance || this.session.mode !== 'conversation') return;
     const epoch = utterance.epoch;
     // A recognizer that failed heard nothing; a long pause then ends the turn quietly.
-    const heard = await utterance.transcriber.transcript().then(cleanTranscript, () => '');
+    const heard = await utterance.transcriber.transcript().then(
+      text => this.heardText(text),
+      () => '',
+    );
     // Speech resumed, the utterance was handed off, or the session changed meanwhile.
     if (this.utterance !== utterance || utterance.epoch !== epoch) return;
     if (generation !== this.session.generation) return;
@@ -355,7 +381,7 @@ export class VoiceController<Screens> {
     }
     let heard: string;
     try {
-      heard = cleanTranscript(await utterance.transcriber.transcript());
+      heard = this.heardText(await utterance.transcriber.transcript());
     } catch {
       if (generation !== this.session.generation) return;
       this.notice = 'Voice stopped. Try again.';

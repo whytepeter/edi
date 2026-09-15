@@ -9,6 +9,11 @@ export const voiceModelSchema = z.enum(['kokoro', 'chatterbox-turbo', 'cartesia'
 /** Speech recognition: local whisper, or Cartesia's realtime transcription. */
 export const voiceInputSchema = z.enum(['local', 'cartesia']);
 export type VoiceInput = z.infer<typeof voiceInputSchema>;
+/** Words for speech recognition (Settings → Voice): a few dozen names, each short. */
+export const voiceWordsSchema = z
+  .array(z.string().trim().min(1).max(40))
+  .max(50)
+  .transform(words => [...new Set(words)]);
 export type VoiceModelId = z.infer<typeof voiceModelSchema>;
 
 /**

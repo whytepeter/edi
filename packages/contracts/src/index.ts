@@ -191,6 +191,7 @@ import {
   voiceChoicesSchema,
   voiceInputSchema,
   voiceModelSchema,
+  voiceWordsSchema,
   voiceSelectionSchema,
   type CloudProviderId,
   type CloudVoiceOption,
@@ -253,6 +254,8 @@ export const settingsSchema = z.preprocess(
      * (microphone audio is then streamed to Cartesia while they talk).
      */
     voiceInput: voiceInputSchema.catch('local').default('local'),
+    /** Names and words speech recognition should expect: people, companies, projects. */
+    voiceWords: voiceWordsSchema.catch([]).default([]),
     /** The chosen voice within each speech model. */
     voices: voiceChoicesSchema,
     petScale: petScaleSchema.default(1),
@@ -273,6 +276,7 @@ export const defaultSettings: Settings = {
   skillsOff: [],
   voiceModel: 'kokoro',
   voiceInput: 'local',
+  voiceWords: [],
   voices: {
     kokoro: 'af_heart',
     'chatterbox-turbo': 'calm',
@@ -523,6 +527,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-share-desktop-context'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
   z.object({ type: z.literal('set-voice-input'), input: voiceInputSchema }).strict(),
+  z.object({ type: z.literal('set-voice-words'), words: voiceWordsSchema }).strict(),
   /** Choose a voice within a model; the voice must belong to that model. */
   z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),
   /** Save a cloud voice key (checked with the provider first) or forget it. */

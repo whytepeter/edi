@@ -29,8 +29,10 @@ interface VoiceSettingsProps {
   voices: VoiceChoices;
   speakReplies: boolean;
   voiceInput: VoiceInput;
+  voiceWords: string[];
   onVoiceModel(model: VoiceModelId): void;
   onVoiceInput(input: VoiceInput): void;
+  onVoiceWords(words: string[]): void;
   onVoice(selection: VoiceSelection): void;
   onPreview(selection: VoiceSelection): Promise<void>;
   onSpeakReplies(enabled: boolean): void;
@@ -88,8 +90,10 @@ export function VoiceSettings({
   voices,
   speakReplies,
   voiceInput,
+  voiceWords,
   onVoiceModel,
   onVoiceInput,
+  onVoiceWords,
   onVoice,
   onPreview,
   onSpeakReplies,
@@ -106,6 +110,26 @@ export function VoiceSettings({
     null,
   );
   const [cloudError, setCloudError] = useState('');
+  // Edited as text; saved as a list when the field is left or Return is pressed.
+  const [wordsDraft, setWordsDraft] = useState(voiceWords.join(', '));
+  const [shownWords, setShownWords] = useState(voiceWords);
+  if (shownWords !== voiceWords) {
+    // Saved elsewhere (or just saved): show the stored list.
+    setShownWords(voiceWords);
+    setWordsDraft(voiceWords.join(', '));
+  }
+  const saveWords = () => {
+    const words = [
+      ...new Set(
+        wordsDraft
+          .split(/[,\n]/)
+          .map(word => word.trim().slice(0, 40))
+          .filter(Boolean),
+      ),
+    ].slice(0, 50);
+    if (words.join('\n') !== voiceWords.join('\n')) onVoiceWords(words);
+    setWordsDraft(words.join(', '));
+  };
   // Bumped by "Check again" after the person adds a voice on the provider's site.
   const [cloudReload, setCloudReload] = useState(0);
   const [apiKey, setApiKey] = useState('');
@@ -453,6 +477,25 @@ export function VoiceSettings({
             />
           }
         />
+      </GroupedList>
+
+      <GroupedList
+        title="Words to recognize"
+        footer={`Names of people, companies and projects you mention, separated by commas. ${assistant} listens for them on this Mac${voiceInput === 'cartesia' && cartesiaKey ? ' (Cartesia recognition doesn’t use this list)' : ''}.`}
+      >
+        <div className="voice-words">
+          <TextField
+            label="Words to recognize"
+            hideLabel
+            placeholder="Skaletek, Glown, Sarah"
+            value={wordsDraft}
+            onChange={event => setWordsDraft(event.target.value)}
+            onBlur={saveWords}
+            onKeyDown={event => {
+              if (event.key === 'Enter') saveWords();
+            }}
+          />
+        </div>
       </GroupedList>
 
       <GroupedList footer="When this is off, answers to spoken questions show up in Conversations instead of being read aloud.">
