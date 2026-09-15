@@ -1793,6 +1793,17 @@ async function start() {
         await mkdir(skillsFolder(), { recursive: true });
         await shell.openPath(skillsFolder());
       },
+      addSkill: async () => {
+        const result = await dialog.showOpenDialog(workspace, {
+          title: 'Add a skill',
+          message: 'Choose a skill’s folder, with a SKILL.md inside.',
+          buttonLabel: 'Add Skill',
+          properties: ['openDirectory', 'openFile'],
+        });
+        const path = result.filePaths[0];
+        if (result.canceled || !path) return;
+        await skills.import(path);
+      },
       placement,
       petDrag,
       character,

@@ -112,15 +112,13 @@ Setup returns to the initiating task with a proposed action; it does not authori
 
 | Gate | Where it stands |
 | --- | --- |
-| Skills | Added through Skill Creator or a folder in Documents › Edi › Skills; can be switched off, or removed to the Trash. |
+| Skills | Added through Skill Creator, **Add Skill…** (a shared folder, checked and copied in whole) or a folder in Documents › Edi › Skills; can be switched off, or removed to the Trash. A skill says which of its apps aren’t connected, and Edi offers to connect them. |
 | Accounts and MCP servers | Connected by catalog or by address; can be switched off tool by tool, disconnected, or removed. |
 | Library artifacts | Created, reopened, updated in place, and exported. |
-| Failures | Explained: expired sign-ins, refused keys, duplicate tool names (each app has its own prefix; a bug with same-named apps was fixed), invalid `SKILL.md`, skill folders without one, helper scripts (never run), and missing content. |
+| Failures | Explained: expired sign-ins, refused keys, duplicate tool names (each app has its own prefix; a bug with same-named apps was fixed), invalid `SKILL.md`, skill folders without one, helper scripts (never run), and missing content: a note whose file moved says where to put it back, and a diagram that can’t be drawn has **Ask Edi to fix it**. |
 | Returning to the task | Connecting an app from a request continues that request, and any write it proposes is still reviewed. |
 
-Two things remain before the milestone can close:
-- The owner runs one task end to end that installs a skill, connects an app and adds an MCP server, then uses all three.
-- An “Add Skill…” import from a chosen folder. Today a shared skill is copied into the Skills folder by hand.
+One thing remains before the milestone can close: the owner runs one task end to end that installs a skill, connects an app and adds an MCP server, then uses all three.
 
 ## 4. Release v0.1 private alpha
 

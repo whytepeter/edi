@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
   formatSkill,
   parseSkill,
@@ -30,6 +40,35 @@ async function hasHelperScripts(folder: string) {
     );
   } catch {
     return false;
+  }
+}
+
+/** A shared skill is instructions and a few files: anything bigger is not a skill folder. */
+const IMPORT_MAX_FILES = 200;
+const IMPORT_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Copy a skill folder's regular files and folders. Symlinks and hidden files stay behind, so a
+ * shared skill can't point Edi at anything outside its own folder.
+ */
+async function copySkillFolder(
+  from: string,
+  to: string,
+  budget = { files: 0, bytes: 0 },
+): Promise<void> {
+  await mkdir(to, { recursive: true });
+  for (const entry of await readdir(from, { withFileTypes: true })) {
+    if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+    const source = join(from, entry.name);
+    const target = join(to, entry.name);
+    if (entry.isDirectory()) await copySkillFolder(source, target, budget);
+    else if (entry.isFile()) {
+      budget.files += 1;
+      budget.bytes += (await stat(source)).size;
+      if (budget.files > IMPORT_MAX_FILES || budget.bytes > IMPORT_MAX_BYTES)
+        throw new Error('That folder is too big to be a skill (over 200 files or 10 MB).');
+      await copyFile(source, target);
+    }
   }
 }
 
@@ -171,6 +210,49 @@ export class SkillLibrary {
     }
     await this.refresh();
     return { path: join(folder, 'SKILL.md'), replaced };
+  }
+
+  /**
+   * Add a skill someone shared (Skills › Add Skill…): a folder with a SKILL.md, or the SKILL.md
+   * itself. It passes the same check as every skill, is copied into Documents › Edi › Skills
+   * under its own name, and appears whole or not at all. Helper scripts come along but never run.
+   */
+  async import(chosen: string) {
+    const picked = resolve(chosen);
+    const folder = basename(picked) === 'SKILL.md' ? dirname(picked) : picked;
+    const skills = resolve(this.options.folder());
+    const inside = relative(skills, folder);
+    if (!inside || (!inside.startsWith('..') && !inside.startsWith('/')))
+      throw new Error('That folder is already in your Skills.');
+    if (!(await lstat(folder).catch(() => null))?.isDirectory())
+      throw new Error('Choose a skill’s folder, or the SKILL.md inside it.');
+    let text: string;
+    try {
+      text = await readFile(join(folder, 'SKILL.md'), 'utf8');
+    } catch {
+      throw new Error('There’s no SKILL.md in that folder, so it isn’t a skill.');
+    }
+    const { skill, problems } = parseSkill(text);
+    if (!skill) throw new Error(`That SKILL.md needs fixing: ${problems[0]?.message ?? 'unreadable'}`);
+    if (this.options.builtIn.some(entry => entry.name === skill.name))
+      throw new Error(`A skill by Fewerlabs is already called ${skill.name}.`);
+    if (this.yours.some(entry => entry.name === skill.name))
+      throw new Error(`You already have a skill called ${skill.name}. Remove it first to replace it.`);
+
+    await mkdir(skills, { recursive: true });
+    const temp = join(skills, `.edi-import-${randomUUID()}`);
+    try {
+      await copySkillFolder(folder, temp);
+      // The SKILL.md that was checked is the one written, even if the folder changed meanwhile.
+      await writeFile(join(temp, 'SKILL.md'), text, { mode: 0o644 });
+      await rename(temp, join(skills, skill.name));
+    } catch (error) {
+      await rm(temp, { recursive: true, force: true });
+      throw error;
+    }
+    await this.refresh();
+    const added = this.get(skill.name);
+    return { name: skill.name, title: skill.title, helperScripts: Boolean(added?.helperScripts) };
   }
 
   /** Deletes one of the person's skills; the Skills page confirms first. */

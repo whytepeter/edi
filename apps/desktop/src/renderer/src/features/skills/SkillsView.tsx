@@ -302,6 +302,20 @@ export function SkillsView() {
     }
   };
 
+  /** A shared skill folder: main checks it and says why when it can't be added. */
+  const addSkill = async () => {
+    setError('');
+    try {
+      await window.edi?.command({ type: 'add-skill' });
+    } catch (failure) {
+      const reason =
+        failure instanceof Error
+          ? failure.message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
+          : '';
+      setError(reason && reason.length <= 240 ? reason : 'Couldn’t add that skill.');
+    }
+  };
+
   const skills = useMemo(() => state?.skills ?? [], [state]);
   const bySegment = useMemo(
     () => ({
@@ -348,16 +362,22 @@ export function SkillsView() {
                   Skills you made with Skill Creator, or folders someone shared, in Documents › Edi
                   › Skills.
                 </p>
-                <button
-                  type="button"
-                  className="skills-folder"
-                  onClick={() =>
-                    void send({ type: 'open-skills-folder' }, 'Couldn’t open the folder.')
-                  }
-                >
-                  <Icon name="folder" size={14} />
-                  Open Folder
-                </button>
+                <div className="skills-yours-actions">
+                  <button type="button" className="skills-folder" onClick={() => void addSkill()}>
+                    <Icon name="plus" size={14} />
+                    Add Skill…
+                  </button>
+                  <button
+                    type="button"
+                    className="skills-folder"
+                    onClick={() =>
+                      void send({ type: 'open-skills-folder' }, 'Couldn’t open the folder.')
+                    }
+                  >
+                    <Icon name="folder" size={14} />
+                    Open Folder
+                  </button>
+                </div>
               </div>
               {bySegment.Yours.length > 0 ? (
                 <SkillList skills={bySegment.Yours} onOpen={setOpen} />

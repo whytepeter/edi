@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { formatSkill, parseSkill } from '../../packages/contracts/src/index';
@@ -248,6 +248,49 @@ test('a skill whose app is not connected says so, and offers to connect it', asy
     ],
   );
   assert.match(output.notConnected ?? '', /^Gmail isn’t connected\..*edi_connect_app/);
+});
+
+test('Add Skill… copies a shared folder in under its own name, checked, and refuses clashes', async () => {
+  const { folder, skills } = await library();
+  await skills.refresh();
+  const shared = await mkdtemp(join(tmpdir(), 'edi-shared-'));
+  const source = join(shared, 'Downloaded Skill');
+  await mkdir(join(source, 'scripts'), { recursive: true });
+  await writeFile(
+    join(source, 'SKILL.md'),
+    '---\nname: tidy-notes\ndescription: Tidies notes. Use when I ask to tidy notes.\n---\nTidy them.',
+  );
+  await writeFile(join(source, 'scripts', 'run.py'), 'print(1)');
+  await writeFile(join(source, '.secret'), 'x');
+  await symlink('/etc', join(source, 'outside'));
+
+  // The SKILL.md itself works as well as its folder.
+  const added = await skills.import(join(source, 'SKILL.md'));
+  assert.deepEqual(added, { name: 'tidy-notes', title: 'Tidy Notes', helperScripts: true });
+  assert.deepEqual((await readdir(join(folder, 'tidy-notes'))).sort(), ['SKILL.md', 'scripts']);
+  assert.equal(skills.get('tidy-notes')?.trust, 'local');
+  // Nothing half-copied is left behind.
+  assert.deepEqual(
+    (await readdir(folder)).filter(name => name.startsWith('.')),
+    [],
+  );
+
+  await assert.rejects(skills.import(source), /already have a skill called tidy-notes/);
+  await assert.rejects(skills.import(join(folder, 'tidy-notes')), /already in your Skills/);
+  await assert.rejects(skills.import(shared), /no SKILL\.md in that folder/);
+
+  const clash = join(shared, 'clash');
+  await mkdir(clash);
+  await writeFile(
+    join(clash, 'SKILL.md'),
+    '---\nname: daily-brief\ndescription: Mine. Use when asked.\n---\nPlan.',
+  );
+  await assert.rejects(skills.import(clash), /Fewerlabs is already called daily-brief/);
+
+  const broken = join(shared, 'broken');
+  await mkdir(broken);
+  await writeFile(join(broken, 'SKILL.md'), '---\nname: broken\n---\nNo description.');
+  await assert.rejects(skills.import(broken), /needs fixing: Add a description/);
 });
 
 test('skills by Fewerlabs only name apps Edi can connect and tools Edi has', async () => {

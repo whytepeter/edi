@@ -35,6 +35,8 @@ interface CommandDependencies {
   skills: SkillLibrary;
   /** Documents › Edi › Skills in Finder, created if missing. */
   openSkillsFolder(): Promise<void>;
+  /** Skills › Add Skill…: the folder picker, then the same check as every skill. */
+  addSkill(): Promise<void>;
   /** One of the person's skills, selected in Finder. */
   revealSkill(name: string): void;
   placement: WindowPlacement;
@@ -95,6 +97,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     connectors,
     skills,
     openSkillsFolder,
+    addSkill,
     revealSkill,
     placement,
     petDrag,
@@ -390,6 +393,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'remove-skill': { from: fromWorkspace, handle: ({ name }) => skills.remove(name) },
     'open-skills-folder': { from: fromWorkspace, handle: () => openSkillsFolder() },
+    'add-skill': { from: fromWorkspace, handle: () => addSkill() },
     'reveal-skill': { from: fromWorkspace, handle: ({ name }) => revealSkill(name) },
     'use-recommended-tools': {
       from: fromWorkspace,

@@ -35,6 +35,13 @@
 .skills-yours-header .skills-intro {
   flex: 1;
 }
+.skills-yours-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
 .skills-folder {
   display: inline-flex;
   flex: none;

@@ -517,6 +517,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('remove-skill'), name: skillNameSchema }).strict(),
   z.object({ type: z.literal('reveal-skill'), name: skillNameSchema }).strict(),
   z.object({ type: z.literal('open-skills-folder') }).strict(),
+  /** Skills › Add Skill…: choose a shared skill folder; main checks and copies it. */
+  z.object({ type: z.literal('add-skill') }).strict(),
   z.object({ type: z.literal('remove-connector'), id: z.string().uuid() }).strict(),
   z
     .object({
