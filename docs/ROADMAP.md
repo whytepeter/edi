@@ -197,7 +197,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Skill library: trust levels, declared requirements, declarative first | 3 (local/curated), 8 (community) | 4 skills by Fewerlabs, your own in Documents › Edi › Skills (Skill Creator), Skills page with segments, categories and details; community catalog planned |
 | Open-source distribution: signed builds, website, auto-update | 4 | Planned |
 | Download and anonymous usage analytics, off by default, inspectable | 4 | Planned; Privacy page states no analytics are collected |
-| Skill and character analytics: installs, enables, uses (anonymous, part of the same opt-in analytics) | 4 (with analytics), 8 (community catalog) | Planned (owner, 2026-09-15) |
+| Product analytics across Edi (installs, feature and skill/character use, anonymous and opt-in) | Last, after the feature work (owner, 2026-09-15) | Planned; nothing collected today |
 | Local-first preferences, secrets separate, preference vs availability | 0–2 | Done for current settings; Kokoro stands in while Chatterbox loads |
 | Voice providers: local, Cartesia, ElevenLabs | 2 | Done: Kokoro and Chatterbox Turbo (MLX), Cartesia and ElevenLabs with the person's keys; Pocket removed |
 | Computer use as a separate, off-by-default, interruptible capability | 8 | Planned; listed as not available |

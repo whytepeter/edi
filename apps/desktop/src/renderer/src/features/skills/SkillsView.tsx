@@ -17,7 +17,16 @@ type Segment = 'Fewerlabs' | 'Yours' | 'Community';
 const segments: readonly Segment[] = ['Fewerlabs', 'Yours', 'Community'];
 
 /** Categories in the order people reach for them; any others follow alphabetically. */
-const categoryOrder = ['Your day', 'Development', 'Writing', 'Research', 'Make your own'];
+const categoryOrder = [
+  'Your day',
+  'Development',
+  'Research',
+  'Writing',
+  'Learning',
+  'Organizing',
+  'Travel',
+  'Make your own',
+];
 
 type Send = (command: Command, failure: string) => Promise<boolean>;
 

@@ -83,8 +83,18 @@ test('every skill by Fewerlabs passes the same check, with a title and author', 
   assert.deepEqual(folders.sort(), [
     'daily-brief',
     'developer-companion',
+    'file-tidy',
+    'follow-ups',
+    'inbox-triage',
+    'job-search',
+    'keep-an-eye',
     'meeting-prep',
+    'research-report',
+    'screen-tutor',
     'skill-creator',
+    'study-buddy',
+    'trip-planner',
+    'writing-coach',
   ]);
   for (const folder of folders) {
     const text = await readFile(join(skillsRoot, folder, 'SKILL.md'), 'utf8');
@@ -198,4 +208,25 @@ test('skills_use loads a skillâ€™s instructions; skills_create saves the personâ
   );
   await skills.setEnabled('daily-brief', false);
   await assert.rejects(async () => use.prepare({ name: 'daily-brief' }, context), /switched off/);
+});
+
+test('skills by Fewerlabs only name apps Edi can connect and tools Edi has', async () => {
+  const { connectorCatalog } = await import('../../packages/contracts/src/index');
+  const apps = new Set(connectorCatalog.map(entry => entry.id));
+  // Model-facing tool names (capability ids with dots as underscores) plus the worker's own.
+  const tools = new Set([
+    ...'files_search files_list files_read files_move files_create_folder files_trash notes_save notes_show workspace_show workspace_search workspace_read workspace_update workspace_delete web_fetch web_search edi_connect_app edi_inspect_setup edi_open_page mac_open_app mac_open_url mac_open_file mac_reveal reminders_list reminders_create calendar_events calendar_create calendar_update calendar_delete tasks_start tasks_list schedules_create schedules_list schedules_delete skills_use skills_create find_app_tools'.split(
+      ' ',
+    ),
+  ]);
+  for (const folder of await readdir(skillsRoot)) {
+    if (folder === 'node_modules' || folder === 'package.json') continue;
+    const text = await readFile(join(skillsRoot, folder, 'SKILL.md'), 'utf8');
+    const skill = parseSkill(text, { folderName: folder }).skill!;
+    for (const app of skill.apps) assert.ok(apps.has(app), `${folder} lists unknown app ${app}`);
+    const toolLike =
+      /`((?:files|notes|workspace|web|edi|mac|reminders|calendar|tasks|schedules|skills|find_app)_[a-z_]+)`/g;
+    for (const [, name] of skill.body.matchAll(toolLike))
+      assert.ok(tools.has(name!), `${folder} names unknown tool ${name}`);
+  }
 });
