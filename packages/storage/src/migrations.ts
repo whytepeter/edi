@@ -305,6 +305,14 @@ export const migrations: readonly { version: number; sql: string }[] = [
       CREATE INDEX artifacts_updated ON artifacts (updated_at DESC);
     `,
   },
+  {
+    // Library pins: when the person pinned an item to the top; NULL when it isn't pinned.
+    version: 15,
+    sql: `
+      ALTER TABLE notes ADD COLUMN pinned_at INTEGER;
+      ALTER TABLE artifacts ADD COLUMN pinned_at INTEGER;
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

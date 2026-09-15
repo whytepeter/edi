@@ -24,7 +24,8 @@ export interface NoteStore {
   }): void;
   get(id: string): ListedNote | undefined;
   list(limit: number): ListedNote[];
-  update(note: { id: string; title: string; bytes: number }): void;
+  /** `path` only when a rename moved the file. */
+  update(note: { id: string; title: string; bytes: number; path?: string }): void;
   remove(id: string): void;
 }
 
@@ -57,7 +58,7 @@ async function exists(path: string) {
 }
 
 /** The first free `slug.md`, `slug-2.md`, … — existing notes are never overwritten. */
-async function freePath(directory: string, slug: string) {
+export async function freePath(directory: string, slug: string) {
   for (let n = 1; n <= 100; n++) {
     const path = join(directory, n === 1 ? `${slug}.md` : `${slug}-${n}.md`);
     if (!(await exists(path))) return path;

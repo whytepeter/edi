@@ -251,8 +251,19 @@ test('notes can be looked up, updated and removed', () => {
     path: '/tmp/groceries.md',
     bytes: 20,
     createdAt: 1,
+    pinnedAt: null,
   });
+  // A rename moves the file with the title; pins are a time, cleared with null.
+  repos.notes.update({ id, title: 'Shop', bytes: 20, path: '/tmp/shop.md' });
+  repos.notes.setPinned(id, 5);
+  assert.deepEqual(
+    [repos.notes.get(id)?.path, repos.notes.list(5)[0]?.pinnedAt],
+    ['/tmp/shop.md', 5],
+  );
+  repos.notes.setPinned(id, null);
+  assert.equal(repos.notes.get(id)?.pinnedAt, null);
   repos.notes.remove(id);
+  assert.throws(() => repos.notes.setPinned(id, 1));
   assert.equal(repos.notes.get(id), undefined);
   assert.throws(() => repos.notes.update({ id, title: 'Gone', bytes: 1 }));
   assert.throws(() => repos.notes.remove(id));
@@ -345,7 +356,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
   db.exec(
-    'ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'ALTER TABLE notes DROP COLUMN pinned_at; ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
       'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
   );
@@ -360,6 +371,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
       bytes: 4,
       createdAt: 20,
       updatedAt: 21,
+      pinnedAt: null,
     },
   ]);
   repos.artifacts.update({ id: uuid(20), title: 'Costs Q3', content: {}, bytes: 9, updatedAt: 30 });
@@ -473,7 +485,7 @@ test('existing history splits into conversations at two-hour gaps', () => {
     repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
   }
   db.exec(
-    'ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+    'ALTER TABLE notes DROP COLUMN pinned_at; ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
       'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
   );
   db.exec('PRAGMA user_version = 4');
@@ -727,4 +739,56 @@ test('diagrams are stored like other generated content', () => {
   });
   assert.equal(repos.artifacts.get(uuid(9))?.kind, 'diagram');
   assert.deepEqual(repos.artifacts.get(uuid(9))?.content, content);
+});
+
+test('artifacts pin, move with a rename, and remember the request that made them', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.runs.start({ ...run(uuid(1)), prompt: 'Plan my launch' });
+  repos.toolCalls.create({
+    id: uuid(2),
+    runId: uuid(1),
+    capability: 'workspace.show',
+    title: 'Show',
+    effect: 'read',
+    input: {},
+    status: 'running',
+    at: 1,
+  });
+  const content = { kind: 'document', title: 'Plan', markdown: 'x' };
+  repos.artifacts.add({
+    id: uuid(2),
+    kind: 'document',
+    title: 'Plan',
+    content,
+    path: 'Artifacts/Reports/plan.md',
+    bytes: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  repos.artifacts.update({
+    id: uuid(2),
+    title: 'Launch',
+    content: { ...content, title: 'Launch' },
+    bytes: 1,
+    updatedAt: 1,
+    path: 'Artifacts/Reports/launch.md',
+  });
+  repos.artifacts.setPinned(uuid(2), 9);
+  const record = repos.artifacts.get(uuid(2));
+  assert.deepEqual([record?.title, record?.path, record?.pinnedAt], [
+    'Launch',
+    'Artifacts/Reports/launch.md',
+    9,
+  ]);
+  // An update without a path keeps the file where it is.
+  repos.artifacts.update({ id: uuid(2), title: 'Launch', content, bytes: 2, updatedAt: 3 });
+  assert.equal(repos.artifacts.get(uuid(2))?.path, 'Artifacts/Reports/launch.md');
+  assert.deepEqual(repos.toolCalls.origin(uuid(2)), {
+    prompt: 'Plan my launch',
+    note: null,
+    conversationId: null,
+    taskId: null,
+  });
+  assert.equal(repos.toolCalls.origin(uuid(9)), undefined);
+  assert.throws(() => repos.artifacts.setPinned(uuid(9), 1));
 });

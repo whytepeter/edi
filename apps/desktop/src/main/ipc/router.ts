@@ -145,7 +145,8 @@ export function registerIpc({
     return artifact(artifactRefSchema.parse(ref));
   });
   ipcMain.handle('edi:artifact:export', (event, raw: unknown) => {
-    authorize(callerOf(event), ['artifact']);
+    // From the artifact window's Export menu, or a Library row's.
+    authorize(callerOf(event), ['artifact', 'workspace']);
     const input = z
       .object({ ref: artifactRefSchema, format: exportFormatSchema, choose: z.boolean() })
       .strict()

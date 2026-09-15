@@ -22,6 +22,7 @@ export {
 export {
   deleteWorkspaceItem,
   readWorkspaceItem,
+  renameWorkspaceItem,
   searchWorkspace,
   toArtifactContent,
   workspaceCapabilities,

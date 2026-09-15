@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { access, link, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
   artifactContentSchema,
@@ -17,6 +17,7 @@ import {
 import { defineCapability, OutcomeUnknownError } from '../types';
 import {
   formatBytes,
+  freePath,
   locate,
   noteContent,
   readLibraryNote,
@@ -164,12 +165,14 @@ export interface ArtifactStore {
   add(record: WorkspaceArtifact): void;
   get(id: string): WorkspaceArtifact | undefined;
   list(limit: number): WorkspaceArtifact[];
+  /** `path` (relative to the workspace) only when a rename moved the file. */
   update(record: {
     id: string;
     title: string;
     content: unknown;
     bytes: number;
     updatedAt: number;
+    path?: string;
   }): void;
   remove(id: string): void;
 }
@@ -266,6 +269,86 @@ export async function deleteWorkspaceItem(deps: WorkspaceDependencies, id: strin
     );
   }
   return { title: target.title, path: target.path, kind: target.kind };
+}
+
+/** Write a new file under the first free `slug.ext`, `slug-2.ext`… in `folder`; never replaces. */
+async function writeFree(folder: string, slug: string, extension: string, body: string) {
+  await mkdir(folder, { recursive: true });
+  const temp = join(folder, `.edi-${randomUUID()}.tmp`);
+  await writeFile(temp, body, { flag: 'wx', mode: 0o644 });
+  try {
+    for (let n = 1; n <= 100; n++) {
+      const path = join(folder, `${slug}${n === 1 ? '' : `-${n}`}${extension}`);
+      try {
+        await link(temp, path);
+        return path;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
+  } finally {
+    await unlink(temp).catch(() => {});
+  }
+  throw new Error('Too many items share this title. Try a different title.');
+}
+
+/** Does this file's name already come from `slug` (`slug.md`, `slug-2.md`)? */
+const namedFor = (path: string, slug: string) =>
+  new RegExp(`^${slug.replace(/[-]/g, '\\-')}(-\\d{1,3})?$`).test(basename(path, extname(path)));
+
+/**
+ * Give a workspace item a new title, and its file a matching name in the same folder. The Library's
+ * own Rename; the new file is written before the old one goes, so nothing is ever half-renamed.
+ */
+export async function renameWorkspaceItem(deps: WorkspaceDependencies, id: string, raw: string) {
+  const title = raw.replace(/\s+/g, ' ').trim();
+  if (!title || title.length > 120) throw new Error('A title needs 1 to 120 characters.');
+  const slug = slugify(title) || 'untitled';
+  const record = deps.artifacts.get(id);
+  if (record) {
+    const old = artifactFilePath(deps.directory, record.path);
+    const content = { ...contentOf(record), title };
+    const { file } = artifactExport(content);
+    const path = namedFor(old, slug)
+      ? (await replaceFile(old, file), old)
+      : await writeFree(dirname(old), slug, extname(old), file);
+    try {
+      deps.artifacts.update({
+        id,
+        title,
+        content,
+        bytes: Buffer.byteLength(file),
+        // A rename isn't a change to the content, so the item keeps its place in the Library.
+        updatedAt: record.updatedAt,
+        path: relative(resolve(deps.directory()), path),
+      });
+    } catch (error) {
+      if (path !== old) await unlink(path).catch(() => {});
+      throw error;
+    }
+    if (path !== old) await unlink(old).catch(() => {});
+    return { kind: content.kind, title, path };
+  }
+  const { note, markdown } = await readLibraryNote(deps.notes.store, deps.notes.directory, id);
+  const { folder, path: old } = locate(deps.notes.store, deps.notes.directory, id);
+  // The note's own heading is its title; everything after it stays exactly as it was.
+  const body = markdown.replace(/^\s*#[^\n]*\n+/, '').replace(/\n+$/, '');
+  if (namedFor(old, slug))
+    await replaceNote(deps.notes.store, deps.notes.directory, { id, title, body });
+  else {
+    const content = noteContent(title, body);
+    const path = await freePath(folder, slug);
+    await writeFile(path, content, { flag: 'wx', mode: 0o644 });
+    try {
+      deps.notes.store.update({ id, title, bytes: Buffer.byteLength(content), path });
+    } catch (error) {
+      await unlink(path).catch(() => {});
+      throw error;
+    }
+    await unlink(old).catch(() => {});
+    return { kind: 'note' as const, title, path, previous: note.title };
+  }
+  return { kind: 'note' as const, title, path: old, previous: note.title };
 }
 
 /** Full text of a workspace item, for the model to read. */

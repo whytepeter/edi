@@ -330,6 +330,10 @@ export const libraryItemSchema = z
     title: z.string().max(200),
     bytes: z.number().int().nonnegative(),
     createdAt: z.number().int().nonnegative(),
+    /** Pinned to the top of the Library. */
+    pinned: z.boolean(),
+    /** Edi can make it again from the request that produced it (generated content only). */
+    regenerable: z.boolean(),
   })
   .strict();
 export const librarySchema = z.array(libraryItemSchema).max(500);
@@ -609,6 +613,17 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   /** The person confirmed Delete in Library; main moves the file to the Trash by id. */
   z.object({ type: z.literal('library-delete'), id: z.string().uuid() }).strict(),
+  /** Library Rename: a new title, and a matching file name in the same folder. */
+  z
+    .object({
+      type: z.literal('library-rename'),
+      id: z.string().uuid(),
+      title: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+  z.object({ type: z.literal('library-pin'), id: z.string().uuid(), pinned: z.boolean() }).strict(),
+  /** Edi makes a generated item again from its original request, in that conversation. */
+  z.object({ type: z.literal('library-regenerate'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),
   ...voiceCommandSchemas,
   z

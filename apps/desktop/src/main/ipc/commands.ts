@@ -62,6 +62,10 @@ interface CommandDependencies {
   removePersonalVoice(id: string): Promise<void>;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
+  /** Library Rename, Pin and Regenerate; the person's click is the consent. */
+  renameLibraryItem(id: string, title: string): Promise<void>;
+  pinLibraryItem(id: string, pinned: boolean): void;
+  regenerateLibraryItem(id: string): Promise<void>;
   reportView(view: WorkspaceView): void;
   /** Built-in and installed characters. */
   characters: CharacterLibrary;
@@ -101,6 +105,9 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     removePersonalVoice,
     setVoiceKey,
     deleteLibraryItem,
+    renameLibraryItem,
+    pinLibraryItem,
+    regenerateLibraryItem,
     reportView,
     characters,
   } = deps;
@@ -236,13 +243,19 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'open-artifact': { from: ['workspace', 'bubble'], handle: ({ ref }) => openArtifact(ref) },
     'artifact-copy': { from: fromArtifact, handle: ({ ref }) => artifactAction('copy', ref) },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
-    'reveal-export': { from: fromArtifact, handle: () => revealExport() },
+    'reveal-export': { from: ['artifact', 'workspace'], handle: () => revealExport() },
     'export-ready': {
       from: ['export'],
       handle: ({ type: _type, ...result }) => exportReady(result),
     },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
     'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },
+    'library-rename': {
+      from: fromWorkspace,
+      handle: ({ id, title }) => renameLibraryItem(id, title),
+    },
+    'library-pin': { from: fromWorkspace, handle: ({ id, pinned }) => pinLibraryItem(id, pinned) },
+    'library-regenerate': { from: fromWorkspace, handle: ({ id }) => regenerateLibraryItem(id) },
     'workspace-view': { from: fromWorkspace, handle: ({ view }) => reportView(view) },
     'set-voice-model': {
       from: fromWorkspace,

@@ -36,6 +36,7 @@ recordMicrophoneStatus('boot');
 import {
   defineCapability,
   deleteWorkspaceItem,
+  renameWorkspaceItem,
   ediSetupCapabilities,
   fileCapabilities,
   macCapabilities,
@@ -370,21 +371,25 @@ async function start() {
   const libraryItems = (): LibraryItem[] => {
     const notes: LibraryItem[] = repositories.notes
       .list(500)
-      .map(({ id, title, bytes, createdAt }) => ({
+      .map(({ id, title, bytes, createdAt, pinnedAt }) => ({
         id,
         kind: 'note',
         title,
         bytes,
         createdAt,
+        pinned: Boolean(pinnedAt),
+        regenerable: false,
       }));
     const artifacts: LibraryItem[] = repositories.artifacts
       .list(500)
-      .map(({ id, kind, title, bytes, updatedAt }) => ({
+      .map(({ id, kind, title, bytes, updatedAt, pinnedAt }) => ({
         id,
         kind,
         title,
         bytes,
         createdAt: updatedAt,
+        pinned: Boolean(pinnedAt),
+        regenerable: Boolean(repositories.toolCalls.origin(id)?.prompt.trim()),
       }));
     return [...notes, ...artifacts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 500);
   };
@@ -1645,14 +1650,40 @@ async function start() {
         await deleteWorkspaceItem(workspaceDeps, id);
         artifactWindow.closeIfShowing(id);
       },
+      renameLibraryItem: async (id, title) => {
+        await renameWorkspaceItem(workspaceDeps, id, title);
+        artifactWindow.refreshIfShowing(id);
+      },
+      pinLibraryItem: (id, pinned) => {
+        const at = pinned ? Date.now() : null;
+        if (repositories.artifacts.get(id)) repositories.artifacts.setPinned(id, at);
+        else repositories.notes.setPinned(id, at);
+      },
+      regenerateLibraryItem: async id => {
+        const record = repositories.artifacts.get(id);
+        const origin = record ? repositories.toolCalls.origin(id) : undefined;
+        if (!record || !origin?.prompt.trim())
+          throw new Error('Edi doesn’t know what this was made from, so it can’t make it again.');
+        // Edi makes it again in the conversation it came from; replacing the item is reviewed there.
+        const runId = await agent.ask(
+          `Make “${record.title}” again from scratch: a fresh take on my original request, ` +
+            `“${origin.prompt.slice(0, 1500)}”. Replace it in place with workspace_update ` +
+            `(id ${id}, kind ${record.kind}) instead of showing something new, then tell me in ` +
+            'one short sentence what’s different.',
+          {
+            ...(origin.conversationId ? { conversationId: origin.conversationId } : {}),
+            note: `Making “${record.title}” again.`,
+          },
+        );
+        if (runId) workspace.webContents.send('edi:navigate', 'conversations');
+      },
       reportView: view => {
         currentView = view;
       },
       characters,
       revealLibraryItem: id => {
         const note = repositories.notes.get(id);
-        if (!note) throw new Error('That note is no longer in Edi’s history.');
-        shell.showItemInFolder(note.path);
+        shell.showItemInFolder(note ? note.path : artifactPath({ callId: id }));
       },
     }),
     settings: () => settings.current,

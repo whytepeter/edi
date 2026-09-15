@@ -9,6 +9,7 @@ import {
 } from '@edi/contracts';
 import { Button, GroupedList, GroupedRow, Icon, Switch, TextField } from '../../components/ui';
 import { BrandIcon } from '../../components/BrandIcon';
+import { commandMessage } from '../../lib/command-message';
 import './connectors.css';
 
 const statusText: Record<ConnectorStatus, string> = {
@@ -79,13 +80,6 @@ function useComposioConfigured() {
 }
 
 const composioAppCount = connectorCatalog.filter(entry => entry.provider === 'composio').length;
-
-/** Main's own words from a failed command, without Electron's "Error invoking…" wrapper. */
-function commandMessage(error: unknown, fallback: string) {
-  const text = error instanceof Error ? error.message : '';
-  const match = /Error: ([^]*)$/.exec(text);
-  return (match?.[1] ?? '').trim().slice(0, 240) || fallback;
-}
 
 /** The person's own Composio key, which lists Gmail, Slack and the other Composio apps. */
 function ComposioKey({

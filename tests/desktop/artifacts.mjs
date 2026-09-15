@@ -263,11 +263,18 @@ try {
   await expect.poll(artifactOpen).toBe(false);
 
   // 5. Library Delete asks first; Cancel keeps the item, Move to Trash removes it everywhere.
-  await workspace.getByRole('button', { name: 'Delete “Sandbox probe”' }).click();
+  const rowAction = async (title, action) => {
+    await workspace.getByRole('button', { name: `More for “${title}”` }).click();
+    await workspace
+      .getByRole('menu', { name: `Actions for “${title}”` })
+      .getByRole('menuitem', { name: action, exact: true })
+      .click();
+  };
+  await rowAction('Sandbox probe', 'Move to Trash…');
   await expect(workspace.getByText(/Move “Sandbox probe” to the Trash\?/)).toBeVisible();
   await workspace.getByRole('button', { name: 'Cancel' }).click();
   await expect(row).toBeVisible();
-  await workspace.getByRole('button', { name: 'Delete “Sandbox probe”' }).click();
+  await rowAction('Sandbox probe', 'Move to Trash…');
   await workspace.getByRole('button', { name: 'Move to Trash' }).click();
   await expect(row).toHaveCount(0);
   expect((await workspace.evaluate(() => window.edi.library())).map(item => item.id)).not.toContain(
@@ -335,10 +342,45 @@ try {
   ]);
   // Exporting never adds anything to the workspace's own artifacts.
   expect((await workspace.evaluate(() => window.edi.library())).length).toBe(2);
+
+  // 8. Library row actions: rename (file follows), pin to the top, export, and regenerate.
+  await workspace.evaluate(() => window.edi.command({ type: 'show-workspace', view: 'library' }));
+  await rowAction('Launch plan', 'Rename');
+  const field = workspace.getByRole('textbox', { name: 'New name for “Launch plan”' });
+  await expect(field).toBeFocused();
+  await field.fill('Launch day');
+  await field.press('Enter');
+  await expect(workspace.getByRole('button', { name: /^Launch day/ })).toBeVisible();
+  // The open artifact window follows the new title.
+  await expect(artifact.getByRole('heading', { name: 'Launch day', level: 1 })).toBeVisible();
+  const renamed = (await workspace.evaluate(() => window.edi.library())).find(
+    item => item.id === documentId,
+  );
+  expect(renamed.title).toBe('Launch day');
+  expect(await readdir(join(documents, 'Edi', 'Artifacts', 'Reports'))).toEqual(['launch-day.md']);
+  // Escape leaves a rename without changing anything.
+  await rowAction('Launch day', 'Rename');
+  await workspace.getByRole('textbox', { name: 'New name for “Launch day”' }).press('Escape');
+  await expect(workspace.getByRole('button', { name: /^Launch day/ })).toBeVisible();
+
+  await expect(workspace.getByRole('list', { name: 'Pinned' })).toHaveCount(0);
+  await rowAction('Architecture', 'Pin to Top');
+  const pinnedList = workspace.getByRole('list', { name: 'Pinned' });
+  await expect(pinnedList.getByRole('button', { name: /^Architecture/ })).toBeVisible();
+  await rowAction('Architecture', 'Unpin');
+  await expect(workspace.getByRole('list', { name: 'Pinned' })).toHaveCount(0);
+
+  await rowAction('Launch day', 'Export as Markdown');
+  await expect(workspace.getByRole('status')).toContainText('Exported “Launch day.md” to Exports');
+  expect(await readFile(join(exportsFolder, 'Launch day.md'), 'utf8')).toContain('| QA | Ada |');
+
+  // Regenerate asks Edi again; with no AI set up, the Library says why instead of failing quietly.
+  await rowAction('Launch day', 'Regenerate');
+  await expect(workspace.getByRole('alert')).toContainText('Set up OpenRouter first.');
   await artifact.keyboard.press('Escape').catch(() => {});
 
   console.log(
-    'PASS: diagrams draw; exports write PNG, SVG, PDF, Mermaid and Markdown to Exports; artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
+    'PASS: diagrams draw; Library renames, pins, exports and regenerates; exports write PNG, SVG, PDF, Mermaid and Markdown to Exports; artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
   );
 } finally {
   await app?.close();

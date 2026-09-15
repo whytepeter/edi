@@ -257,8 +257,17 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     (actionError.key === key ? actionError.message : '');
   const copied = copiedKey === key && key !== '';
 
-  // The window is reused: main sends new content instead of opening another window.
-  useEffect(() => window.edi?.onOpenArtifact(setReference), []);
+  // The window is reused: main sends new content instead of opening another window, or the same
+  // content again after it changed (a rename), which loads it afresh.
+  const [opened, setOpened] = useState(0);
+  useEffect(
+    () =>
+      window.edi?.onOpenArtifact(ref => {
+        setReference(ref);
+        setOpened(count => count + 1);
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!window.edi || !reference) return;
@@ -270,9 +279,9 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     return () => {
       alive = false;
     };
-    // `key` identifies the reference; a new object for the same content need not reload.
+    // `key` identifies the content; `opened` counts every time main sends it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, opened]);
 
   useEffect(() => {
     if (!copied) return;

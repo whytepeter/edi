@@ -10,6 +10,7 @@ import {
   defineCapability,
   ediSetupCapabilities,
   notesCapabilities,
+  renameWorkspaceItem,
   slugify,
   workspaceCapabilities,
   writeWorkspaceArtifact,
@@ -112,6 +113,7 @@ function memoryStore(seed: ListedNote[] = []): NoteStore & { records: ListedNote
       const current = records.find(entry => entry.id === note.id);
       if (!current) throw new Error('missing');
       current.title = note.title;
+      if (note.path) current.path = note.path;
     },
     remove(id) {
       const index = records.findIndex(entry => entry.id === id);
@@ -694,6 +696,64 @@ test('Edi exports workspace items through the host, in formats that suit their k
   assert.equal(
     workspaceCapabilities(withoutExport).some(tool => tool.id === 'workspace.export'),
     false,
+  );
+});
+
+test('Library rename gives items and their files a new name, never replacing another file', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-rename-'));
+  const notesFolder = join(folder, 'Notes');
+  await mkdir(notesFolder, { recursive: true });
+  const notePath = join(notesFolder, 'palette.md');
+  await writeFile(notePath, '# Palette\n\nWarm clay and sage.\n');
+  const notes = memoryStore([{ id: noteId, title: 'Palette', path: notePath, createdAt: 1 }]);
+  const artifacts = memoryArtifacts();
+  const deps = {
+    directory: () => folder,
+    shown: () => {},
+    artifacts,
+    notes: { store: notes, directory: () => notesFolder },
+    trash: async () => {},
+    now: () => 50,
+  };
+  const [show] = workspaceCapabilities(deps);
+  const listId = '00000000-0000-4000-8000-000000000051';
+  await (
+    await show.prepare(
+      { kind: 'checklist', title: 'Packing', items: [{ text: 'Passport', done: false }] },
+      { callId: listId, runId: run },
+    )
+  ).execute(live());
+  const checklists = join(folder, 'Artifacts', 'Checklists');
+  // Another file already has the name the new title wants.
+  await writeFile(join(checklists, 'trip.md'), 'someone else');
+
+  const renamed = await renameWorkspaceItem(deps, listId, '  Trip  ');
+  assert.equal(renamed.path, join(checklists, 'trip-2.md'));
+  assert.deepEqual((await readdir(checklists)).sort(), ['trip-2.md', 'trip.md']);
+  assert.equal(await readFile(join(checklists, 'trip.md'), 'utf8'), 'someone else');
+  assert.equal(await readFile(renamed.path, 'utf8'), '# Trip\n\n- [ ] Passport\n');
+  const record = artifacts.get(listId)!;
+  assert.deepEqual([record.title, record.path, record.updatedAt], [
+    'Trip',
+    join('Artifacts', 'Checklists', 'trip-2.md'),
+    50,
+  ]);
+  assert.equal((record.content as { title: string }).title, 'Trip');
+
+  // A note keeps everything after its heading; the file follows the title.
+  const note = await renameWorkspaceItem(deps, noteId, 'Colours');
+  assert.equal(note.path, join(notesFolder, 'colours.md'));
+  assert.equal(await readFile(note.path, 'utf8'), '# Colours\n\nWarm clay and sage.\n');
+  assert.deepEqual(await readdir(notesFolder), ['colours.md']);
+  assert.equal(notes.get(noteId)?.title, 'Colours');
+  // Same name, new casing: the file stays put and only its heading changes.
+  assert.equal((await renameWorkspaceItem(deps, noteId, 'COLOURS')).path, note.path);
+  assert.match(await readFile(note.path, 'utf8'), /^# COLOURS\n/);
+
+  await assert.rejects(renameWorkspaceItem(deps, noteId, '   '), /1 to 120 characters/);
+  await assert.rejects(
+    renameWorkspaceItem(deps, '00000000-0000-4000-8000-00000000dead', 'x'),
+    /no saved note|nothing in its workspace/,
   );
 });
 

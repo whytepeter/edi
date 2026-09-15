@@ -50,6 +50,7 @@ const noteRow = z.object({
   path: z.string(),
   bytes: z.number(),
   createdAt: z.number(),
+  pinnedAt: z.number().nullable().optional(),
 });
 export type NoteRecord = z.infer<typeof noteRow>;
 const artifactRow = z.object({
@@ -61,6 +62,7 @@ const artifactRow = z.object({
   bytes: z.number().int().nonnegative(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
+  pinnedAt: z.number().nullable().optional(),
 });
 /** Generated workspace content. `content` is the structured data; `path` is workspace-relative. */
 export interface ArtifactRecord {
@@ -72,6 +74,8 @@ export interface ArtifactRecord {
   bytes: number;
   createdAt: number;
   updatedAt: number;
+  /** When the person pinned it to the top of the Library. */
+  pinnedAt?: number | null;
 }
 const exchangeRow = z.object({ prompt: z.string(), reply: z.string() });
 export type Exchange = z.infer<typeof exchangeRow>;
@@ -632,6 +636,28 @@ export class ScheduleRepository {
 export class ToolCallRepository {
   constructor(private readonly db: Database) {}
 
+  /** The request a tool call answered, and its conversation: what Regenerate asks again. */
+  origin(callId: string) {
+    const row = this.db
+      .prepare(
+        `SELECT runs.prompt AS prompt, runs.note AS note, runs.thread_id AS conversationId,
+                runs.task_id AS taskId
+         FROM tool_calls JOIN runs ON runs.id = tool_calls.run_id
+         WHERE tool_calls.id = ?`,
+      )
+      .get(callId);
+    return row
+      ? z
+          .object({
+            prompt: z.string(),
+            note: z.string().nullable(),
+            conversationId: z.string().nullable(),
+            taskId: z.string().nullable(),
+          })
+          .parse(row)
+      : undefined;
+  }
+
   /** Successful calls of the given display capabilities, oldest first. */
   shown(capabilities: readonly string[], filter: { runIds?: string[]; id?: string }): ShownCall[] {
     if (!capabilities.length) return [];
@@ -710,7 +736,7 @@ export class ToolCallRepository {
 export class NoteRepository {
   constructor(private readonly db: Database) {}
 
-  add(note: NoteRecord & { toolCallId: string | null }) {
+  add(note: Omit<NoteRecord, 'pinnedAt'> & { toolCallId: string | null }) {
     this.db
       .prepare(
         `INSERT INTO notes (id, title, path, bytes, tool_call_id, created_at)
@@ -721,7 +747,10 @@ export class NoteRepository {
 
   get(id: string): NoteRecord | undefined {
     const row = this.db
-      .prepare(`SELECT id, title, path, bytes, created_at AS createdAt FROM notes WHERE id = ?`)
+      .prepare(
+        `SELECT id, title, path, bytes, created_at AS createdAt, pinned_at AS pinnedAt
+         FROM notes WHERE id = ?`,
+      )
       .get(id);
     return row ? noteRow.parse(row) : undefined;
   }
@@ -729,17 +758,23 @@ export class NoteRepository {
   list(limit: number): NoteRecord[] {
     return this.db
       .prepare(
-        `SELECT id, title, path, bytes, created_at AS createdAt
+        `SELECT id, title, path, bytes, created_at AS createdAt, pinned_at AS pinnedAt
          FROM notes ORDER BY created_at DESC LIMIT ?`,
       )
       .all(limit)
       .map(row => noteRow.parse(row));
   }
 
-  update(note: { id: string; title: string; bytes: number }) {
+  /** A new path only when the file was renamed along with the title. */
+  update(note: { id: string; title: string; bytes: number; path?: string }) {
     const result = this.db
-      .prepare(`UPDATE notes SET title = ?, bytes = ? WHERE id = ?`)
-      .run(note.title, note.bytes, note.id);
+      .prepare(`UPDATE notes SET title = ?, bytes = ?, path = coalesce(?, path) WHERE id = ?`)
+      .run(note.title, note.bytes, note.path ?? null, note.id);
+    if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
+  }
+
+  setPinned(id: string, pinnedAt: number | null) {
+    const result = this.db.prepare(`UPDATE notes SET pinned_at = ? WHERE id = ?`).run(pinnedAt, id);
     if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
   }
 
@@ -790,7 +825,7 @@ export class ArtifactRepository {
     const row = this.db
       .prepare(
         `SELECT id, kind, title, content_json AS content, path, bytes,
-                created_at AS createdAt, updated_at AS updatedAt
+                created_at AS createdAt, updated_at AS updatedAt, pinned_at AS pinnedAt
          FROM artifacts WHERE id = ?`,
       )
       .get(id);
@@ -802,25 +837,43 @@ export class ArtifactRepository {
     return this.db
       .prepare(
         `SELECT id, kind, title, content_json AS content, path, bytes,
-                created_at AS createdAt, updated_at AS updatedAt
+                created_at AS createdAt, updated_at AS updatedAt, pinned_at AS pinnedAt
          FROM artifacts ORDER BY updated_at DESC LIMIT ?`,
       )
       .all(limit)
       .map(row => ArtifactRepository.parse(row));
   }
 
+  /** A new path only when the file was renamed along with the title. */
   update(record: {
     id: string;
     title: string;
     content: unknown;
     bytes: number;
     updatedAt: number;
+    path?: string;
   }) {
     const result = this.db
       .prepare(
-        `UPDATE artifacts SET title = ?, content_json = ?, bytes = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE artifacts SET title = ?, content_json = ?, bytes = ?, updated_at = ?,
+                path = coalesce(?, path)
+         WHERE id = ?`,
       )
-      .run(record.title, JSON.stringify(record.content), record.bytes, record.updatedAt, record.id);
+      .run(
+        record.title,
+        JSON.stringify(record.content),
+        record.bytes,
+        record.updatedAt,
+        record.path ?? null,
+        record.id,
+      );
+    if (result.changes === 0) throw new Error('That item is no longer in Edi’s workspace.');
+  }
+
+  setPinned(id: string, pinnedAt: number | null) {
+    const result = this.db
+      .prepare(`UPDATE artifacts SET pinned_at = ? WHERE id = ?`)
+      .run(pinnedAt, id);
     if (result.changes === 0) throw new Error('That item is no longer in Edi’s workspace.');
   }
 

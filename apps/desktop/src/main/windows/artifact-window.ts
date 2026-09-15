@@ -83,6 +83,13 @@ export class ArtifactWindow {
     this.window?.close();
   }
 
+  /** After a rename, a window showing the item loads it again with its new title. */
+  refreshIfShowing(id: string) {
+    const ref = this.showing;
+    if (ref && ('callId' in ref ? ref.callId : ref.noteId) === id)
+      this.window?.webContents.send('edi:open-artifact', ref);
+  }
+
   /** After something is deleted, a window still showing it closes. */
   closeIfShowing(id: string) {
     const ref = this.showing;

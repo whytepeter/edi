@@ -44,7 +44,17 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
     let alive = true;
     window.edi
       .library()
-      .then(items => alive && setSaved(items.slice(0, 3)))
+      // Pinned items come first; the rest are newest first.
+      .then(
+        items =>
+          alive &&
+          setSaved(
+            [...items.filter(item => item.pinned), ...items.filter(item => !item.pinned)].slice(
+              0,
+              3,
+            ),
+          ),
+      )
       .catch(() => alive && setSaved([]));
     return () => {
       alive = false;
@@ -129,7 +139,9 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
       )}
 
       {saved.length > 0 && (
-        <GroupedList title="Recently saved">
+        <GroupedList
+          title={saved.some(item => item.pinned) ? 'Pinned and recent' : 'Recently saved'}
+        >
           {saved.map(item => (
             <GroupedRow
               key={item.id}
