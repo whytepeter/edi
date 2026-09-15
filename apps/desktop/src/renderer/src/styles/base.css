@@ -42,6 +42,11 @@ button:disabled {
   cursor: default;
 }
 
+/* `hidden` always wins: a layout rule like `display: flex` must never bring a hidden view back. */
+[hidden] {
+  display: none !important;
+}
+
 :focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

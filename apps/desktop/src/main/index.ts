@@ -72,6 +72,8 @@ import {
   type ExportFormat,
   taskBudgetSchema,
   describeWhen,
+  normalizeScheduleWhen,
+  scheduleWhenHelp,
   scheduleWhenSchema,
   assistantName,
   isCloudVoiceModel,
@@ -195,6 +197,22 @@ function summarizeShown(call: { id: string; capability: string; input: unknown; 
 }
 
 /** Composition root: construct services, wire them together, own app lifecycle. */
+/**
+ * What `schedules_create` takes, as the model is shown it: `when` is described with the exact
+ * shape and an example of each kind, so a daily schedule doesn't fail on a guessed format.
+ */
+const scheduleInput = z
+  .object({
+    title: z.string().trim().min(1).max(80).describe('A short name'),
+    instructions: z.string().trim().min(1).max(8000).describe('What each run should do'),
+    when: scheduleWhenSchema.describe(scheduleWhenHelp),
+    notify: z
+      .enum(['always', 'on-change'])
+      .describe('always: tell the user each result; on-change: a watch'),
+    budgetUsd: taskBudgetSchema.optional().describe('Spending cap per run, if the user named one'),
+  })
+  .strict();
+
 async function start() {
   // One SQLite writer, owned here. Nothing in flight at the last quit is replayed.
   const database = openDatabase(join(app.getPath('userData'), 'edi.sqlite'));
@@ -693,21 +711,12 @@ async function start() {
         'their own. Use local times. Pass budgetUsd only when the user named an amount per run.',
       effect: 'write',
       timeoutMs: 5_000,
-      input: z
-        .object({
-          title: z.string().trim().min(1).max(80).describe('A short name'),
-          instructions: z.string().trim().min(1).max(8000).describe('What each run should do'),
-          when: scheduleWhenSchema.describe(
-            'once {at: "YYYY-MM-DDTHH:MM"}, daily {time: "HH:MM", days?: ["mon",…]} or every {hours}',
-          ),
-          notify: z
-            .enum(['always', 'on-change'])
-            .describe('always: tell the user each result; on-change: a watch'),
-          budgetUsd: taskBudgetSchema
-            .optional()
-            .describe('Spending cap per run, if the user named one'),
-        })
+      // Shorthand timings ("09:00", {"time": "9:00"}) are read the way they were meant; the
+      // model is shown the exact shape, with examples, and told precisely what didn't fit.
+      input: scheduleInput
+        .extend({ when: z.preprocess(normalizeScheduleWhen, scheduleWhenSchema) })
         .strict(),
+      inputSchema: z.toJSONSchema(scheduleInput) as Record<string, unknown>,
       prepare({ title, instructions, when, notify, budgetUsd }) {
         const budget = budgetUsd ?? settings.current.taskBudgetUsd;
         const rhythm = describeWhen(when);

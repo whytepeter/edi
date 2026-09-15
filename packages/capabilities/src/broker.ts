@@ -8,6 +8,7 @@ import {
   type ToolManifestEntry,
   type ToolOutcome,
 } from './types';
+import { describeIssue, invalidInputGuide } from './invalid-input';
 
 interface BrokerDependencies {
   approvals: ApprovalGate;
@@ -80,6 +81,18 @@ export class CapabilityBroker {
     }));
   }
 
+  private readonly invalidCalls = new Map<string, number>();
+
+  /** How many times this run has called this tool with input that didn't fit, this one included. */
+  private countInvalid(runId: string, toolName: string) {
+    const key = `${runId}:${toolName}`;
+    const count = (this.invalidCalls.get(key) ?? 0) + 1;
+    // Only the current runs matter; old counts go rather than piling up.
+    if (this.invalidCalls.size > 200) this.invalidCalls.clear();
+    this.invalidCalls.set(key, count);
+    return count;
+  }
+
   async invoke(
     runId: string,
     toolName: string,
@@ -108,9 +121,14 @@ export class CapabilityBroker {
     };
 
     if (!parsed.success) {
+      const attempt = this.countInvalid(runId, toolName);
+      const schema =
+        capability.inputSchema ?? (z.toJSONSchema(capability.input) as Record<string, unknown>);
       return finish({
         status: 'failed',
-        summary: `Invalid input: ${z.prettifyError(parsed.error).slice(0, 300)}`,
+        // People see one line; the model gets the field, what it sent and the exact shape.
+        summary: `Invalid input: ${describeIssue(parsed.error.issues[0]!)}`.slice(0, 160),
+        output: invalidInputGuide(toolName, schema, parsed.error.issues, rawInput, attempt),
       });
     }
     const run = () => this.review(capability, parsed.data, { callId, runId }, signal);

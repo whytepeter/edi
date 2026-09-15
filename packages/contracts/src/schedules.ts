@@ -29,6 +29,58 @@ export const scheduleWhenSchema = z.discriminatedUnion('kind', [
 ]);
 export type ScheduleWhen = z.infer<typeof scheduleWhenSchema>;
 
+/** How a schedule's timing is written, with one real example of each: the model reads this. */
+export const scheduleWhenHelp =
+  'An object with a "kind". Daily: {"kind":"daily","time":"09:00"}, or only on some days ' +
+  '{"kind":"daily","time":"09:00","days":["mon","tue","wed","thu","fri"]}. Once: ' +
+  '{"kind":"once","at":"2026-09-16T15:00"}. Every few hours: {"kind":"every","hours":4}. ' +
+  'Times are 24-hour and local.';
+
+const padTime = (time: unknown) =>
+  typeof time === 'string' ? time.trim().replace(/^(\d):/, '0$1:') : time;
+const shortDays = (days: unknown) =>
+  Array.isArray(days) ? days.map(day => String(day).trim().slice(0, 3).toLowerCase()) : days;
+
+/**
+ * Models often write a schedule's timing in a shorthand: "09:00", {"time":"9:00"},
+ * {"daily":{…}}, {"at":…} or {"hours":4}, or with days like "Monday". When the meaning is
+ * unambiguous it is read the way it was meant; anything else is left for the schema to explain.
+ */
+export function normalizeScheduleWhen(raw: unknown): unknown {
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (/^\d{1,2}:\d{2}$/.test(text)) return { kind: 'daily', time: padTime(text) };
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text)) return { kind: 'once', at: text };
+    if (!/^[[{]/.test(text)) return raw;
+    try {
+      return normalizeScheduleWhen(JSON.parse(text) as unknown);
+    } catch {
+      return raw;
+    }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const value = raw as Record<string, unknown>;
+  const daily = (fields: Record<string, unknown>) => ({
+    ...fields,
+    kind: 'daily',
+    time: padTime(fields.time),
+    ...(fields.days === undefined ? {} : { days: shortDays(fields.days) }),
+  });
+  if (value.kind === 'daily') return daily(value);
+  if (typeof value.kind === 'string') return value;
+  // {"daily": {"time": "09:00"}} and the like: the kind written as the key.
+  const keys = Object.keys(value);
+  if (keys.length === 1 && ['daily', 'once', 'every'].includes(keys[0]!)) {
+    const inner = value[keys[0]!];
+    if (inner && typeof inner === 'object' && !Array.isArray(inner))
+      return normalizeScheduleWhen({ kind: keys[0], ...(inner as Record<string, unknown>) });
+  }
+  if ('at' in value) return { ...value, kind: 'once' };
+  if ('time' in value) return daily(value);
+  if ('hours' in value) return { ...value, kind: 'every' };
+  return raw;
+}
+
 export const scheduleNotifySchema = z.enum(['always', 'on-change']);
 
 export const scheduleSchema = z

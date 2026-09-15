@@ -241,6 +241,11 @@
   display: flex;
   flex-direction: column;
 }
+/* The conversation runs edge to edge; a permission card in its place keeps the card's margins. */
+.workspace-card[data-view='conversations'] .permission-card {
+  overflow: auto;
+  padding: 0 22px 24px;
+}
 .workspace-card[data-view='conversations'] .ds-scroll-edge[data-edge='bottom'] {
   display: none;
 }
