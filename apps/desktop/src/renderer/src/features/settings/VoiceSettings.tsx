@@ -8,6 +8,7 @@ import {
   type VoiceChoices,
   type VoiceInput,
   type VoiceModelId,
+  type VoiceOption,
   type VoiceSelection,
 } from '@edi/contracts';
 import {
@@ -170,12 +171,15 @@ export function VoiceSettings({
 
   const local: ListedVoice[] = provider
     ? []
-    : voiceCatalog[viewing].map(voice => ({
-        id: voice.id,
-        name: voice.name,
-        detail: voice.accent,
-        gender: voice.gender,
-      }));
+    : (voiceCatalog[viewing] as readonly VoiceOption[])
+        // A personal voice is offered only when its recording is on this Mac.
+        .filter(voice => !voice.personal || model?.personalVoices?.includes(voice.id))
+        .map(voice => ({
+          id: voice.id,
+          name: voice.name,
+          detail: voice.detail ?? voice.accent,
+          gender: voice.gender,
+        }));
   const chosen = voiceModel === viewing ? voices[viewing] : null;
   // Cloud lists hold only the account's own voices, so all of them are offered.
   const cloudVoices = cloud?.provider === provider ? cloud.voices : [];

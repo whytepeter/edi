@@ -367,6 +367,8 @@ export const systemInfoSchema = z
                 available: z.boolean(),
                 expressions: z.boolean(),
                 detail: z.string().max(160),
+                /** Personal voices whose recordings are on this Mac. */
+                personalVoices: z.array(z.string().max(40)).max(10).optional(),
               })
               .strict(),
           )

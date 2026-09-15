@@ -151,3 +151,23 @@ test('an MLX worker reporting a different engine is refused', async () => {
     voice.dispose();
   }
 });
+
+test('a personal Chatterbox voice reaches the worker with its recording; bad ids never do', async () => {
+  const withEdi = new MlxVoice(runtime, {
+    ...chatterbox,
+    references: { edi: '/tmp/edi.wav', '../escape': '/tmp/x.wav' },
+  });
+  try {
+    const values: number[] = [];
+    await withEdi.speak('normal', live(), collect(values), { voice: 'edi' });
+    assert.ok(values.length > 0);
+  } finally {
+    withEdi.dispose();
+  }
+  const without = new MlxVoice(runtime, chatterbox);
+  try {
+    await assert.rejects(without.speak('normal', live(), async () => {}, { voice: 'edi' }));
+  } finally {
+    without.dispose();
+  }
+});

@@ -18,6 +18,8 @@ export interface MlxEngine {
   label: string;
   /** Voice loaded and warmed at start; each reply may name another voice of the same model. */
   voice?: string;
+  /** Chatterbox voices made from recordings on this Mac: voice id → 24 kHz mono WAV path. */
+  references?: Readonly<Record<string, string>>;
 }
 
 type Consume = (pcm: Float32Array, sampleRate: number) => Promise<void>;
@@ -41,6 +43,8 @@ class MlxWorker {
   ) {
     const args = ['-u', runtime.worker, '--engine', engine.id, '--model', engine.model];
     if (engine.voice) args.push('--voice', engine.voice);
+    for (const [voice, path] of Object.entries(engine.references ?? {}))
+      if (/^[a-z]{2,20}$/.test(voice)) args.push('--reference', `${voice}=${path}`);
     this.child = spawn(runtime.python, args, {
       stdio: ['pipe', 'pipe', 'ignore'],
       env: {

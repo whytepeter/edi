@@ -69,6 +69,7 @@ import {
   assistantName,
   isCloudVoiceModel,
   voiceCatalog,
+  type VoiceOption,
   voiceName,
   connectorCatalog,
   voiceSelectionSchema,
@@ -225,6 +226,12 @@ async function start() {
   // reports the same availability used by the voice controller.
   const voiceRuntime =
     process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  // Chatterbox voices made from recordings kept only in this Mac's app data (never shipped).
+  const personalVoices: Record<string, string> = {};
+  for (const option of voiceCatalog['chatterbox-turbo'] as readonly VoiceOption[]) {
+    const recording = join(app.getPath('userData'), 'voices/chatterbox', `${option.id}.wav`);
+    if (option.personal && existsSync(recording)) personalVoices[option.id] = recording;
+  }
   // The MLX engines are created after the settings snapshot helpers; read them lazily.
   let kokoroVoice: MlxVoice | null = null;
   let chatterboxVoice: MlxVoice | null = null;
@@ -249,6 +256,7 @@ async function start() {
       available: Boolean(voiceRuntime?.mlx?.chatterbox),
       expressions: true,
       detail: engineDetail(chatterboxVoice, 'Expressive, with laughs and sighs.'),
+      personalVoices: Object.keys(personalVoices),
     },
     {
       id: 'cartesia',
@@ -291,11 +299,20 @@ async function start() {
     return listed?.name ?? `Your ${model === 'cartesia' ? 'Cartesia' : 'ElevenLabs'} voice`;
   };
   /** The chosen model and voice; a cloud model without a key or voice falls back to Kokoro. */
+  const isPersonal = (voice: string) =>
+    (voiceCatalog['chatterbox-turbo'] as readonly VoiceOption[]).some(
+      option => option.id === voice && option.personal,
+    );
   const selectedVoice = (): VoiceSelection => {
     const chosen = voiceSelectionSchema.safeParse({
       model: settings.current.voiceModel,
       voice: settings.current.voices[settings.current.voiceModel],
     });
+    // A personal voice whose recording is gone speaks with the built-in Calm voice instead.
+    if (chosen.success && chosen.data.model === 'chatterbox-turbo' && isPersonal(chosen.data.voice))
+      return personalVoices[chosen.data.voice]
+        ? chosen.data
+        : { model: 'chatterbox-turbo', voice: 'calm' };
     if (
       chosen.success &&
       (!isCloudVoiceModel(chosen.data.model) || voiceKeys.has(chosen.data.model))
@@ -995,7 +1012,12 @@ async function start() {
   const chatterbox = mlx?.chatterbox
     ? new MlxVoice(
         mlx,
-        { id: 'chatterbox-turbo', model: mlx.chatterbox, label: 'Chatterbox Turbo' },
+        {
+          id: 'chatterbox-turbo',
+          model: mlx.chatterbox,
+          label: 'Chatterbox Turbo',
+          references: personalVoices,
+        },
         { idleMs: 60 * 60_000 },
       )
     : null;

@@ -14,6 +14,7 @@ import {
   screenLabel,
   screenshotPointToScreen,
   voiceHostEventSchema,
+  voiceSelectionSchema,
   maxVoiceChunkBytes,
   parsePresentation,
   resolvePresentation,
@@ -151,6 +152,12 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petPosition, null);
   // Preferences saved before speech could be turned off keep speaking.
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).speakReplies, true);
+  // Edi is a Chatterbox voice; it cannot be chosen for another model.
+  assert.equal(
+    voiceSelectionSchema.safeParse({ model: 'chatterbox-turbo', voice: 'edi' }).success,
+    true,
+  );
+  assert.equal(voiceSelectionSchema.safeParse({ model: 'kokoro', voice: 'edi' }).success, false);
   // Words for recognition: trimmed, unique, bounded; anything malformed is dropped, not fatal.
   assert.deepEqual(
     settingsSchema.parse({

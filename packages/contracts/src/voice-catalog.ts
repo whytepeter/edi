@@ -42,6 +42,10 @@ export interface VoiceOption {
   name: string;
   accent: 'American' | 'British';
   gender: 'Female' | 'Male';
+  /** Made from a recording on this Mac (never shipped); offered only when that recording exists. */
+  personal?: boolean;
+  /** Shown instead of the accent. */
+  detail?: string;
 }
 
 /** Kokoro 82M English voices, pinned in benchmarks/voice/provision_mlx.py. */
@@ -78,10 +82,19 @@ export const kokoroVoices = [
 export const voiceCatalog = {
   kokoro: kokoroVoices,
   // Chatterbox Turbo's built-in voice, delivered two ways: Calm samples conservatively for a
-  // steadier, softer read; Expressive is the model's default liveliness. Cloning comes later.
+  // steadier, softer read; Expressive is the model's default liveliness. Edi is a personal
+  // voice made from a consenting speaker's recording kept in the app's data folder, read calmly.
   'chatterbox-turbo': [
     { id: 'calm', name: 'Calm', accent: 'American', gender: 'Female' },
     { id: 'turbo', name: 'Expressive', accent: 'American', gender: 'Female' },
+    {
+      id: 'edi',
+      name: 'Edi',
+      accent: 'American',
+      gender: 'Female',
+      personal: true,
+      detail: 'Calm and soft, from your recording',
+    },
   ],
   // Cloud voices are listed from the person's account at runtime.
   cartesia: [],
