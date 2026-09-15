@@ -71,6 +71,8 @@ interface CommandDependencies {
   renameLibraryItem(id: string, title: string): Promise<void>;
   pinLibraryItem(id: string, pinned: boolean): void;
   regenerateLibraryItem(id: string): Promise<void>;
+  /** A diagram that can't be drawn: Edi fixes it in place; the click is the request. */
+  fixArtifact(ref: ArtifactRef, problem: string): Promise<void>;
   reportView(view: WorkspaceView): void;
   /** Built-in and installed characters. */
   characters: CharacterLibrary;
@@ -115,6 +117,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     renameLibraryItem,
     pinLibraryItem,
     regenerateLibraryItem,
+    fixArtifact,
     reportView,
     characters,
   } = deps;
@@ -257,6 +260,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'open-artifact': { from: ['workspace', 'bubble'], handle: ({ ref }) => openArtifact(ref) },
     'artifact-copy': { from: fromArtifact, handle: ({ ref }) => artifactAction('copy', ref) },
+    'artifact-fix': {
+      from: fromArtifact,
+      handle: ({ ref, problem }) => fixArtifact(ref, problem),
+    },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
     'reveal-export': { from: ['artifact', 'workspace'], handle: () => revealExport() },
     'export-ready': {

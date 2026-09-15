@@ -110,7 +110,11 @@ export async function readLibraryNote(store: NoteStore, directory: () => string,
     return { note, markdown: await readNote(path) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error('That note’s file is gone.', { cause: error });
+      throw new Error(
+        'This note’s file was moved or deleted. Put it back in Documents › Edi › Notes, or delete ' +
+          'the note from Library.',
+        { cause: error },
+      );
     }
     throw error;
   }

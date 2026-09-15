@@ -593,6 +593,10 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('open-artifact'), ref: artifactRefSchema }).strict(),
   /** Artifact window actions. Main resolves content and paths from the reference itself. */
   z.object({ type: z.literal('artifact-copy'), ref: artifactRefSchema }).strict(),
+  /** A diagram that can't be drawn: Edi fixes it in place, with the drawing error as the reason. */
+  z
+    .object({ type: z.literal('artifact-fix'), ref: artifactRefSchema, problem: z.string().max(300) })
+    .strict(),
   /** Show the most recent export in Finder; main remembers where it wrote it. */
   z.object({ type: z.literal('reveal-export') }).strict(),
   /**

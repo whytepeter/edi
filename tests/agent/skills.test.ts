@@ -221,6 +221,35 @@ test('skills_use loads a skill’s instructions; skills_create saves the person�
   await assert.rejects(async () => use.prepare({ name: 'daily-brief' }, context), /switched off/);
 });
 
+test('a skill whose app is not connected says so, and offers to connect it', async () => {
+  const { skills } = await library();
+  await skills.refresh();
+  const [use, create] = skillCapabilities(skills, ids =>
+    ids.map(id => ({ id, name: id === 'gmail' ? 'Gmail' : id, connected: id !== 'gmail' })),
+  );
+  const saving = await create.prepare(
+    create.input.parse({
+      name: 'inbox-sweep',
+      title: 'Inbox Sweep',
+      description: 'Tidies my inbox. Use when I ask to clean up email.',
+      instructions: 'Archive what is done.',
+      apps: ['gmail', 'slack'],
+    }),
+    context,
+  );
+  await saving.execute(live());
+  const output = (await (await use.prepare({ name: 'inbox-sweep' }, context)).execute(live()))
+    .output as { apps: { id: string; connected: boolean }[]; notConnected?: string };
+  assert.deepEqual(
+    output.apps.map(app => [app.id, app.connected]),
+    [
+      ['gmail', false],
+      ['slack', true],
+    ],
+  );
+  assert.match(output.notConnected ?? '', /^Gmail isn’t connected\..*edi_connect_app/);
+});
+
 test('skills by Fewerlabs only name apps Edi can connect and tools Edi has', async () => {
   const { connectorCatalog } = await import('../../packages/contracts/src/index');
   const apps = new Set(connectorCatalog.map(entry => entry.id));

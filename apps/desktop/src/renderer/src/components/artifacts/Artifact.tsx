@@ -164,11 +164,13 @@ export function ArtifactBody({
   artifact,
   reference,
   onDiagram,
+  onFixDiagram,
   light = false,
 }: {
   artifact: Artifact;
   reference: ArtifactRef;
   onDiagram?: (svg: string | null) => void;
+  onFixDiagram?: (problem: string) => void;
   light?: boolean;
 }) {
   if (artifact.kind === 'diagram')
@@ -177,6 +179,7 @@ export function ArtifactBody({
         source={artifact.mermaid}
         light={light}
         {...(onDiagram ? { onRendered: onDiagram } : {})}
+        {...(onFixDiagram ? { onFix: onFixDiagram } : {})}
       />
     );
   if (artifact.kind === 'html')
@@ -216,6 +219,15 @@ export function ArtifactBody({
       </div>
     );
   return <Markdown source={artifact.markdown} />;
+}
+
+/** Main's own reason (e.g. a note's file was deleted), without Electron's IPC wrapping. */
+function loadProblem(error: unknown) {
+  const text =
+    error instanceof Error
+      ? error.message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '').trim()
+      : '';
+  return text && text.length <= 240 ? text : 'This content is no longer available.';
 }
 
 /** Which actions make sense for each kind. Future kinds (images, HTML) may not copy as text. */
@@ -275,7 +287,7 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     window.edi
       .artifact(reference)
       .then(value => alive && setLoaded({ key, artifact: value }))
-      .catch(() => alive && setLoaded({ key, error: 'This content is no longer available.' }));
+      .catch((error: unknown) => alive && setLoaded({ key, error: loadProblem(error) }));
     return () => {
       alive = false;
     };
@@ -393,7 +405,22 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
             {error}
           </p>
         )}
-        {artifact && reference && <ArtifactBody artifact={artifact} reference={reference} />}
+        {artifact && reference && (
+          <ArtifactBody
+            artifact={artifact}
+            reference={reference}
+            {...('callId' in reference
+              ? {
+                  onFixDiagram: (problem: string) =>
+                    void window.edi
+                      ?.command({ type: 'artifact-fix', ref: reference, problem })
+                      .catch(() =>
+                        setActionError({ key, message: 'Couldn’t ask Edi to fix this.' }),
+                      ),
+                }
+              : {})}
+          />
+        )}
       </div>
       {exportMenu && (
         <>

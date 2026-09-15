@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import type mermaidApi from 'mermaid';
+import { Button } from '../ui';
 
 type Mermaid = typeof mermaidApi;
 
@@ -20,16 +21,25 @@ const dark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
 export function Diagram({
   source,
   onRendered,
+  onFix,
   light = false,
 }: {
   source: string;
   onRendered?: (svg: string | null) => void;
+  /** Offered when it can't be drawn: ask Edi to fix the source, with Mermaid's own reason. */
+  onFix?: (problem: string) => void;
   light?: boolean;
 }) {
   const id = `diagram-${useId().replace(/[^a-zA-Z0-9-]/g, '')}`;
-  const [result, setResult] = useState<{ source: string; svg?: string; error?: string }>({
+  const [result, setResult] = useState<{
+    source: string;
+    svg?: string;
+    error?: string;
+    problem?: string;
+  }>({
     source: '',
   });
+  const [asked, setAsked] = useState('');
   const [systemDark, setScheme] = useState(dark);
   const scheme = systemDark && !light;
 
@@ -56,9 +66,14 @@ export function Diagram({
         if (!alive) return;
         setResult({ source, svg });
         onRendered?.(svg);
-      } catch {
+      } catch (error) {
         if (!alive) return;
-        setResult({ source, error: 'This diagram has a mistake Edi couldn’t draw.' });
+        const problem = error instanceof Error ? (error.message.split('\n')[0] ?? '') : '';
+        setResult({
+          source,
+          error: 'This diagram has a mistake Edi couldn’t draw.',
+          problem: problem.slice(0, 300),
+        });
         onRendered?.(null);
       }
     })();
@@ -74,6 +89,20 @@ export function Diagram({
     return (
       <div className="artifact-diagram-error">
         <p role="alert">{result.error}</p>
+        {onFix &&
+          (asked === source ? (
+            <p role="status">Edi is fixing it. The diagram updates here when it’s done.</p>
+          ) : (
+            <Button
+              size="small"
+              onClick={() => {
+                setAsked(source);
+                onFix(result.problem ?? '');
+              }}
+            >
+              Ask Edi to fix it
+            </Button>
+          ))}
         <pre>{source}</pre>
       </div>
     );

@@ -7,7 +7,11 @@ import type { SkillLibrary } from './library';
  * Using a skill loads its instructions into the run (the model only sees names and descriptions
  * up front). Saving one of the person's skills is reviewed like any other file Edi writes.
  */
-export function skillCapabilities(library: SkillLibrary) {
+export function skillCapabilities(
+  library: SkillLibrary,
+  /** The skill's connected apps (catalog ids) and whether each is connected right now. */
+  appsFor: (ids: string[]) => { id: string; name: string; connected: boolean }[] = () => [],
+) {
   const use = defineCapability({
     id: 'skills.use',
     title: 'Use a skill',
@@ -29,12 +33,25 @@ export function skillCapabilities(library: SkillLibrary) {
           fields: [],
         },
         async execute() {
+          const apps = appsFor(skill.apps);
+          const missing = apps.filter(app => !app.connected).map(app => app.name);
+          const them = missing.length === 1 ? 'it' : 'them';
           return {
             summary: `Using ${skill.title}.`,
             output: {
               skill: skill.title,
               by: skill.trust === 'fewerlabs' ? 'Fewerlabs' : 'the user',
               instructions: skill.body,
+              ...(apps.length ? { apps } : {}),
+              // A skill that needs an app still works without it: say what's missing, offer it.
+              ...(missing.length
+                ? {
+                    notConnected:
+                      `${missing.join(' and ')} ${missing.length === 1 ? 'isn’t' : 'aren’t'} ` +
+                      `connected. Tell the user, offer to connect ${them} with edi_connect_app, ` +
+                      `and do what you can without ${them} meanwhile. Never pretend to use ${them}.`,
+                  }
+                : {}),
               ...(skill.helperScripts
                 ? {
                     scripts:

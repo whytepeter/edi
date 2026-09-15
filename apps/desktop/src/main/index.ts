@@ -267,7 +267,19 @@ async function start() {
     trash: path => shell.trashItem(path),
   });
   await skills.refresh();
-  const [useSkill, createSkill] = skillCapabilities(skills);
+  const [useSkill, createSkill] = skillCapabilities(skills, ids => {
+    // Read each time a skill is used, so apps connected since launch count.
+    const connected = new Set(
+      connectors
+        .list()
+        .filter(connector => connector.status === 'connected')
+        .map(connector => connector.catalogId),
+    );
+    return ids.flatMap(id => {
+      const entry = connectorCatalog.find(item => item.id === id);
+      return entry ? [{ id, name: entry.name, connected: connected.has(id) }] : [];
+    });
+  });
   const enabledSkills = () =>
     skills.enabled().map(({ name, description }) => ({ name, description }));
   const permissionPort: { current?: PermissionManager } = {};
@@ -1851,6 +1863,22 @@ async function start() {
           },
         );
         if (runId) workspace.webContents.send('edi:navigate', 'conversations');
+      },
+      fixArtifact: async (ref, problem) => {
+        const record = 'callId' in ref ? repositories.artifacts.get(ref.callId) : undefined;
+        if (!record || record.kind !== 'diagram')
+          throw new Error('Only a diagram Edi made can be fixed this way.');
+        const origin = repositories.toolCalls.origin(record.id);
+        // Fixed in the conversation it came from; the open window updates when it's replaced.
+        await agent.ask(
+          `The diagram “${record.title}” doesn’t draw: ${problem.trim() || 'Mermaid couldn’t read it'}. ` +
+            `Fix its Mermaid source in place with workspace_update (id ${record.id}, kind diagram), ` +
+            'keeping what it shows, then tell me in one short sentence what you fixed.',
+          {
+            ...(origin?.conversationId ? { conversationId: origin.conversationId } : {}),
+            note: `Fixing “${record.title}”.`,
+          },
+        );
       },
       reportView: view => {
         currentView = view;
