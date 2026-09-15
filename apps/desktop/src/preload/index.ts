@@ -29,6 +29,7 @@ import {
   workspaceViewSchema,
   voiceHostEventSchema,
   type DesktopBridge,
+  personalVoiceAddResultSchema,
 } from '@edi/contracts';
 
 const bridge: DesktopBridge = {
@@ -187,6 +188,8 @@ const bridge: DesktopBridge = {
   },
   pickCharacterPackage: async () =>
     characterInspectionSchema.nullable().parse(await ipcRenderer.invoke('edi:characters:pick')),
+  addPersonalVoice: async input =>
+    personalVoiceAddResultSchema.parse(await ipcRenderer.invoke('edi:personal-voices:add', input)),
   // The renderer never sees file paths; only this preload turns a dropped File into one.
   inspectCharacterFile: async file =>
     characterInspectionSchema.parse(

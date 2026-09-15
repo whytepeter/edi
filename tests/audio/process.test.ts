@@ -155,7 +155,7 @@ test('an MLX worker reporting a different engine is refused', async () => {
 test('a personal Chatterbox voice reaches the worker with its recording; bad ids never do', async () => {
   const withEdi = new MlxVoice(runtime, {
     ...chatterbox,
-    references: { edi: '/tmp/edi.wav', '../escape': '/tmp/x.wav' },
+    references: () => ({ edi: '/tmp/edi.wav', '../escape': '/tmp/x.wav' }),
   });
   try {
     const values: number[] = [];

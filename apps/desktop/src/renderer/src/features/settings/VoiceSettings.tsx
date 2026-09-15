@@ -8,7 +8,6 @@ import {
   type VoiceChoices,
   type VoiceInput,
   type VoiceModelId,
-  type VoiceOption,
   type VoiceSelection,
 } from '@edi/contracts';
 import {
@@ -37,7 +36,7 @@ interface VoiceSettingsProps {
   onVoice(selection: VoiceSelection): void;
   onPreview(selection: VoiceSelection): Promise<void>;
   onSpeakReplies(enabled: boolean): void;
-  /** A key was saved or removed, so model availability changed. */
+  /** A key or an added voice changed, so what Settings → Voice offers changed. */
   onKeysChanged(): void;
 }
 
@@ -111,6 +110,14 @@ export function VoiceSettings({
     null,
   );
   const [cloudError, setCloudError] = useState('');
+  // Adding a voice from a recording (Chatterbox), and the voice waiting for Remove confirmation.
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [addedName, setAddedName] = useState('');
+  const [removing, setRemoving] = useState<string | null>(null);
   // Edited as text; saved as a list when the field is left or Return is pressed.
   const [wordsDraft, setWordsDraft] = useState(voiceWords.join(', '));
   const [shownWords, setShownWords] = useState(voiceWords);
@@ -169,17 +176,26 @@ export function VoiceSettings({
     };
   }, [provider, hasKey, cloudReload]);
 
+  // Voices the person added from recordings on this Mac (Chatterbox only).
+  const personal = model?.personalVoices ?? [];
   const local: ListedVoice[] = provider
     ? []
-    : (voiceCatalog[viewing] as readonly VoiceOption[])
-        // A personal voice is offered only when its recording is on this Mac.
-        .filter(voice => !voice.personal || model?.personalVoices?.includes(voice.id))
-        .map(voice => ({
+    : [
+        ...voiceCatalog[viewing].map(voice => ({
           id: voice.id,
           name: voice.name,
-          detail: voice.detail ?? voice.accent,
+          detail: voice.accent,
           gender: voice.gender,
-        }));
+        })),
+        ...(viewing === 'chatterbox-turbo'
+          ? personal.map(voice => ({
+              id: voice.id,
+              name: voice.name,
+              detail: 'Your voice · on this Mac',
+              gender: null,
+            }))
+          : []),
+      ];
   const chosen = voiceModel === viewing ? voices[viewing] : null;
   // Cloud lists hold only the account's own voices, so all of them are offered.
   const cloudVoices = cloud?.provider === provider ? cloud.voices : [];
@@ -192,6 +208,32 @@ export function VoiceSettings({
     .filter(voice => !splitByType || voice.gender === voiceType || voice.gender === null)
     .filter(voice => !query || voice.name.toLowerCase().includes(query.trim().toLowerCase()));
   const select = (voice: string) => voiceSelectionSchema.parse({ model: viewing, voice });
+
+  function closeAdd() {
+    setAdding(false);
+    setNewName('');
+    setConsent(false);
+    setAddError('');
+  }
+
+  async function addVoice() {
+    const name = newName.trim();
+    if (!name || !consent || choosing || !window.edi) return;
+    setChoosing(true);
+    setAddError('');
+    try {
+      const result = await window.edi.addPersonalVoice({ name, consent: true });
+      if (!result) return; // the file picker was cancelled
+      if (!result.ok) return setAddError(result.error);
+      closeAdd();
+      setAddedName(result.voice.name);
+      onKeysChanged();
+    } catch {
+      setAddError('That recording couldn’t be used.');
+    } finally {
+      setChoosing(false);
+    }
+  }
 
   function chooseModel(next: VoiceModelId) {
     const cloudModel = isCloudVoiceModel(next);
@@ -444,19 +486,110 @@ export function VoiceSettings({
                     <span>{option.detail}</span>
                   </span>
                 </button>
-                <IconButton
-                  icon="play"
-                  label={
-                    previewing === option.id ? `Playing ${option.name}` : `Preview ${option.name}`
-                  }
-                  className="voice-preview"
-                  data-playing={previewing === option.id || undefined}
-                  disabled={previewing !== null}
-                  onClick={() => void preview(option.id)}
-                />
+                {removing === option.id ? (
+                  <span className="settings-actions voice-remove-confirm">
+                    <Button size="small" variant="plain" onClick={() => setRemoving(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="prominent"
+                      onClick={() => {
+                        setRemoving(null);
+                        void window.edi
+                          ?.command({ type: 'remove-personal-voice', id: option.id })
+                          .then(onKeysChanged);
+                      }}
+                    >
+                      Move to Trash
+                    </Button>
+                  </span>
+                ) : (
+                  <>
+                    <IconButton
+                      icon="play"
+                      label={
+                        previewing === option.id
+                          ? `Playing ${option.name}`
+                          : `Preview ${option.name}`
+                      }
+                      className="voice-preview"
+                      data-playing={previewing === option.id || undefined}
+                      disabled={previewing !== null}
+                      onClick={() => void preview(option.id)}
+                    />
+                    {personal.some(voice => voice.id === option.id) && (
+                      <IconButton
+                        icon="trash"
+                        label={`Remove ${option.name}`}
+                        className="voice-preview"
+                        onClick={() => setRemoving(option.id)}
+                      />
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>
+          {viewing === 'chatterbox-turbo' && model.available && (
+            <div className="voice-add">
+              {adding ? (
+                <form
+                  className="voice-add-form"
+                  onSubmit={event => {
+                    event.preventDefault();
+                    void addVoice();
+                  }}
+                >
+                  <TextField
+                    label="Voice name"
+                    placeholder="Name, like Edi"
+                    maxLength={40}
+                    autoFocus
+                    value={newName}
+                    onChange={event => setNewName(event.target.value)}
+                  />
+                  <label className="voice-consent">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={event => setConsent(event.target.checked)}
+                    />
+                    This is my voice, or the person speaking agreed to {assistant} using it.
+                  </label>
+                  <p className="settings-prose">
+                    Choose at least 6 seconds of clear speech with no music. The recording stays on
+                    this Mac.
+                  </p>
+                  {addError && (
+                    <p className="voice-add-error" role="alert">
+                      {addError}
+                    </p>
+                  )}
+                  <span className="settings-actions">
+                    <Button size="small" variant="plain" type="button" onClick={closeAdd}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="prominent"
+                      type="submit"
+                      disabled={!newName.trim() || !consent || choosing}
+                    >
+                      {choosing ? 'Adding…' : 'Choose Recording…'}
+                    </Button>
+                  </span>
+                </form>
+              ) : (
+                <span className="settings-actions">
+                  <Button size="small" onClick={() => setAdding(true)}>
+                    Add Voice…
+                  </Button>
+                  {addedName && <span className="voice-added">Added {addedName}.</span>}
+                </span>
+              )}
+            </div>
+          )}
         </GroupedList>
       )}
 

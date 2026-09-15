@@ -30,6 +30,8 @@ import {
   type FileAccessAction,
   type CharacterDescriptor,
   type CharacterInspection,
+  personalVoiceNameSchema,
+  type PersonalVoiceAddResult,
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
@@ -68,6 +70,7 @@ interface IpcDependencies {
   characters(): CharacterDescriptor[];
   pickCharacterPackage(): Promise<CharacterInspection | null>;
   inspectCharacterFile(path: string): Promise<CharacterInspection>;
+  addPersonalVoice(name: string): Promise<PersonalVoiceAddResult>;
 }
 
 export function registerIpc({
@@ -95,6 +98,7 @@ export function registerIpc({
   characters,
   pickCharacterPackage,
   inspectCharacterFile,
+  addPersonalVoice,
 }: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
     // Subframes never inherit their window's privileges.
@@ -199,6 +203,14 @@ export function registerIpc({
     authorize(callerOf(event), ['workspace']);
     if (typeof path !== 'string' || path.length > 4096) throw new Error('Invalid file');
     return inspectCharacterFile(path);
+  });
+  ipcMain.handle('edi:personal-voices:add', (event, raw: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    const input = z
+      .object({ name: personalVoiceNameSchema, consent: z.literal(true) })
+      .strict()
+      .parse(raw);
+    return addPersonalVoice(input.name);
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

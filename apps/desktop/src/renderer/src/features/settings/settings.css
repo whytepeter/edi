@@ -353,3 +353,39 @@
 .voice-words {
   padding: var(--space-3) var(--space-4);
 }
+
+/* Settings → Voice → Chatterbox: voices added from recordings. */
+.voice-add {
+  padding: var(--space-3) var(--space-4);
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+.voice-add-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.voice-add-form .settings-prose {
+  padding: 0;
+}
+.voice-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font: var(--text-callout);
+  color: var(--label);
+}
+.voice-consent input {
+  margin-top: 2px;
+  accent-color: var(--accent-fill);
+}
+.voice-add-error {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label);
+}
+.voice-added {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.voice-remove-confirm {
+  flex: none;
+}

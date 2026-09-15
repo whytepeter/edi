@@ -69,7 +69,6 @@ import {
   assistantName,
   isCloudVoiceModel,
   voiceCatalog,
-  type VoiceOption,
   voiceName,
   connectorCatalog,
   voiceSelectionSchema,
@@ -98,6 +97,7 @@ import { progressLabel } from './agent/step-labels';
 import { resolveVoiceRuntime } from './voice/runtime';
 import { cartesiaTranscriber, streamCartesiaSpeech } from './voice/cartesia-realtime';
 import { localTranscriber, WhisperServer } from './voice/transcription-server';
+import { PersonalVoices, RECORDING_EXTENSIONS } from './voice/personal-voices';
 import { transcriptionPrompt } from './voice/transcription-process';
 import { speakable, spokenFailure, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
@@ -226,12 +226,16 @@ async function start() {
   // reports the same availability used by the voice controller.
   const voiceRuntime =
     process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
-  // Chatterbox voices made from recordings kept only in this Mac's app data (never shipped).
-  const personalVoices: Record<string, string> = {};
-  for (const option of voiceCatalog['chatterbox-turbo'] as readonly VoiceOption[]) {
-    const recording = join(app.getPath('userData'), 'voices/chatterbox', `${option.id}.wav`);
-    if (option.personal && existsSync(recording)) personalVoices[option.id] = recording;
-  }
+  // Chatterbox voices the person added from their own recordings, kept only in this Mac's app
+  // data (Settings → Voice). Read once here and again whenever one is added or removed.
+  const personalVoices = new PersonalVoices(join(app.getPath('userData'), 'voices/chatterbox'), {
+    trash: path => shell.trashItem(path),
+  });
+  let personalVoiceList = await personalVoices.list();
+  const personalReferences = () =>
+    Object.fromEntries(
+      personalVoiceList.map(voice => [voice.id, personalVoices.recording(voice.id)]),
+    );
   // The MLX engines are created after the settings snapshot helpers; read them lazily.
   let kokoroVoice: MlxVoice | null = null;
   let chatterboxVoice: MlxVoice | null = null;
@@ -256,7 +260,7 @@ async function start() {
       available: Boolean(voiceRuntime?.mlx?.chatterbox),
       expressions: true,
       detail: engineDetail(chatterboxVoice, 'Expressive, with laughs and sighs.'),
-      personalVoices: Object.keys(personalVoices),
+      personalVoices: personalVoiceList,
     },
     {
       id: 'cartesia',
@@ -294,23 +298,26 @@ async function start() {
   for (const provider of ['cartesia', 'elevenlabs'] as const)
     if (voiceKeys.has(provider)) void loadCloudVoices(provider).catch(() => {});
   const spokenVoiceName = ({ model, voice }: VoiceSelection) => {
+    const personal = personalVoiceList.find(entry => entry.id === voice);
+    if (model === 'chatterbox-turbo' && personal) return personal.name;
     if (!isCloudVoiceModel(model)) return voiceName(model, voice);
     const listed = cloudVoiceLists[model]?.find(entry => entry.id === voice);
     return listed?.name ?? `Your ${model === 'cartesia' ? 'Cartesia' : 'ElevenLabs'} voice`;
   };
   /** The chosen model and voice; a cloud model without a key or voice falls back to Kokoro. */
-  const isPersonal = (voice: string) =>
-    (voiceCatalog['chatterbox-turbo'] as readonly VoiceOption[]).some(
-      option => option.id === voice && option.personal,
-    );
   const selectedVoice = (): VoiceSelection => {
     const chosen = voiceSelectionSchema.safeParse({
       model: settings.current.voiceModel,
       voice: settings.current.voices[settings.current.voiceModel],
     });
     // A personal voice whose recording is gone speaks with the built-in Calm voice instead.
-    if (chosen.success && chosen.data.model === 'chatterbox-turbo' && isPersonal(chosen.data.voice))
-      return personalVoices[chosen.data.voice]
+    if (
+      chosen.success &&
+      chosen.data.model === 'chatterbox-turbo' &&
+      chosen.data.voice !== 'calm' &&
+      chosen.data.voice !== 'turbo'
+    )
+      return personalVoiceList.some(voice => voice.id === chosen.data.voice)
         ? chosen.data
         : { model: 'chatterbox-turbo', voice: 'calm' };
     if (
@@ -1016,7 +1023,7 @@ async function start() {
           id: 'chatterbox-turbo',
           model: mlx.chatterbox,
           label: 'Chatterbox Turbo',
-          references: personalVoices,
+          references: personalReferences,
         },
         { idleMs: 60 * 60_000 },
       )
@@ -1378,6 +1385,19 @@ async function start() {
     else character.sleep();
   };
 
+  // A voice added or removed: Chatterbox reloads with the new set of recordings.
+  personalVoices.onChange(() => {
+    void personalVoices.list().then(list => {
+      personalVoiceList = list;
+      const chosen = settings.current.voices['chatterbox-turbo'];
+      if (chosen !== 'calm' && chosen !== 'turbo' && !list.some(voice => voice.id === chosen))
+        void settings.update({
+          voices: { ...settings.current.voices, 'chatterbox-turbo': 'calm' },
+        });
+      chatterbox?.dispose();
+      warmSelected();
+    });
+  });
   settings.onChange(value => {
     const shown = artifactWindow.window;
     broadcast(shown ? [workspace, pet, shown] : [workspace, pet], 'edi:settings', value);
@@ -1576,6 +1596,7 @@ async function start() {
       artifactAction,
       saveArtifactImage,
       previewVoice,
+      removePersonalVoice: id => personalVoices.remove(id),
       setVoiceKey: async (provider, apiKey) => {
         // A key is saved only after the provider accepts it.
         const listed = apiKey
@@ -1662,6 +1683,29 @@ async function start() {
       return result.canceled || !path ? null : inspectCharacterFile(path);
     },
     inspectCharacterFile,
+    addPersonalVoice: async name => {
+      const result = await dialog.showOpenDialog(workspace, {
+        title: 'Add a voice',
+        message: 'Choose at least 6 seconds of clear speech. It stays on this Mac.',
+        buttonLabel: 'Use Recording',
+        properties: ['openFile'],
+        filters: [{ name: 'Audio', extensions: RECORDING_EXTENSIONS }],
+      });
+      const path = result.filePaths[0];
+      if (result.canceled || !path) return null;
+      try {
+        return { ok: true as const, voice: await personalVoices.add(path, name) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        return {
+          ok: false as const,
+          error:
+            message.length > 0 && message.length <= 200
+              ? message
+              : 'That recording couldn’t be used.',
+        };
+      }
+    },
   });
 
   // The app menu is still called Edi; its items use the companion's name and follow a rename.

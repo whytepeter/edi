@@ -193,8 +193,11 @@ import {
   voiceModelSchema,
   voiceWordsSchema,
   voiceSelectionSchema,
+  personalVoiceIdSchema,
+  personalVoiceListSchema,
   type CloudProviderId,
   type CloudVoiceOption,
+  type PersonalVoiceAddResult,
 } from './voice-catalog';
 export * from './voice-catalog';
 
@@ -367,8 +370,8 @@ export const systemInfoSchema = z
                 available: z.boolean(),
                 expressions: z.boolean(),
                 detail: z.string().max(160),
-                /** Personal voices whose recordings are on this Mac. */
-                personalVoices: z.array(z.string().max(40)).max(10).optional(),
+                /** Voices the person added from recordings on this Mac (Chatterbox only). */
+                personalVoices: personalVoiceListSchema.optional(),
               })
               .strict(),
           )
@@ -530,6 +533,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
   z.object({ type: z.literal('set-voice-input'), input: voiceInputSchema }).strict(),
   z.object({ type: z.literal('set-voice-words'), words: voiceWordsSchema }).strict(),
+  z.object({ type: z.literal('remove-personal-voice'), id: personalVoiceIdSchema }).strict(),
   /** Choose a voice within a model; the voice must belong to that model. */
   z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),
   /** Save a cloud voice key (checked with the provider first) or forget it. */
@@ -664,6 +668,11 @@ export interface DesktopBridge {
   pickCharacterPackage(): Promise<CharacterInspection | null>;
   /** Check a .edichar file dropped on the card. */
   inspectCharacterFile(file: File): Promise<CharacterInspection>;
+  /**
+   * Add a Chatterbox voice: main asks for a recording, converts it and keeps it on this Mac.
+   * `consent` is the person confirming the voice is theirs or its speaker agreed.
+   */
+  addPersonalVoice(input: { name: string; consent: true }): Promise<PersonalVoiceAddResult>;
 }
 /** What checking a package found. Install it by sending `character-install` with the token. */
 export const characterInspectionSchema = z

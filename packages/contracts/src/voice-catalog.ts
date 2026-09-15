@@ -42,10 +42,6 @@ export interface VoiceOption {
   name: string;
   accent: 'American' | 'British';
   gender: 'Female' | 'Male';
-  /** Made from a recording on this Mac (never shipped); offered only when that recording exists. */
-  personal?: boolean;
-  /** Shown instead of the accent. */
-  detail?: string;
 }
 
 /** Kokoro 82M English voices, pinned in benchmarks/voice/provision_mlx.py. */
@@ -82,19 +78,11 @@ export const kokoroVoices = [
 export const voiceCatalog = {
   kokoro: kokoroVoices,
   // Chatterbox Turbo's built-in voice, delivered two ways: Calm samples conservatively for a
-  // steadier, softer read; Expressive is the model's default liveliness. Edi is a personal
-  // voice made from a consenting speaker's recording kept in the app's data folder, read calmly.
+  // steadier, softer read; Expressive is the model's default liveliness. Voices the person adds
+  // from their own recordings are listed at runtime (`personalVoiceSchema`).
   'chatterbox-turbo': [
     { id: 'calm', name: 'Calm', accent: 'American', gender: 'Female' },
     { id: 'turbo', name: 'Expressive', accent: 'American', gender: 'Female' },
-    {
-      id: 'edi',
-      name: 'Edi',
-      accent: 'American',
-      gender: 'Female',
-      personal: true,
-      detail: 'Calm and soft, from your recording',
-    },
   ],
   // Cloud voices are listed from the person's account at runtime.
   cartesia: [],
@@ -105,7 +93,37 @@ const ids = <T extends readonly { id: string }[]>(voices: T) =>
   voices.map(voice => voice.id) as unknown as [T[number]['id'], ...T[number]['id'][]];
 
 export const kokoroVoiceSchema = z.enum(ids(voiceCatalog.kokoro));
-export const chatterboxVoiceSchema = z.enum(ids(voiceCatalog['chatterbox-turbo']));
+/**
+ * A Chatterbox voice the person added from a recording on this Mac. Ids are short lowercase
+ * words ("edi"), so they can never be a path; the recording and its name stay on this Mac.
+ */
+export const personalVoiceIdSchema = z
+  .string()
+  .regex(/^[a-z]{2,20}$/)
+  .refine(id => id !== 'calm' && id !== 'turbo');
+export const personalVoiceNameSchema = z.string().trim().min(1).max(40);
+export const personalVoiceSchema = z
+  .object({
+    id: personalVoiceIdSchema,
+    name: personalVoiceNameSchema,
+    addedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PersonalVoice = z.infer<typeof personalVoiceSchema>;
+export const personalVoiceListSchema = z.array(personalVoiceSchema).max(20);
+/** Adding a voice: the saved voice, or why it could not be used. Null when the picker was cancelled. */
+export const personalVoiceAddResultSchema = z
+  .discriminatedUnion('ok', [
+    z.object({ ok: z.literal(true), voice: personalVoiceSchema }).strict(),
+    z.object({ ok: z.literal(false), error: z.string().max(200) }).strict(),
+  ])
+  .nullable();
+export type PersonalVoiceAddResult = z.infer<typeof personalVoiceAddResultSchema>;
+
+export const chatterboxVoiceSchema = z.union([
+  z.enum(ids(voiceCatalog['chatterbox-turbo'])),
+  personalVoiceIdSchema,
+]);
 
 export const defaultVoices = {
   kokoro: 'af_heart',

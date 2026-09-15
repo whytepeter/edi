@@ -56,6 +56,8 @@ interface CommandDependencies {
   setVoiceKey(provider: CloudProviderId, apiKey: string | null): Promise<void>;
   /** Settings → Voice: play a short sample of a voice. */
   previewVoice(selection: VoiceSelection): Promise<void>;
+  /** Settings → Voice: move an added voice's recording to the Trash. */
+  removePersonalVoice(id: string): Promise<void>;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
   reportView(view: WorkspaceView): void;
@@ -93,6 +95,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     closeArtifact,
     openLink,
     previewVoice,
+    removePersonalVoice,
     setVoiceKey,
     deleteLibraryItem,
     reportView,
@@ -195,6 +198,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'set-speak-replies': {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ speakReplies: enabled }),
+    },
+    'remove-personal-voice': {
+      from: fromWorkspace,
+      handle: ({ id }) => removePersonalVoice(id),
     },
     'set-voice-words': {
       from: fromWorkspace,
