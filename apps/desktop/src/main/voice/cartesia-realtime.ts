@@ -98,7 +98,11 @@ export function streamCartesiaSpeech(
     key,
     deps,
   );
-  const contextId = randomUUID();
+  // Cartesia reports `done` once it has voiced the text it was given, even mid-reply. A context
+  // that finished early is replaced: later sentences go to a fresh one on the same connection.
+  let contextId = randomUUID();
+  let contextHasText = false;
+  let ending = false;
   const frames = new Pcm16Frames(RATE);
   let characters = 0;
   let heard = false;
@@ -168,6 +172,11 @@ export function streamCartesiaSpeech(
     }
     if (message.type === 'done' || message.done === true) {
       clearTimeout(firstAudio);
+      if (!ending) {
+        contextId = randomUUID();
+        contextHasText = false;
+        return;
+      }
       void pump.then(
         () => {
           if (finished) return;
@@ -185,7 +194,8 @@ export function streamCartesiaSpeech(
       return characters;
     },
     get failed() {
-      return Boolean(failure) && failure?.message !== 'Stopped';
+      // A stream that stopped taking text without being ended counts as broken, never as silent.
+      return (Boolean(failure) && failure?.message !== 'Stopped') || (finished && !ending);
     },
     say(text) {
       const words = text.trim();
@@ -195,17 +205,27 @@ export function streamCartesiaSpeech(
         FIRST_AUDIO_MS,
       );
       characters += words.length;
+      contextHasText = true;
       // A trailing space tells Cartesia this is a word boundary between chunks.
       send(request(`${words} `, true));
     },
     end() {
-      if (!finished) {
-        if (!characters) {
-          finished = true;
+      if (!finished && !ending) {
+        ending = true;
+        if (contextHasText) send(request('', false));
+        else {
+          // Everything said was already voiced (or nothing was): finish once it has played.
           clearTimeout(firstAudio);
-          resolveDone();
-          socket.close();
-        } else send(request('', false));
+          void pump.then(
+            () => {
+              if (finished) return;
+              finished = true;
+              resolveDone();
+              socket.close();
+            },
+            () => {},
+          );
+        }
       }
       return done;
     },

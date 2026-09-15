@@ -106,6 +106,49 @@ test('a streamed reply sends sentences as they come, in one context, and plays t
   assert.equal(socket.closed, true);
 });
 
+test('an early done only closes that context; the next sentence is voiced in a fresh one', async () => {
+  // Recorded runs 0499a0e8 and 87dc6d8f: Cartesia said "done" after the acknowledgement, and
+  // every later sentence was ignored (47 and 26 characters billed, no answer heard).
+  const f = factory();
+  const frames: Float32Array[] = [];
+  const stream = streamCartesiaSpeech(
+    'k',
+    'v',
+    new AbortController().signal,
+    async pcm => {
+      frames.push(pcm);
+    },
+    { socket: f.socket },
+  );
+  const socket = f.sockets[0]!;
+  socket.open();
+  stream.say('I am on it.');
+  const first = socket.json()[0].context_id;
+  socket.message({ type: 'chunk', context_id: first, data: pcmChunk(2400) });
+  socket.message({ type: 'done', context_id: first });
+  await tick();
+  assert.equal(stream.failed, false);
+  assert.equal(socket.closed, false);
+
+  stream.say('You have two meetings today.');
+  const second = socket.json()[1];
+  assert.equal(second.transcript, 'You have two meetings today. ');
+  assert.notEqual(second.context_id, first);
+  const ending = stream.end();
+  assert.deepEqual(
+    { context: socket.json()[2].context_id, more: socket.json()[2].continue },
+    { context: second.context_id, more: false },
+  );
+  socket.message({ type: 'chunk', context_id: second.context_id, data: pcmChunk(4800) });
+  socket.message({ type: 'done', context_id: second.context_id });
+  await ending;
+  assert.deepEqual(
+    frames.map(frame => frame.length),
+    [2400, 4800],
+  );
+  assert.equal(stream.characters, 'I am on it.'.length + 'You have two meetings today.'.length);
+});
+
 test('stopping a streamed reply cancels its context; a provider error fails it', async () => {
   const f = factory();
   const abort = new AbortController();
