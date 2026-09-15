@@ -257,6 +257,9 @@ export function WorkspaceCard() {
                   onShareDesktopContext={enabled =>
                     void send({ type: 'set-share-desktop-context', enabled })
                   }
+                  privacyPaused={settings.privacyPaused}
+                  pauseWhenSharing={settings.pauseWhenSharing}
+                  privateApps={settings.privateApps}
                   onOpen={navigate}
                 />
               )}

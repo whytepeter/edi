@@ -122,13 +122,13 @@ export function showMarksInCaptures(options: {
  * Generic conversation does not touch ScreenCaptureKit or allocate
  * image data unless screen context is actually needed.
  */
-export function captureScreensForPrompt(prompt: string): Promise<ScreenContext> {
-  if (!screenContext.decide(prompt)) {
-    return Promise.resolve({
-      screenshots: [],
-      access: null,
-    });
-  }
+export async function captureScreensForPrompt(
+  prompt: string,
+  /** Privacy mode: false while Edi mustn't look (paused, a screen share, a private app). */
+  mayLook: () => Promise<boolean> = async () => true,
+): Promise<ScreenContext> {
+  if (!screenContext.decide(prompt)) return { screenshots: [], access: null };
+  if (!(await mayLook().catch(() => false))) return { screenshots: [], access: null };
 
   // “What's this?” gets a close-up around the pointer; every screen question gets its position.
   return captureScreens({ closeUp: pointsAtCursor(prompt) });

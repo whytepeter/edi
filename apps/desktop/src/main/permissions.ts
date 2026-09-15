@@ -72,6 +72,14 @@ interface ScreenAskLibrary extends KoffiLib {
       callback: (error: unknown, written: number) => void,
     ): void;
   } | null;
+  /** Absent in an older helper; Edi then can't notice a screen share. */
+  windowList: {
+    async(
+      dest: Uint8Array,
+      capacity: number,
+      callback: (error: unknown, written: number) => void,
+    ): void;
+  } | null;
   /** Absent in an older helper; Edi then knows where the pointer is but not what is under it. */
   elementAt: {
     async(
@@ -152,6 +160,15 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
             'void *',
             'int',
           ]) as unknown as NonNullable<ScreenAskLibrary['frontContext']>;
+        } catch {
+          return null;
+        }
+      })(),
+      windowList: (() => {
+        try {
+          return loaded.func('edi_window_list', 'int', ['void *', 'int']) as unknown as NonNullable<
+            ScreenAskLibrary['windowList']
+          >;
         } catch {
           return null;
         }
@@ -435,6 +452,22 @@ export function elementAtPointJson(x: number, y: number): Promise<string | null>
   return new Promise(resolve => {
     try {
       lib.elementAt!.async(x, y, buffer, buffer.length, (error, written) => {
+        resolve(!error && written > 0 ? buffer.subarray(0, written).toString('utf8') : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/** Raw JSON of the windows on screen (owner, bundle id, title), or null. Off the main thread. */
+export function windowListJson(): Promise<string | null> {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.windowList) return Promise.resolve(null);
+  const buffer = Buffer.alloc(256 * 1024);
+  return new Promise(resolve => {
+    try {
+      lib.windowList!.async(buffer, buffer.length, (error, written) => {
         resolve(!error && written > 0 ? buffer.subarray(0, written).toString('utf8') : null);
       });
     } catch {

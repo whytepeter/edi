@@ -33,6 +33,8 @@ export * from './screen-intent';
 export * from './voice';
 export * from './voice-session';
 export * from './voice-turns';
+export * from './privacy';
+import { privateAppSchema, type PrivacyState } from './privacy';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 import {
   permissionIdSchema,
@@ -266,6 +268,12 @@ export const settingsSchema = z.preprocess(
     taskBudgetUsd: taskBudgetSchema.catch(defaultTaskBudgetUsd).default(defaultTaskBudgetUsd),
     /** Send the app, window, page and selection in front with each question. */
     shareDesktopContext: z.boolean().default(true),
+    /** Privacy mode: Edi doesn't look at the screen or at what's in front until turned off. */
+    privacyPaused: z.boolean().catch(false).default(false),
+    /** Pause looking while a call app shares the screen, and keep Edi out of the share. */
+    pauseWhenSharing: z.boolean().catch(true).default(true),
+    /** Apps Edi never looks at, besides password managers. */
+    privateApps: z.array(privateAppSchema).max(50).catch([]).default([]),
     /** Speech engine used for spoken replies. */
     voiceModel: voiceModelSchema.default('kokoro'),
     /**
@@ -293,6 +301,9 @@ export const defaultSettings: Settings = {
   petPosition: null,
   speakReplies: true,
   shareDesktopContext: true,
+  privacyPaused: false,
+  pauseWhenSharing: true,
+  privateApps: [],
   taskBudgetUsd: defaultTaskBudgetUsd,
   skillsOff: [],
   voiceModel: 'kokoro',
@@ -557,6 +568,17 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-expanded'), expanded: z.boolean() }).strict(),
   z.object({ type: z.literal('set-speak-replies'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('set-share-desktop-context'), enabled: z.boolean() }).strict(),
+  /** Privacy mode (Settings → Privacy): pause looking now, and pause while sharing. */
+  z
+    .object({
+      type: z.literal('set-privacy'),
+      paused: z.boolean().optional(),
+      pauseWhenSharing: z.boolean().optional(),
+    })
+    .strict(),
+  /** Choose an app Edi never looks at; main opens the picker. */
+  z.object({ type: z.literal('add-private-app') }).strict(),
+  z.object({ type: z.literal('remove-private-app'), bundleId: z.string().max(200) }).strict(),
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
   z.object({ type: z.literal('set-voice-input'), input: voiceInputSchema }).strict(),
   z.object({ type: z.literal('set-voice-words'), words: voiceWordsSchema }).strict(),
@@ -712,6 +734,9 @@ export interface DesktopBridge {
   /** Saved "Always allow" choices, newest first. */
   approvalRules(): Promise<ApprovalRule[]>;
   onApprovalRules(callback: (rules: ApprovalRule[]) => void): () => void;
+  /** Privacy mode now: whether Edi is looking, and the app sharing the screen. */
+  privacy(): Promise<PrivacyState>;
+  onPrivacy(callback: (state: PrivacyState) => void): () => void;
   /** Connected apps and their tools. */
   connectors(): Promise<Connector[]>;
   /** Every skill, re-reading Documents › Edi › Skills first. */

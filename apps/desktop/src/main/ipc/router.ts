@@ -18,6 +18,7 @@ import {
   type Task,
   type Schedule,
   type ApprovalRule,
+  type PrivacyState,
   type Connector,
   type SkillsState,
   type UsageSummary,
@@ -69,6 +70,7 @@ interface IpcDependencies {
   tasks(): Task[];
   schedules(): Schedule[];
   approvalRules(): ApprovalRule[];
+  privacy(): PrivacyState;
   connectors(): Connector[];
   skills(): Promise<SkillsState>;
   composioConfigured(): boolean;
@@ -102,6 +104,7 @@ export function registerIpc({
   tasks,
   schedules,
   approvalRules,
+  privacy,
   connectors,
   skills,
   composioConfigured,
@@ -183,6 +186,10 @@ export function registerIpc({
   ipcMain.handle('edi:approval-rules:get', event => {
     authorize(callerOf(event), ['workspace']);
     return approvalRules();
+  });
+  ipcMain.handle('edi:privacy:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return privacy();
   });
   ipcMain.handle('edi:schedules:get', event => {
     authorize(callerOf(event), ['workspace']);

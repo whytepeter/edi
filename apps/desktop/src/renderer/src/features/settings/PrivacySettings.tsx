@@ -8,9 +8,11 @@ import {
   type PermissionId,
   type PermissionSnapshot,
   type PermissionStatus,
+  type PrivateApp,
   type WorkspaceView,
 } from '@edi/contracts';
 import { Button, type IconName, GroupedList, GroupedRow, Switch } from '../../components/ui';
+import { usePrivacy } from '../../hooks/usePrivacy';
 import './settings.css';
 
 const permissionCopy: Record<PermissionId, { title: string; detail: string; icon: IconName }> = {
@@ -65,14 +67,30 @@ export function PrivacySettings({
   permissions,
   shareDesktopContext,
   onShareDesktopContext,
+  privacyPaused,
+  pauseWhenSharing,
+  privateApps,
   onOpen,
 }: {
   permissions: PermissionSnapshot;
   shareDesktopContext: boolean;
   onShareDesktopContext(enabled: boolean): void;
+  privacyPaused: boolean;
+  pauseWhenSharing: boolean;
+  privateApps: readonly PrivateApp[];
   onOpen(view: WorkspaceView): void;
 }) {
   const [error, setError] = useState('');
+  const privacy = usePrivacy();
+
+  async function privacyCommand(command: Parameters<NonNullable<typeof window.edi>['command']>[0]) {
+    setError('');
+    try {
+      await window.edi?.command(command);
+    } catch {
+      setError(command.type === 'add-private-app' ? 'Couldn’t add that app.' : 'Couldn’t change that.');
+    }
+  }
   const [files, setFiles] = useState<FileAccess | null>(null);
   const [rules, setRules] = useState<ApprovalRule[]>([]);
 
@@ -166,6 +184,66 @@ export function PrivacySettings({
             />
           );
         })}
+      </GroupedList>
+
+      <GroupedList
+        title="Privacy mode"
+        footer={
+          privacy.paused === 'sharing'
+            ? `Paused now: you’re sharing your screen${privacy.sharingApp ? ` in ${privacy.sharingApp}` : ''}. Edi is out of the share too.`
+            : 'Password managers are always private. Edi only looks when you ask, and keeps nothing it sees.'
+        }
+      >
+        <GroupedRow
+          icon="shield"
+          title="Don’t look at my screen"
+          detail="No screenshots and nothing read from the app in front until you turn this off. You can also ask Edi."
+          control={
+            <Switch
+              label="Don’t look at my screen"
+              checked={privacyPaused}
+              onChange={paused => void privacyCommand({ type: 'set-privacy', paused })}
+            />
+          }
+        />
+        <GroupedRow
+          icon="window"
+          title="Pause while I share my screen"
+          detail="Zoom, Google Meet, Teams, Slack, FaceTime and others"
+          control={
+            <Switch
+              label="Pause while I share my screen"
+              checked={pauseWhenSharing}
+              onChange={enabled =>
+                void privacyCommand({ type: 'set-privacy', pauseWhenSharing: enabled })
+              }
+            />
+          }
+        />
+        {privateApps.map(app => (
+          <GroupedRow
+            key={app.bundleId}
+            icon="shield"
+            title={app.name}
+            detail="Kept private: Edi doesn’t look while it’s in front"
+            control={
+              <Button
+                size="small"
+                onClick={() =>
+                  void privacyCommand({ type: 'remove-private-app', bundleId: app.bundleId })
+                }
+              >
+                Remove
+              </Button>
+            }
+          />
+        ))}
+        <GroupedRow
+          icon="shield"
+          title="Keep an app private…"
+          detail="Edi won’t look at your screen while that app is in front"
+          onOpen={() => void privacyCommand({ type: 'add-private-app' })}
+        />
       </GroupedList>
 
       <GroupedList

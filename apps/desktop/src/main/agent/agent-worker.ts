@@ -156,7 +156,9 @@ const SELF = [
   'edi_change_preferences to change any of Edi’s own settings (character, size, pin, voice,',
   'spoken replies, speech recognition, what is shared, task budget, skills) and edi_choose_model',
   'to switch the AI model when asked. Use edi_window to close the card or sleep only when asked. Features listed as not',
-  'yet available do not exist; say so and do not pretend.',
+  'yet available do not exist; say so and do not pretend. When the setup says you are not',
+  'looking at the screen (privacy), say so and why if the request needs it, and never guess',
+  'what is on it; edi_change_preferences lookAtScreen turns looking back on when asked.',
 ].join(' ');
 
 // Pointing tags; main strips them and moves Edi's pointer.

@@ -915,3 +915,43 @@ int edi_front_context(int exclude_pid, char *dest, int capacity) {
     return (int)json.length;
   }
 }
+
+/**
+ * The windows on screen: owner, bundle id, title and layer. Edi reads it to notice a screen share
+ * (call apps put up a "sharing" bar); titles are only there with Screen Recording.
+ */
+int edi_window_list(char *dest, int capacity) {
+  @autoreleasepool {
+    CFArrayRef windows = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (!windows) return 0;
+    NSMutableArray *list = [NSMutableArray array];
+    NSMutableDictionary<NSNumber *, NSString *> *bundles = [NSMutableDictionary dictionary];
+    for (NSDictionary *info in (__bridge NSArray *)windows) {
+      NSNumber *pid = info[(__bridge NSString *)kCGWindowOwnerPID];
+      NSString *owner = info[(__bridge NSString *)kCGWindowOwnerName] ?: @"";
+      NSString *name = info[(__bridge NSString *)kCGWindowName];
+      NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+      entry[@"owner"] = owner;
+      entry[@"layer"] = info[(__bridge NSString *)kCGWindowLayer] ?: @0;
+      if (name.length) entry[@"name"] = name;
+      if (pid) {
+        NSString *bundle = bundles[pid];
+        if (!bundle) {
+          bundle = [NSRunningApplication runningApplicationWithProcessIdentifier:pid.intValue]
+                       .bundleIdentifier ?: @"";
+          bundles[pid] = bundle;
+        }
+        if (bundle.length) entry[@"bundleId"] = bundle;
+      }
+      [list addObject:entry];
+      if (list.count >= 400) break;
+    }
+    CFRelease(windows);
+    NSData *json = [NSJSONSerialization dataWithJSONObject:list options:0 error:nil];
+    if (!json) return 0;
+    if ((int)json.length > capacity) return -(int)json.length;
+    memcpy(dest, json.bytes, json.length);
+    return (int)json.length;
+  }
+}

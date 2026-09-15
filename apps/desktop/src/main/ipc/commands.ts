@@ -37,6 +37,8 @@ interface CommandDependencies {
   openSkillsFolder(): Promise<void>;
   /** Skills › Add Skill…: the folder picker, then the same check as every skill. */
   addSkill(): Promise<void>;
+  /** Settings → Privacy: choose an app Edi never looks at. */
+  addPrivateApp(): Promise<void>;
   /** One of the person's skills, selected in Finder. */
   revealSkill(name: string): void;
   placement: WindowPlacement;
@@ -98,6 +100,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     skills,
     openSkillsFolder,
     addSkill,
+    addPrivateApp,
     revealSkill,
     placement,
     petDrag,
@@ -245,6 +248,22 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'set-share-desktop-context': {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ shareDesktopContext: enabled }),
+    },
+    'set-privacy': {
+      from: fromWorkspace,
+      handle: ({ paused, pauseWhenSharing }) =>
+        settings.update({
+          ...(paused !== undefined ? { privacyPaused: paused } : {}),
+          ...(pauseWhenSharing !== undefined ? { pauseWhenSharing } : {}),
+        }),
+    },
+    'add-private-app': { from: fromWorkspace, handle: () => addPrivateApp() },
+    'remove-private-app': {
+      from: fromWorkspace,
+      handle: ({ bundleId }) =>
+        settings.update({
+          privateApps: settings.current.privateApps.filter(app => app.bundleId !== bundleId),
+        }),
     },
     'set-pet-scale': {
       from: fromWorkspace,

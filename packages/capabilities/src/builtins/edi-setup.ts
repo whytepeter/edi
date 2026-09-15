@@ -36,6 +36,8 @@ export interface EdiSetupSnapshot {
     voiceInput: string;
     voiceWords: string[];
     ai: { connected: boolean; model: string | null };
+    /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
+    privacy: { lookingAtScreen: boolean; reason: string | null };
     pushToTalk: { status: string; shortcut: string };
   };
   workspace: {
@@ -95,6 +97,12 @@ export const ediPreferencesSchema = z
       .boolean()
       .optional()
       .describe('Send the app, window, page and selected text in front with each question'),
+    lookAtScreen: z
+      .boolean()
+      .optional()
+      .describe(
+        'false when the user asks you not to look at their screen (privacy mode); true to look again',
+      ),
     taskBudgetUsd: taskBudgetSchema
       .optional()
       .describe('Default spending cap for a background task, in US dollars'),

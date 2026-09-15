@@ -82,6 +82,7 @@ import {
   connectorCatalog,
   voiceSelectionSchema,
   voiceWordsSchema,
+  privacyReason,
   type VoiceSelection,
   defaultCharacterId,
   replyMood,
@@ -98,7 +99,7 @@ import {
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreensForPrompt, showMarksInCaptures } from './capture/screens';
-import { documentText, shouldHideCardOnBlur } from './permissions';
+import { documentText, shouldHideCardOnBlur, windowListJson } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
@@ -134,6 +135,7 @@ import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
+import { PrivacyGuard, readPrivateApp } from './privacy/privacy-guard';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
@@ -585,6 +587,10 @@ async function start() {
         voiceInput: settings.current.voiceInput,
         voiceWords: settings.current.voiceWords,
         ai: { connected: agent?.state.configured ?? false, model: agent?.state.model || null },
+        privacy: {
+          lookingAtScreen: !privacy.state.paused,
+          reason: privacyReason(privacy.state),
+        },
         pushToTalk: pushToTalk(),
       },
       // Built-in abilities are listed above; skills are add-ons, and none exist yet.
@@ -1004,6 +1010,31 @@ async function start() {
       }
     },
   });
+  // Privacy mode: Edi doesn't look while paused, while a call app shares the screen (and then
+  // stays out of the share), or with an app kept private in front.
+  const privacy = new PrivacyGuard({
+    settings: () => settings.current,
+    windowList: windowListJson,
+    ownWindows: () => BrowserWindow.getAllWindows(),
+  });
+  privacy.start();
+  settings.onChange(() => privacy.refresh());
+  /** What's in front with a question, unless Edi isn't looking; a private app gives only its name. */
+  const lookInFront = async () => {
+    if (!settings.current.shareDesktopContext || privacy.state.paused) return null;
+    const context = await captureDesktopContext();
+    return context?.bundleId && privacy.isPrivate(context.bundleId)
+      ? { ...context, windowTitle: null, url: null, document: null, selectedText: null }
+      : context;
+  };
+  /** Screenshots for a screen question, only while Edi may look. */
+  const screensForPrompt = (prompt: string) =>
+    captureScreensForPrompt(prompt, async () => {
+      if (privacy.state.paused) return false;
+      const front = await captureDesktopContext().catch(() => null);
+      return !privacy.pauseFor(front?.bundleId);
+    });
+
   agent = new AgentService({
     rules: approvalRules,
     connectedTools: () => connectors.capabilities(),
@@ -1012,8 +1043,7 @@ async function start() {
       return readerModel;
     },
     spokenEffort: model => modelCatalog.quickEffort(model),
-    desktopContext: async () =>
-      settings.current.shareDesktopContext ? captureDesktopContext() : null,
+    desktopContext: () => lookInFront(),
     credentials: openRouter,
     repositories,
     capabilities: [
@@ -1052,7 +1082,7 @@ async function start() {
       }
       return byRun;
     },
-    captureScreens: captureScreensForPrompt,
+    captureScreens: screensForPrompt,
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
     selfContext: () => JSON.stringify(setupSnapshot()),
@@ -1256,7 +1286,7 @@ async function start() {
     send: event => broadcast([pet], 'edi:voice', event),
     status: status => character.showVoiceStatus(status),
     microphoneAccess: async () => permissionPort.current?.require('microphone') ?? false,
-    captureScreens: captureScreensForPrompt,
+    captureScreens: screensForPrompt,
     ask: (prompt, options) =>
       agent.ask(prompt, options).catch((error: unknown) => {
         if (error instanceof Error && error.message === 'Set up OpenRouter first.')
@@ -1522,6 +1552,7 @@ async function start() {
         : {}),
       ...(patch.taskBudgetUsd !== undefined ? { taskBudgetUsd: patch.taskBudgetUsd } : {}),
       ...(patch.voiceInput ? { voiceInput: patch.voiceInput } : {}),
+      ...(patch.lookAtScreen !== undefined ? { privacyPaused: !patch.lookAtScreen } : {}),
       ...(words?.success ? { voiceWords: words.data } : {}),
       ...(speakingVoice?.success
         ? {
@@ -1643,6 +1674,7 @@ async function start() {
   tasks.resume();
   scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
   approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
+  privacy.onChange(state => broadcast([workspace], 'edi:privacy', state));
   connectors.onChange(list => broadcast([workspace], 'edi:connectors', list));
   // A skill's apps show whether each is connected, so connector changes update Skills too.
   const skillSummaries = (): SkillsState => {
@@ -1804,6 +1836,21 @@ async function start() {
         if (result.canceled || !path) return;
         await skills.import(path);
       },
+      addPrivateApp: async () => {
+        const result = await dialog.showOpenDialog(workspace, {
+          title: 'Keep an app private',
+          message: 'Edi won’t look at your screen while this app is in front.',
+          buttonLabel: 'Keep Private',
+          defaultPath: '/Applications',
+          properties: ['openFile'],
+          filters: [{ name: 'Apps', extensions: ['app'] }],
+        });
+        const path = result.filePaths[0];
+        if (result.canceled || !path) return;
+        const chosen = await readPrivateApp(path);
+        const others = settings.current.privateApps.filter(app => app.bundleId !== chosen.bundleId);
+        await settings.update({ privateApps: [...others, chosen].slice(-50) });
+      },
       placement,
       petDrag,
       character,
@@ -1925,6 +1972,7 @@ async function start() {
     tasks: () => tasks.list(),
     schedules: () => scheduler.list(),
     approvalRules: () => approvalRules.list(),
+    privacy: () => privacy.state,
     connectors: () => connectors.list(),
     skills: async () => {
       await skills.refresh();
