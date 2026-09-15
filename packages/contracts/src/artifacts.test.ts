@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { artifactExport, placeArtifact } from './index';
+import {
+  artifactExport,
+  artifactTextExport,
+  exportFileName,
+  exportFormats,
+  placeArtifact,
+} from './index';
 
 test('artifact exports: Markdown to copy, Markdown or CSV to save', () => {
   const doc = artifactExport({ kind: 'document', title: 'Report', markdown: '# Hi\n\nText' });
@@ -55,4 +61,32 @@ test('the artifact window opens beside the card, away from Edi, inside the displ
     size,
   );
   assert.equal(low.y + low.height <= area.y + area.height, true);
+});
+
+test('exports: each kind offers its formats, text formats come from the content', () => {
+  assert.deepEqual(exportFormats.table, ['csv', 'pdf', 'md']);
+  assert.deepEqual(exportFormats.diagram, ['png', 'svg', 'pdf', 'mmd']);
+  const table = {
+    kind: 'table' as const,
+    title: 'Costs',
+    columns: ['Item', 'Amount'],
+    rows: [['Hosting', '1,200']],
+  };
+  assert.equal(artifactTextExport(table, 'csv'), 'Item,Amount\nHosting,"1,200"\n');
+  assert.equal(
+    artifactTextExport(table, 'md'),
+    '# Costs\n\n| Item | Amount |\n| --- | --- |\n| Hosting | 1,200 |\n',
+  );
+  const diagram = { kind: 'diagram' as const, title: 'Flow', mermaid: 'flowchart LR\n  a --> b' };
+  assert.equal(artifactTextExport(diagram, 'mmd'), 'flowchart LR\n  a --> b\n');
+  // PDFs and pictures are drawn by the host; a kind never exports as a format it lacks.
+  assert.throws(() => artifactTextExport(diagram, 'png'));
+  assert.throws(() => artifactTextExport(table, 'html'));
+});
+
+test('export file names keep the title but nothing Finder refuses', () => {
+  assert.equal(exportFileName('Costs / Q3: plan?', 'pdf'), 'Costs - Q3- plan-.pdf');
+  assert.equal(exportFileName('..hidden', 'md'), 'hidden.md');
+  assert.equal(exportFileName('a\u0007b', 'csv'), 'a-b.csv');
+  assert.equal(exportFileName('   ', 'png'), 'Edi.png');
 });

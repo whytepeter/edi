@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
+import type mermaidApi from 'mermaid';
 
-type Mermaid = (typeof import('mermaid'))['default'];
+type Mermaid = typeof mermaidApi;
 
 let loading: Promise<Mermaid> | null = null;
 /** Mermaid is large: it loads the first time a diagram is drawn, never at startup. */
@@ -13,21 +14,24 @@ const dark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
 
 /**
  * A Mermaid diagram, drawn by the bundled Mermaid in strict mode: labels are sanitized, links and
- * scripts in the source are refused, and nothing is fetched. `onRendered` receives the SVG so
- * Download can save exactly what's on screen.
+ * scripts in the source are refused, and nothing is fetched. `onRendered` receives the SVG.
+ * Exports pass `light`, so a shared file reads on paper whatever the Mac's appearance.
  */
 export function Diagram({
   source,
   onRendered,
+  light = false,
 }: {
   source: string;
   onRendered?: (svg: string | null) => void;
+  light?: boolean;
 }) {
   const id = `diagram-${useId().replace(/[^a-zA-Z0-9-]/g, '')}`;
   const [result, setResult] = useState<{ source: string; svg?: string; error?: string }>({
     source: '',
   });
-  const [scheme, setScheme] = useState(dark);
+  const [systemDark, setScheme] = useState(dark);
+  const scheme = systemDark && !light;
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-color-scheme: dark)');

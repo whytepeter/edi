@@ -7,6 +7,7 @@ export const stepLabels: Record<string, string> = {
   'workspace.read': 'Reading your workspace',
   'workspace.update': 'Updating it',
   'workspace.delete': 'Tidying up',
+  'workspace.export': 'Exporting it',
   'notes.save': 'Saving your note',
   'notes.list': 'Checking your notes',
   'notes.read': 'Reading your note',

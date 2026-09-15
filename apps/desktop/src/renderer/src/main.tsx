@@ -1,8 +1,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/index.css';
-import { artifactParams, bubbleParams, menuParams, pointerParams, surface } from './app/surface';
+import {
+  artifactParams,
+  bubbleParams,
+  exportParams,
+  menuParams,
+  pointerParams,
+  surface,
+} from './app/surface';
 import { ArtifactWindow } from './components/artifacts/Artifact';
+import { ExportPage } from './components/artifacts/ExportPage';
 import { WorkspaceCard } from './app/WorkspaceCard';
 import { PetSurface } from './features/pet/PetSurface';
 import { CharacterMenu } from './features/pet/CharacterMenu';
@@ -37,6 +45,7 @@ if (surface === 'pet' && window.edi)
 const view = {
   workspace: <WorkspaceCard />,
   artifact: <ArtifactWindow {...artifactParams} />,
+  export: <ExportPage {...exportParams} />,
   pet: <PetSurface />,
   'character-menu': <CharacterMenu {...menuParams} />,
   'voice-status': <StatusBubble {...bubbleParams} />,

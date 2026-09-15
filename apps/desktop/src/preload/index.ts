@@ -5,6 +5,7 @@ import {
   cloudProviderSchema,
   cloudVoiceListSchema,
   artifactSchema,
+  exportFormatSchema,
   agentStateSchema,
   characterExpressionSchema,
   characterInspectionSchema,
@@ -53,6 +54,16 @@ const bridge: DesktopBridge = {
     artifactSchema.parse(
       await ipcRenderer.invoke('edi:artifact:get', artifactRefSchema.parse(ref)),
     ),
+  exportArtifact: async (ref, format, choose = false) => {
+    const result: unknown = await ipcRenderer.invoke('edi:artifact:export', {
+      ref: artifactRefSchema.parse(ref),
+      format: exportFormatSchema.parse(format),
+      choose: choose === true,
+    });
+    return result && typeof result === 'object' && 'name' in result
+      ? { name: String(result.name).slice(0, 200) }
+      : null;
+  },
   permissions: async () =>
     permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
   fileAccess: async () => fileAccessSchema.parse(await ipcRenderer.invoke('edi:file-access:get')),

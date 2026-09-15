@@ -45,10 +45,12 @@ interface CommandDependencies {
   revealLibraryItem(id: string): void;
   /** Show an artifact in its own window beside the card. */
   openArtifact(ref: ArtifactRef): void;
-  /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
-  artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
-  /** Save a diagram's drawn SVG where the person chooses. */
-  saveArtifactImage(ref: ArtifactRef, svg: string): Promise<void>;
+  /** Copy or reveal shown content; main resolves everything from the ref. */
+  artifactAction(action: 'copy' | 'reveal', ref: ArtifactRef): Promise<void>;
+  /** Show the most recent export in Finder. */
+  revealExport(): void;
+  /** The hidden export page finished drawing (and hands back a diagram's picture). */
+  exportReady(result: { svg?: string; png?: string; failed?: boolean }): void;
   closeArtifact(): void;
   /** Open a validated http(s) link from a reply in the default browser. */
   openLink(url: string): Promise<void>;
@@ -91,7 +93,8 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     revealLibraryItem,
     openArtifact,
     artifactAction,
-    saveArtifactImage,
+    revealExport,
+    exportReady,
     closeArtifact,
     openLink,
     previewVoice,
@@ -232,14 +235,11 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'open-artifact': { from: ['workspace', 'bubble'], handle: ({ ref }) => openArtifact(ref) },
     'artifact-copy': { from: fromArtifact, handle: ({ ref }) => artifactAction('copy', ref) },
-    'artifact-download': {
-      from: fromArtifact,
-      handle: ({ ref }) => artifactAction('download', ref),
-    },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
-    'artifact-save-image': {
-      from: fromArtifact,
-      handle: ({ ref, svg }) => saveArtifactImage(ref, svg),
+    'reveal-export': { from: fromArtifact, handle: () => revealExport() },
+    'export-ready': {
+      from: ['export'],
+      handle: ({ type: _type, ...result }) => exportReady(result),
     },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
     'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },

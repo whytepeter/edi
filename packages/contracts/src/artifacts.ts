@@ -149,6 +149,58 @@ export function artifactExport(content: ArtifactContent | Artifact) {
 }
 
 /**
+ * Export is its own step, apart from the working copy Edi keeps: a file made to hand to someone,
+ * written to Documents › Edi › Exports. Each kind offers the formats that suit it, first is the
+ * default. PDF and pictures are drawn by Edi's own renderer; the rest are text.
+ */
+export const exportFormatSchema = z.enum(['pdf', 'md', 'csv', 'png', 'svg', 'mmd', 'html']);
+export type ExportFormat = z.infer<typeof exportFormatSchema>;
+
+export const exportFormats: Record<ArtifactKind, readonly ExportFormat[]> = {
+  document: ['pdf', 'md'],
+  note: ['pdf', 'md'],
+  checklist: ['pdf', 'md'],
+  table: ['csv', 'pdf', 'md'],
+  diagram: ['png', 'svg', 'pdf', 'mmd'],
+  html: ['html'],
+};
+
+export const exportFormatLabel: Record<ExportFormat, string> = {
+  pdf: 'PDF',
+  md: 'Markdown',
+  csv: 'CSV',
+  png: 'PNG image',
+  svg: 'SVG image',
+  mmd: 'Mermaid source',
+  html: 'Web page',
+};
+
+/** Formats drawn by a renderer rather than written as text. */
+export const renderedExportFormats: readonly ExportFormat[] = ['pdf', 'png', 'svg'];
+
+/** A file name from a title: no path separators or characters Finder refuses. */
+export function exportFileName(title: string, format: ExportFormat) {
+  const name =
+    title
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\p{Cc}+/gu, '-')
+      .replace(/^[.\s-]+/, '')
+      .trim()
+      .slice(0, 100) || 'Edi';
+  return `${name}.${format}`;
+}
+
+/** The text formats of shown content. Rendered formats (PDF, pictures) come from the host. */
+export function artifactTextExport(content: ArtifactContent | Artifact, format: ExportFormat) {
+  if (!exportFormats[content.kind].includes(format) || renderedExportFormats.includes(format))
+    throw new Error(`A ${content.kind} can't be exported as ${exportFormatLabel[format]} text.`);
+  const portable = artifactExport(content);
+  // A table's own file is CSV; as Markdown it becomes a titled table.
+  if (format === 'md' && content.kind === 'table') return `# ${content.title}\n\n${portable.copy}`;
+  return portable.file;
+}
+
+/**
  * Served with every interactive page. `sandbox allow-scripts` gives the page an opaque origin
  * (no storage, no access to Edi's window); everything that could load or send data is refused.
  */

@@ -15,7 +15,7 @@ import {
 
 /** Renderer entry points. One bundle serves all of them, selected by `?surface=`. */
 export type Surface =
-  'workspace' | 'artifact' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
+  'workspace' | 'artifact' | 'export' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
 
 export const cardSize = {
   compact: { width: 408, height: 480 },
@@ -125,6 +125,22 @@ export function createArtifactWindow(ref: ArtifactRef) {
   });
   win.once('show', () => shapeGlassWindow(win, glassWindowRadius));
   return loadSurface(win, 'artifact', { ref: JSON.stringify(ref) });
+}
+
+/**
+ * Never shown: draws content on white, page-width, for a PDF or a diagram's picture. It keeps
+ * painting and running timers while hidden so Mermaid can lay out and the page can be printed.
+ */
+export function createExportWindow(ref: ArtifactRef, format: 'pdf' | 'png' | 'svg') {
+  const win = new BrowserWindow({
+    show: false,
+    width: 800,
+    height: 1100,
+    backgroundColor: '#ffffff',
+    skipTaskbar: true,
+    webPreferences: { ...withBridge, backgroundThrottling: false },
+  });
+  return loadSurface(win, 'export', { ref: JSON.stringify(ref), format });
 }
 
 export function createPetWindow(saved: { x: number; y: number } | null, petScale: number) {

@@ -226,11 +226,86 @@
  * makes it read as glass. The header is the drag handle; content scrolls beneath it.
  */
 .artifact-window {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
   isolation: isolate;
+}
+/* Export: a menu of this kind's formats under the header's Export button. */
+.artifact-menu-dismiss {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+.artifact-export-menu {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  z-index: 4;
+  min-width: 190px;
+  transform-origin: top right;
+  animation: artifact-menu-in var(--spring-fast) var(--spring) both;
+}
+@keyframes artifact-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+}
+/* What an export wrote, with a way to find it; fades after a few seconds. */
+.artifact-export-status {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  background: var(--glass-thick-fill);
+  box-shadow:
+    0 0 0 0.5px var(--separator),
+    0 6px 20px rgb(0 0 0 / 0.14);
+  font: var(--text-footnote);
+  color: var(--label);
+}
+.artifact-export-status > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.artifact-export-status > svg {
+  flex: none;
+  color: var(--accent-strong);
+}
+.artifact-export-status button {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  font: inherit;
+  font-weight: 600;
+  color: var(--label);
+  cursor: pointer;
+}
+.artifact-export-status button:hover {
+  background: var(--fill-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .artifact-export-menu {
+    animation: none;
+  }
 }
 .artifact-window-header {
   display: flex;

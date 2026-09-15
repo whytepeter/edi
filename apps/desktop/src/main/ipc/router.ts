@@ -6,6 +6,8 @@ import {
   type Artifact,
   type ArtifactRef,
   artifactRefSchema,
+  exportFormatSchema,
+  type ExportFormat,
   cloudProviderSchema,
   usagePeriodSchema,
   fileAccessActionSchema,
@@ -35,7 +37,7 @@ import {
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
-export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact';
+export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact' | 'export';
 
 type CommandOf<T extends Command['type']> = Extract<Command, { type: T }>;
 interface Route<T extends Command['type']> {
@@ -64,6 +66,11 @@ interface IpcDependencies {
   skills(): Promise<SkillsState>;
   composioConfigured(): boolean;
   artifact(ref: ArtifactRef): Promise<Artifact>;
+  exportArtifact(
+    ref: ArtifactRef,
+    format: ExportFormat,
+    choose: boolean,
+  ): Promise<{ name: string } | null>;
   permissions(): PermissionSnapshot;
   fileAccess(): FileAccess;
   fileAccessAction(action: FileAccessAction): Promise<FileAccess>;
@@ -92,6 +99,7 @@ export function registerIpc({
   skills,
   composioConfigured,
   artifact,
+  exportArtifact,
   permissions,
   fileAccess,
   fileAccessAction,
@@ -132,8 +140,17 @@ export function registerIpc({
     return system();
   });
   ipcMain.handle('edi:artifact:get', (event, ref: unknown) => {
-    authorize(callerOf(event), ['artifact']);
+    // The hidden export page reads the content it draws for a PDF or picture.
+    authorize(callerOf(event), ['artifact', 'export']);
     return artifact(artifactRefSchema.parse(ref));
+  });
+  ipcMain.handle('edi:artifact:export', (event, raw: unknown) => {
+    authorize(callerOf(event), ['artifact']);
+    const input = z
+      .object({ ref: artifactRefSchema, format: exportFormatSchema, choose: z.boolean() })
+      .strict()
+      .parse(raw);
+    return exportArtifact(input.ref, input.format, input.choose);
   });
   ipcMain.handle('edi:models:get', event => {
     authorize(callerOf(event), ['workspace']);

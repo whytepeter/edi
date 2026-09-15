@@ -1,5 +1,5 @@
 import { _electron as electron, expect } from '@playwright/test';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRepositories, openDatabase } from '../../packages/storage/src/index.ts';
@@ -11,9 +11,13 @@ import { createRepositories, openDatabase } from '../../packages/storage/src/ind
  * Do not run while `pnpm dev` Edi is open: both share a bundle id and the test app is killed.
  */
 const profile = await mkdtemp(join(tmpdir(), 'edi-artifacts-'));
+// Edi's workspace (Documents › Edi) lives here for the test, so exports never touch the Mac's own.
+const documents = await mkdtemp(join(tmpdir(), 'edi-documents-'));
+const exportsFolder = join(documents, 'Edi', 'Exports');
 const runId = '00000000-0000-4000-8000-000000000001';
 const callId = '00000000-0000-4000-8000-000000000002';
 const diagramId = '00000000-0000-4000-8000-000000000003';
+const documentId = '00000000-0000-4000-8000-000000000004';
 
 const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><body>
 <button id="count">Count 0</button><pre id="result">running</pre>
@@ -118,13 +122,42 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     createdAt: 5,
     updatedAt: 5,
   });
+  // A document, exported to PDF and Markdown.
+  const markdown = '# Launch plan\n\n- Ship the beta\n- Tell the testers\n\n| Step | Owner |\n| --- | --- |\n| QA | Ada |';
+  repositories.toolCalls.create({
+    id: documentId,
+    runId,
+    capability: 'workspace.show',
+    title: 'Show content',
+    effect: 'read',
+    input: { kind: 'document', title: 'Launch plan', markdown },
+    status: 'running',
+    at: 6,
+  });
+  repositories.toolCalls.finish(
+    documentId,
+    'succeeded',
+    'Showed “Launch plan”.',
+    { shown: true, kind: 'document', title: 'Launch plan', path: 'Artifacts/Reports/x.md', bytes: 90 },
+    7,
+  );
+  repositories.artifacts.add({
+    id: documentId,
+    kind: 'document',
+    title: 'Launch plan',
+    content: { kind: 'document', title: 'Launch plan', markdown },
+    path: 'Artifacts/Reports/edi-test-launch-plan-missing.md',
+    bytes: 90,
+    createdAt: 7,
+    updatedAt: 7,
+  });
   database.close();
 }
 
 let app;
 try {
   app = await electron.launch({
-    env: { ...process.env, EDI_VOICE: 'off', EDI_MODEL_CATALOG: 'off' },
+    env: { ...process.env, EDI_VOICE: 'off', EDI_MODEL_CATALOG: 'off', EDI_DOCUMENTS: documents },
     executablePath: resolve(
       'apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
     ),
@@ -144,6 +177,8 @@ try {
   const artifactOpen = () => Boolean(openArtifactPage());
 
   // 1. From the conversation: the page stays put and the artifact opens beside the card.
+  // The card listens for navigation once it has rendered; a request before that is dropped.
+  await workspace.locator('.workspace-card').waitFor({ state: 'attached' });
   await workspace.evaluate(() =>
     window.edi.command({ type: 'show-workspace', view: 'conversations' }),
   );
@@ -151,7 +186,7 @@ try {
   let artifact = await artifactWindow();
   await expect(artifact.getByRole('heading', { name: 'Sandbox probe' })).toBeVisible();
   await expect(artifact.getByText('Interactive', { exact: true })).toBeVisible();
-  for (const name of ['Copy', 'Download', 'Show in Finder', 'Close'])
+  for (const name of ['Copy', 'Export', 'Show in Finder', 'Close'])
     await expect(artifact.getByRole('button', { name })).toBeVisible();
   await expect(artifact.getByRole('button', { name: /Back/ })).toHaveCount(0);
   // Copy uses the real system clipboard; put the person's clipboard back afterwards.
@@ -248,12 +283,62 @@ try {
   await expect(artifact.getByText('Diagram', { exact: true })).toBeVisible();
   await expect(artifact.locator('.artifact-diagram svg')).toBeVisible({ timeout: 15_000 });
   await expect(artifact.locator('.artifact-diagram')).toContainText('Database');
-  for (const name of ['Copy', 'Download'])
+  for (const name of ['Copy', 'Export'])
     await expect(artifact.getByRole('button', { name })).toBeVisible();
+
+  // 7. Export is its own step: the kind's formats, written to Documents › Edi › Exports.
+  const exportAs = async (format, file) => {
+    await artifact.getByRole('button', { name: 'Export' }).click();
+    const menu = artifact.getByRole('menu', { name: 'Export as' });
+    await expect(menu).toBeVisible();
+    await menu.getByRole('menuitem', { name: format, exact: true }).click();
+    await expect(artifact.getByRole('status')).toContainText(`Exported “${file}” to Exports`, {
+      timeout: 20_000,
+    });
+    return readFile(join(exportsFolder, file));
+  };
+  await artifact.getByRole('button', { name: 'Export' }).click();
+  await expect(
+    artifact.getByRole('menu', { name: 'Export as' }).getByRole('menuitem'),
+  ).toHaveText(['PNG image', 'SVG image', 'PDF', 'Mermaid source', 'Export to…']);
+  // Escape closes the menu, not the window.
+  await artifact.keyboard.press('Escape');
+  await expect(artifact.getByRole('menu')).toHaveCount(0);
+  expect(artifactOpen()).toBe(true);
+  const png = await exportAs('PNG image', 'Architecture.png');
+  expect(png.subarray(1, 4).toString()).toBe('PNG');
+  expect(png.length).toBeGreaterThan(2_000);
+  const svg = (await exportAs('SVG image', 'Architecture.svg')).toString();
+  expect(svg).toMatch(/^<\?xml[^>]*>\n<svg[^>]*width="\d+"/);
+  expect(svg).toContain('Database');
+  expect((await exportAs('PDF', 'Architecture.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
+  expect((await exportAs('Mermaid source', 'Architecture.mmd')).toString()).toContain('flowchart LR');
+  // A second export of the same format never replaces the first.
+  await exportAs('PNG image', 'Architecture 2.png');
+
+  await workspace.evaluate(ref => window.edi.command({ type: 'open-artifact', ref }), {
+    callId: documentId,
+  });
+  await expect(artifact.getByRole('heading', { name: 'Launch plan', level: 1 })).toBeVisible();
+  const pdf = await exportAs('PDF', 'Launch plan.pdf');
+  expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  expect(pdf.length).toBeGreaterThan(5_000);
+  expect((await exportAs('Markdown', 'Launch plan.md')).toString()).toContain('| QA | Ada |');
+  expect((await readdir(exportsFolder)).sort()).toEqual([
+    'Architecture 2.png',
+    'Architecture.mmd',
+    'Architecture.pdf',
+    'Architecture.png',
+    'Architecture.svg',
+    'Launch plan.md',
+    'Launch plan.pdf',
+  ]);
+  // Exporting never adds anything to the workspace's own artifacts.
+  expect((await workspace.evaluate(() => window.edi.library())).length).toBe(2);
   await artifact.keyboard.press('Escape').catch(() => {});
 
   console.log(
-    'PASS: diagrams draw; artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
+    'PASS: diagrams draw; exports write PNG, SVG, PDF, Mermaid and Markdown to Exports; artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
   );
 } finally {
   await app?.close();

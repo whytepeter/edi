@@ -52,6 +52,7 @@ import {
   artifactSummarySchema,
   type Artifact,
   type ArtifactRef,
+  type ExportFormat,
 } from './artifacts';
 export * from './artifacts';
 export * from './usage';
@@ -558,16 +559,26 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('open-artifact'), ref: artifactRefSchema }).strict(),
   /** Artifact window actions. Main resolves content and paths from the reference itself. */
   z.object({ type: z.literal('artifact-copy'), ref: artifactRefSchema }).strict(),
-  z.object({ type: z.literal('artifact-download'), ref: artifactRefSchema }).strict(),
-  /** A diagram's picture, as drawn in the artifact window, saved where the person chooses. */
+  /** Show the most recent export in Finder; main remembers where it wrote it. */
+  z.object({ type: z.literal('reveal-export') }).strict(),
+  /**
+   * The hidden export page has drawn its content: PDFs are printed from it; a diagram also
+   * hands back its picture (SVG text, or a PNG data URL).
+   */
   z
     .object({
-      type: z.literal('artifact-save-image'),
-      ref: artifactRefSchema,
+      type: z.literal('export-ready'),
       svg: z
         .string()
         .max(5_000_000)
-        .refine(value => /^\s*<svg[\s>]/.test(value), 'Not an SVG image'),
+        .refine(value => /^\s*<svg[\s>]/.test(value), 'Not an SVG image')
+        .optional(),
+      png: z
+        .string()
+        .max(30_000_000)
+        .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/)
+        .optional(),
+      failed: z.boolean().optional(),
     })
     .strict(),
   z.object({ type: z.literal('artifact-reveal'), ref: artifactRefSchema }).strict(),
@@ -654,6 +665,15 @@ export interface DesktopBridge {
   onAgent(callback: (state: AgentState) => void): () => void;
   settings(): Promise<Settings>;
   command(command: Command): Promise<void>;
+  /**
+   * Export shown content to Documents › Edi › Exports, or where the person picks when `choose`.
+   * Resolves with the file name, or null when the person cancels the save panel.
+   */
+  exportArtifact(
+    ref: ArtifactRef,
+    format: ExportFormat,
+    choose?: boolean,
+  ): Promise<{ name: string } | null>;
   onSettings(callback: (settings: Settings) => void): () => void;
   /** Voice session instructions for the pet window's microphone and speaker. */
   onVoice(callback: (event: VoiceHostEvent) => void): () => void;

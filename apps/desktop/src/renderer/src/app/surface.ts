@@ -11,10 +11,11 @@ import {
 
 /** Which window this renderer is. Main chooses it; unknown values fall back safely. */
 export type Surface =
-  'workspace' | 'artifact' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
+  'workspace' | 'artifact' | 'export' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
 const surfaces: readonly Surface[] = [
   'workspace',
   'artifact',
+  'export',
   'pet',
   'voice-status',
   'character-menu',
@@ -41,6 +42,12 @@ export const artifactParams = {
       return null;
     }
   })(),
+};
+
+/** The hidden export page: what to draw, and whether for a PDF or a picture. */
+export const exportParams = {
+  reference: artifactParams.initial,
+  format: z.enum(['pdf', 'png', 'svg']).catch('pdf').parse(params.get('format')),
 };
 
 /** Main passes static bubble state in the URL. Validate it before rendering. */

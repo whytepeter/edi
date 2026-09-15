@@ -644,6 +644,59 @@ test('Edi searches, reads, updates and trashes workspace items, confined to its 
   assert.throws(() => remove.prepare({ id: listId }, context), /outside the Edi workspace/);
 });
 
+test('Edi exports workspace items through the host, in formats that suit their kind', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-export-'));
+  const notesFolder = join(folder, 'Notes');
+  const exported: unknown[] = [];
+  const deps = {
+    directory: () => folder,
+    shown: () => {},
+    artifacts: memoryArtifacts(),
+    notes: {
+      store: memoryStore([{ id: noteId, title: 'Palette', path: join(notesFolder, 'p.md'), createdAt: 1 }]),
+      directory: () => notesFolder,
+    },
+    trash: async () => {},
+    exportItem: async (ref: unknown, format: string) => {
+      exported.push({ ref, format });
+      return { path: join(folder, 'Exports', `Plan.${format}`), name: `Plan.${format}`, bytes: 10 };
+    },
+  };
+  const [show, , , , , exportTool] = workspaceCapabilities(deps);
+  assert.ok(exportTool);
+  // Exporting writes only a new file inside Edi's own workspace, so it runs without review.
+  assert.equal(exportTool.effect, 'read');
+  const tableId = '00000000-0000-4000-8000-000000000041';
+  const context = { callId: run, runId: run };
+  await (
+    await show.prepare(
+      { kind: 'table', title: 'Plan', columns: ['Step'], rows: [['Ship']] },
+      { callId: tableId, runId: run },
+    )
+  ).execute(live());
+
+  const done = await (await exportTool.prepare({ id: tableId, format: 'pdf' }, context)).execute(
+    live(),
+  );
+  assert.match(done.summary, /Plan\.pdf in Documents\/Edi\/Exports/);
+  await (await exportTool.prepare({ id: noteId, format: 'md' }, context)).execute(live());
+  assert.deepEqual(exported, [
+    { ref: { callId: tableId }, format: 'pdf' },
+    { ref: { noteId }, format: 'md' },
+  ]);
+  assert.throws(() => exportTool.prepare({ id: tableId, format: 'png' }, context), /csv, pdf, md/);
+  assert.throws(
+    () => exportTool.prepare({ id: '00000000-0000-4000-8000-00000000dead', format: 'pdf' }, context),
+    /Search the workspace first/,
+  );
+  // A host that can't draw exports offers no export tool at all.
+  const { exportItem: _unused, ...withoutExport } = deps;
+  assert.equal(
+    workspaceCapabilities(withoutExport).some(tool => tool.id === 'workspace.export'),
+    false,
+  );
+});
+
 test('workspace artifacts use semantic file formats and never overwrite a generated file', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-artifacts-'));
   const content = {

@@ -215,7 +215,7 @@ test('skills by Fewerlabs only name apps Edi can connect and tools Edi has', asy
   const apps = new Set(connectorCatalog.map(entry => entry.id));
   // Model-facing tool names (capability ids with dots as underscores) plus the worker's own.
   const tools = new Set([
-    ...'files_search files_list files_read files_move files_create_folder files_trash notes_save notes_show workspace_show workspace_search workspace_read workspace_update workspace_delete web_fetch web_search edi_connect_app edi_inspect_setup edi_open_page mac_open_app mac_open_url mac_open_file mac_reveal reminders_list reminders_create calendar_events calendar_create calendar_update calendar_delete tasks_start tasks_list schedules_create schedules_list schedules_delete skills_use skills_create find_app_tools'.split(
+    ...'files_search files_list files_read files_move files_create_folder files_trash notes_save notes_show workspace_show workspace_search workspace_read workspace_update workspace_delete workspace_export web_fetch web_search edi_connect_app edi_inspect_setup edi_open_page mac_open_app mac_open_url mac_open_file mac_reveal reminders_list reminders_create calendar_events calendar_create calendar_update calendar_delete tasks_start tasks_list schedules_create schedules_list schedules_delete skills_use skills_create find_app_tools'.split(
       ' ',
     ),
   ]);

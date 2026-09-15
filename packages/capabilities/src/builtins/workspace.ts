@@ -6,8 +6,13 @@ import {
   artifactContentSchema,
   artifactExport,
   artifactPreview,
+  exportFormatLabel,
+  exportFormatSchema,
+  exportFormats,
   type ArtifactContent,
+  type ArtifactRef,
   type ArtifactSummary,
+  type ExportFormat,
 } from '@edi/contracts';
 import { defineCapability, OutcomeUnknownError } from '../types';
 import {
@@ -184,6 +189,14 @@ export interface WorkspaceDependencies {
       options: { limit: number; after?: number; before?: number },
     ): { id: string; title: string; at: number; excerpt: string }[];
   };
+  /**
+   * Write an item as a file to hand to someone (PDF, Markdown, CSV, pictures) into
+   * Documents/Edi/Exports under a new name; absent in hosts that cannot draw PDFs.
+   */
+  exportItem?(
+    ref: ArtifactRef,
+    format: ExportFormat,
+  ): Promise<{ path: string; name: string; bytes: number }>;
   now?: () => number;
 }
 
@@ -661,5 +674,51 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     },
   });
 
-  return [show, search, read, update, remove] as const;
+  const exportItem = deps.exportItem;
+  const exported = defineCapability({
+    id: 'workspace.export',
+    title: 'Export from the workspace',
+    description:
+      'Export a workspace item as a file the user can send or print, into Documents/Edi/Exports: ' +
+      'documents, notes and checklists as pdf or md; tables as csv, pdf or md; diagrams as png, ' +
+      'svg, pdf or mmd; interactive pages as html. Use when the user asks to export, save as or ' +
+      'send as a PDF, spreadsheet or image. Pass its id from workspace.search (or the item just ' +
+      'shown). Never replaces an earlier export. Tell the user the file name; do not attach it.',
+    // Like show: it only adds a new file inside Edi's own workspace and touches nothing else.
+    effect: 'read',
+    timeoutMs: 45_000,
+    input: z
+      .object({
+        id: itemId,
+        format: exportFormatSchema.describe('pdf, md, csv, png, svg, mmd or html'),
+      })
+      .strict(),
+    prepare({ id, format }) {
+      if (!exportItem) throw new Error('Exporting isn’t available here.');
+      const target = locateWorkspaceItem(deps, id);
+      const formats = exportFormats[target.kind];
+      if (!formats.includes(format))
+        throw new Error(
+          `A ${target.kind} exports as ${formats.join(', ')}, not ${format}. Pick one of those.`,
+        );
+      const ref: ArtifactRef = target.kind === 'note' ? { noteId: id } : { callId: id };
+      return {
+        preview: {
+          title: 'Export',
+          action: 'Export',
+          summary: `Export “${target.title}” as ${exportFormatLabel[format]}.`,
+          fields: [],
+        },
+        async execute() {
+          const file = await exportItem(ref, format);
+          return {
+            summary: `Exported “${target.title}” as ${file.name} in Documents/Edi/Exports.`,
+            output: { name: file.name, path: file.path, bytes: file.bytes },
+          };
+        },
+      };
+    },
+  });
+
+  return [show, search, read, update, remove, ...(exportItem ? [exported] : [])] as const;
 }

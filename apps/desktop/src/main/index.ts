@@ -14,10 +14,12 @@ import {
   systemPreferences,
 } from 'electron';
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 
 if (process.env.EDI_CWD) process.chdir(process.env.EDI_CWD);
+// Tests keep Edi's workspace (Documents › Edi) in a temporary folder, never the person's own.
+if (process.env.EDI_DOCUMENTS) app.setPath('documents', process.env.EDI_DOCUMENTS);
 
 function recordMicrophoneStatus(phase: string) {
   const out = process.env.EDI_MIC_OUT;
@@ -63,6 +65,10 @@ import { EncryptedSecretStore } from './connectors/secrets';
 import {
   artifactExport,
   artifactPreview,
+  exportFileName,
+  exportFormatLabel,
+  exportFormats,
+  type ExportFormat,
   taskBudgetSchema,
   describeWhen,
   scheduleWhenSchema,
@@ -128,9 +134,11 @@ import {
   createPointerWindow,
   createPetWindow,
   createStatusBubbleWindow,
+  createExportWindow,
   createWorkspaceWindow,
   resizePetWindow,
 } from './windows/factory';
+import { Exporter } from './exports/exporter';
 
 /** Display tools whose successful calls become artifacts in the conversation. */
 const DISPLAY_CAPABILITIES = ['workspace.show', 'notes.show'] as const;
@@ -356,6 +364,8 @@ async function start() {
     // Recoverable: files go to the Trash, never straight to deletion.
     trash: path => shell.trashItem(path),
     conversations: repositories.conversations,
+    // Assigned below with the export page; only called once Edi is running.
+    exportItem: (ref, format) => exporter.export(ref, format),
   };
   const libraryItems = (): LibraryItem[] => {
     const notes: LibraryItem[] = repositories.notes
@@ -1297,44 +1307,9 @@ async function start() {
     placement.place();
     artifactWindow.open(ref);
   };
-  const artifactAction = async (action: 'copy' | 'download' | 'reveal', ref: ArtifactRef) => {
+  const artifactAction = async (action: 'copy' | 'reveal', ref: ArtifactRef) => {
     if (action === 'reveal') return shell.showItemInFolder(artifactPath(ref));
-    const content = await resolveArtifact(ref);
-    const { copy, extension, file } = artifactExport(content);
-    if (action === 'copy') return clipboard.writeText(copy);
-    const name = content.title.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Edi';
-    const options = {
-      defaultPath: join(app.getPath('downloads'), `${name}.${extension}`),
-      filters: [
-        extension === 'csv'
-          ? { name: 'CSV', extensions: ['csv'] }
-          : extension === 'html'
-            ? { name: 'Web page', extensions: ['html'] }
-            : extension === 'mmd'
-              ? { name: 'Mermaid diagram', extensions: ['mmd'] }
-              : { name: 'Markdown', extensions: ['md'] },
-      ],
-    };
-    const owner = artifactWindow.window;
-    const result = owner
-      ? await dialog.showSaveDialog(owner, options)
-      : await dialog.showSaveDialog(options);
-    if (!result.canceled && result.filePath) await writeFile(result.filePath, file);
-  };
-  /** A diagram's picture, drawn by the artifact window (main has no DOM to draw Mermaid). */
-  const saveArtifactImage = async (ref: ArtifactRef, svg: string) => {
-    const content = await resolveArtifact(ref);
-    if (content.kind !== 'diagram') throw new Error('Only diagrams are saved as pictures.');
-    const name = content.title.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Diagram';
-    const options = {
-      defaultPath: join(app.getPath('downloads'), `${name}.svg`),
-      filters: [{ name: 'SVG image', extensions: ['svg'] }],
-    };
-    const owner = artifactWindow.window;
-    const result = owner
-      ? await dialog.showSaveDialog(owner, options)
-      : await dialog.showSaveDialog(options);
-    if (!result.canceled && result.filePath) await writeFile(result.filePath, svg);
+    clipboard.writeText(artifactExport(await resolveArtifact(ref)).copy);
   };
   showArtifact = artifact => {
     // A background task's content goes quietly to Library and its task, not onto the screen.
@@ -1561,6 +1536,36 @@ async function start() {
     return artifactPath({ noteId: String((call.input as { id?: unknown }).id ?? '') });
   };
 
+  const exportsFolder = () => join(workspaceFolder, 'Exports');
+  // Letter where it is the paper people print on; A4 everywhere else.
+  const letterCountries = new Set(['US', 'CA', 'MX', 'PH', 'CL', 'CO', 'VE', 'GT', 'CR', 'PA']);
+  const exporter = new Exporter({
+    folder: exportsFolder,
+    resolve: resolveArtifact,
+    draw: (ref, format) => createExportWindow(ref, format),
+    pageSize: () => (letterCountries.has(app.getLocaleCountryCode()) ? 'Letter' : 'A4'),
+  });
+  /** Export from the artifact window: straight to Exports, or through the save panel. */
+  const exportFromWindow = async (ref: ArtifactRef, format: ExportFormat, choose: boolean) => {
+    if (!choose) return { name: (await exporter.export(ref, format)).name };
+    const content = await resolveArtifact(ref);
+    const formats = [format, ...exportFormats[content.kind].filter(other => other !== format)];
+    await mkdir(exportsFolder(), { recursive: true });
+    const options = {
+      defaultPath: join(exportsFolder(), exportFileName(content.title, format)),
+      filters: formats.map(f => ({ name: exportFormatLabel[f], extensions: [f] })),
+    };
+    const owner = artifactWindow.window;
+    const picked = owner
+      ? await dialog.showSaveDialog(owner, options)
+      : await dialog.showSaveDialog(options);
+    if (picked.canceled || !picked.filePath) return null;
+    // The format follows the extension the person kept in the save panel.
+    const chosen = formats.find(f => picked.filePath!.toLowerCase().endsWith(`.${f}`));
+    const path = chosen ? picked.filePath : `${picked.filePath}.${format}`;
+    return { name: (await exporter.export(ref, chosen ?? format, path)).name };
+  };
+
   /** Read a package the person chose or dropped. Only .edichar files, and never large ones. */
   const inspectCharacterFile = async (path: string) => {
     const fileName = basename(path);
@@ -1580,6 +1585,7 @@ async function start() {
       if (character.ownsMenu(sender)) return 'menu';
       if (character.ownsBubble(sender)) return 'bubble';
       if (artifactWindow.owns(sender)) return 'artifact';
+      if (exporter.owns(sender)) return 'export';
       return undefined;
     },
     composioConfigured: () => composioCredentials.configured,
@@ -1610,7 +1616,10 @@ async function start() {
       permissions,
       openArtifact,
       artifactAction,
-      saveArtifactImage,
+      revealExport: () => {
+        if (exporter.lastPath) shell.showItemInFolder(exporter.lastPath);
+      },
+      exportReady: result => exporter.ready(result),
       previewVoice,
       removePersonalVoice: id => personalVoices.remove(id),
       setVoiceKey: async (provider, apiKey) => {
@@ -1684,6 +1693,7 @@ async function start() {
       return loadCloudVoices(provider);
     },
     artifact: resolveArtifact,
+    exportArtifact: exportFromWindow,
     permissions: () => permissions.snapshot(),
     fileAccess: () => fileAccess.snapshot(),
     fileAccessAction: action => fileAccess.act(action, workspace.isDestroyed() ? null : workspace),

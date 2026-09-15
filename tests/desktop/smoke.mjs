@@ -170,7 +170,7 @@ try {
   await workspace.getByRole('menuitem', { name: /Library/ }).click();
   await expect(workspace.getByRole('heading', { name: 'Nothing saved yet.' })).toBeVisible();
   // Generated content opens in its own glass window beside the card, like an artifact panel:
-  // title, Copy, Download, Show in Finder and Close, no Back and no Save to Library footer.
+  // title, Copy, Export, Show in Finder and Close, no Back and no Save to Library footer.
   // The artifact IPC is replaced only inside this isolated test process.
   const artifactId = '00000000-0000-4000-8000-000000000099';
   await instance.evaluate(
@@ -200,7 +200,7 @@ try {
   await expect(artifactPage.getByText('Large information lives here.')).toBeVisible();
   await expect(artifactPage.locator('hr')).toHaveCount(1);
   await expect(artifactPage.getByRole('button', { name: 'Copy' })).toBeVisible();
-  await expect(artifactPage.getByRole('button', { name: 'Download' })).toBeVisible();
+  await expect(artifactPage.getByRole('button', { name: 'Export' })).toBeVisible();
   await expect(artifactPage.getByRole('button', { name: 'Close' })).toBeVisible();
   await expect(artifactPage.getByRole('button', { name: /Back/ })).toHaveCount(0);
   await expect(artifactPage.getByRole('button', { name: /Save to Library/ })).toHaveCount(0);
