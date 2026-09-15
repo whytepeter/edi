@@ -566,6 +566,19 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** Show the most recent export in Finder; main remembers where it wrote it. */
   z.object({ type: z.literal('reveal-export') }).strict(),
   /**
+   * The person drew a mark on their own screen to say "this bit". The box is in the overlay's
+   * own pixels, which are that display's logical points.
+   */
+  z
+    .object({
+      type: z.literal('annotation-drawn'),
+      x: z.number().int().min(-20_000).max(20_000),
+      y: z.number().int().min(-20_000).max(20_000),
+      width: z.number().int().min(1).max(20_000),
+      height: z.number().int().min(1).max(20_000),
+    })
+    .strict(),
+  /**
    * The hidden export page has drawn its content: PDFs are printed from it; a diagram also
    * hands back its picture (SVG text, or a PNG data URL).
    */

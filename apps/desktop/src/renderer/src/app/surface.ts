@@ -11,7 +11,14 @@ import {
 
 /** Which window this renderer is. Main chooses it; unknown values fall back safely. */
 export type Surface =
-  'workspace' | 'artifact' | 'export' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
+  | 'workspace'
+  | 'artifact'
+  | 'export'
+  | 'pet'
+  | 'voice-status'
+  | 'character-menu'
+  | 'pointer'
+  | 'annotate';
 const surfaces: readonly Surface[] = [
   'workspace',
   'artifact',
@@ -20,6 +27,7 @@ const surfaces: readonly Surface[] = [
   'voice-status',
   'character-menu',
   'pointer',
+  'annotate',
 ];
 
 const params = new URLSearchParams(location.search);
@@ -74,6 +82,11 @@ export const menuParams = {
 const coordinate = (name: string) => {
   const value = Number(params.get(name));
   return Number.isFinite(value) ? Math.max(-20_000, Math.min(20_000, value)) : 0;
+};
+
+/** The colour the person's own marks are drawn in. */
+export const annotateParams = {
+  accent: hexColor('#e0533d').parse(params.get('accent')),
 };
 
 /** The pointer overlay's path, in window-local logical pixels. */

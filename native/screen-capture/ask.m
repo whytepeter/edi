@@ -773,6 +773,8 @@ int edi_element_at(double x, double y, char *dest, int capacity) {
     AXError status = AXUIElementCopyElementAtPosition(system, (float)x, (float)y, &element);
     CFRelease(system);
     if (status != kAXErrorSuccess || !element) return 0;
+    // The element is the app's, not ours: bound its replies too, so a hung app can't stall.
+    AXUIElementSetMessagingTimeout(element, 0.25f);
 
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
     NSString *role = edi_ax_short(element, kAXRoleAttribute, 60);

@@ -60,10 +60,25 @@ export const workerInputSchema = z
           .object({ label: z.string().min(1).max(160), jpeg: bytesWithin(4 * 1024 * 1024) })
           .strict()
           .optional(),
+        /** Boxes the person drew on that screen to say “this bit”. */
+        marks: z
+          .array(
+            z
+              .object({
+                x: z.number().int(),
+                y: z.number().int(),
+                width: z.number().int().positive(),
+                height: z.number().int().positive(),
+              })
+              .strict(),
+          )
+          .max(5)
+          .optional(),
         /** What sits under it, and where that control is in the same screen's pixels. */
         element: z
           .object({
             text: z.string().min(1).max(300),
+            named: z.boolean().default(false),
             box: z
               .object({
                 x: z.number().int(),

@@ -15,7 +15,14 @@ import {
 
 /** Renderer entry points. One bundle serves all of them, selected by `?surface=`. */
 export type Surface =
-  'workspace' | 'artifact' | 'export' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
+  | 'workspace'
+  | 'artifact'
+  | 'export'
+  | 'pet'
+  | 'voice-status'
+  | 'character-menu'
+  | 'pointer'
+  | 'annotate';
 
 export const cardSize = {
   compact: { width: 408, height: 480 },
@@ -32,7 +39,7 @@ export const floatingMargin = 0;
 export const bubbleTail = 5;
 const withTail = (width: number, height: number) => ({ width, height: height + bubbleTail });
 export const statusBubbleSize: Record<StatusBubbleState, { width: number; height: number }> = {
-  unavailable: withTail(156, 36),
+  unavailable: withTail(200, 36),
   thinking: withTail(72, 36),
   listening: withTail(76, 36),
   speaking: withTail(76, 36),
@@ -265,6 +272,30 @@ export function createPointerWindow(
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   return loadSurface(win, 'pointer', params);
+}
+
+/**
+ * The person's own marks, over one whole display. Unlike Edi's other windows this one is meant
+ * to be captured: the mark has to be in the screenshot for Edi to see what they circled.
+ */
+export function createAnnotationWindow(
+  display: { x: number; y: number; width: number; height: number },
+  params: Record<string, string>,
+) {
+  const win = new BrowserWindow({
+    ...floating,
+    ...display,
+    hasShadow: false,
+    skipTaskbar: true,
+    focusable: false,
+    enableLargerThanScreen: true,
+    webPreferences: withBridge,
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Clicks pass through until Edi is listening; the overlay then takes the drag.
+  win.setIgnoreMouseEvents(true);
+  return loadSurface(win, 'annotate', params);
 }
 
 export function broadcast(windows: BrowserWindow[], channel: string, value: unknown) {

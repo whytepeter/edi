@@ -51,6 +51,8 @@ interface CommandDependencies {
   revealExport(): void;
   /** The hidden export page finished drawing (and hands back a diagram's picture). */
   exportReady(result: { svg?: string; png?: string; failed?: boolean }): void;
+  /** The person drew a mark on their own screen, in that display's own pixels. */
+  annotationDrawn(box: { x: number; y: number; width: number; height: number }): void;
   closeArtifact(): void;
   /** Open a validated http(s) link from a reply in the default browser. */
   openLink(url: string): Promise<void>;
@@ -99,6 +101,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     artifactAction,
     revealExport,
     exportReady,
+    annotationDrawn,
     closeArtifact,
     openLink,
     previewVoice,
@@ -247,6 +250,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'export-ready': {
       from: ['export'],
       handle: ({ type: _type, ...result }) => exportReady(result),
+    },
+    'annotation-drawn': {
+      from: ['annotate'],
+      handle: ({ type: _type, ...box }) => annotationDrawn(box),
     },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
     'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },

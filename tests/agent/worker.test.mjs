@@ -294,8 +294,10 @@ test('where the person’s own mouse is reaches the model, with its close-up aft
         closeUp: { label: 'close-up around the mouse pointer on screen 1', jpeg },
         element: {
           text: 'button “Export” in Numbers',
+          named: true,
           box: { x: 600, y: 280, width: 90, height: 28 },
         },
+        marks: [{ x: 500, y: 220, width: 300, height: 160 }],
       },
     }),
   );
@@ -306,6 +308,8 @@ test('where the person’s own mouse is reaches the model, with its close-up aft
   // What it is over, and its real box, so marks land on it instead of an estimate.
   assert.match(where, /button “Export” in Numbers/);
   assert.match(where, /600,280 and is 90x28 pixels/);
+  // What they drew themselves, so the answer is about that area.
+  assert.match(where, /drew on the screen themselves[^.]*500,220 300x160/);
   // The close-up is an extra image after the screens, labelled as a close-up, not a display.
   assert.equal(current.content.filter(part => part.type === 'image_url').length, 2);
   const labels = texts.map((text, index) => [index, text]);

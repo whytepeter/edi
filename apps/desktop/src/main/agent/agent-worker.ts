@@ -538,6 +538,10 @@ function conversation(): ModelMessage[] {
   ]);
   const under = input.pointer?.element;
   const box = under?.box;
+  const marks = input.pointer?.marks ?? [];
+  const marked = marks
+    .map(mark => `${mark.x},${mark.y} ${mark.width}x${mark.height}`)
+    .join(' and ');
   const pointer = input.pointer
     ? [
         {
@@ -549,6 +553,10 @@ function conversation(): ModelMessage[] {
             (box
               ? ` That sits at ${box.x},${box.y} and is ${box.width}x${box.height} pixels, so mark` +
                 ' it from those numbers rather than estimating.'
+              : '') +
+            (marked
+              ? ` They drew on the screen themselves to show what they mean: ${marked}` +
+                ' (their ink is visible in the picture). Answer about what is inside it.'
               : ''),
         },
         ...(input.pointer.closeUp

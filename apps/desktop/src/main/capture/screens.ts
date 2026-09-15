@@ -73,7 +73,13 @@ export interface PointerContext {
    * What sits under it, when Accessibility is granted: one line naming the control, and its box
    * in the same screenshot's pixels so Edi can mark it exactly.
    */
-  element?: { text: string; box?: { x: number; y: number; width: number; height: number } };
+  element?: {
+    text: string;
+    named: boolean;
+    box?: { x: number; y: number; width: number; height: number };
+  };
+  /** Boxes the person drew on this screen, in the same screenshot's pixels. */
+  marks?: { x: number; y: number; width: number; height: number }[];
 }
 
 export type ScreenContext = {
@@ -87,6 +93,30 @@ export type ScreenContext = {
  * still see the screen, and a new non-visual request cannot.
  */
 const screenContext = createScreenContextSession();
+
+/** A box the person drew on their own screen, in global logical coordinates. */
+export interface ScreenMark {
+  displayId: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+let marksNow: () => ScreenMark[] = () => [];
+let keepVisible: () => BrowserWindow[] = () => [];
+
+/**
+ * Main tells capture about the person's own marks and the overlay that shows them. That overlay
+ * is the one window Edi does not hide from the capture: the mark has to be in the picture.
+ */
+export function showMarksInCaptures(options: {
+  marks: () => ScreenMark[];
+  windows: () => BrowserWindow[];
+}) {
+  marksNow = options.marks;
+  keepVisible = options.windows;
+}
 
 /**
  * Generic conversation does not touch ScreenCaptureKit or allocate
@@ -142,7 +172,10 @@ export async function captureScreens(options: { closeUp?: boolean } = {}): Promi
     };
   }
 
-  const ownWindows = BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+  const shown = new Set(keepVisible());
+  const ownWindows = BrowserWindow.getAllWindows().filter(
+    win => !win.isDestroyed() && !shown.has(win),
+  );
 
   // Prevent Edi's own UI from appearing in screenshots.
   ownWindows.forEach(win => {
@@ -191,7 +224,7 @@ export async function captureScreens(options: { closeUp?: boolean } = {}): Promi
     return {
       screenshots,
       access: currentScreenAccess(),
-      ...(await pointerContext(screenshots, cursor, options.closeUp === true)),
+      ...(await pointerContext(screenshots, cursor, options.closeUp === true, marksNow())),
     };
   } finally {
     ownWindows
@@ -211,6 +244,7 @@ async function pointerContext(
   screenshots: Screenshot[],
   cursor: { x: number; y: number },
   closeUp: boolean,
+  marks: ScreenMark[],
 ): Promise<{ pointer?: PointerContext }> {
   const index = screenshots.findIndex(
     shot =>
@@ -225,7 +259,13 @@ async function pointerContext(
   const pointer: PointerContext = { screen: index + 1, x: at.x, y: at.y };
   const element = await pointerElement(cursor, shot);
   if (element) pointer.element = element;
-  if (!closeUp) return { pointer };
+  const marked = marks
+    .filter(mark => mark.displayId === shot.display.id)
+    .map(mark => boxInScreenshot(mark, shot));
+  if (marked.length) pointer.marks = marked;
+  // A mark says exactly what they mean, and the name of the control under the pointer usually
+  // answers the rest: the close-up is only worth its tokens when neither did.
+  if (!closeUp || marked.length > 0 || element?.named) return { pointer };
 
   const sharper = await captureDisplayJpeg(shot.display.id, 3000, 90).catch(() => undefined);
   const source = sharper ?? shot;
@@ -252,6 +292,25 @@ async function pointerContext(
   return { pointer };
 }
 
+/** A box in global coordinates, in one screenshot's own pixels. */
+function boxInScreenshot(
+  box: { x: number; y: number; width: number; height: number },
+  shot: Screenshot,
+) {
+  const topLeft = screenPointToScreenshot(box, shot, shot.display);
+  const bottomRight = screenPointToScreenshot(
+    { x: box.x + box.width, y: box.y + box.height },
+    shot,
+    shot.display,
+  );
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: Math.max(1, bottomRight.x - topLeft.x),
+    height: Math.max(1, bottomRight.y - topLeft.y),
+  };
+}
+
 /** The control under the pointer, named and placed in the screenshot's own pixels. */
 async function pointerElement(cursor: { x: number; y: number }, shot: Screenshot) {
   const raw = await elementAtPointJson(cursor.x, cursor.y).catch(() => null);
@@ -268,23 +327,11 @@ async function pointerElement(cursor: { x: number; y: number }, shot: Screenshot
   if (element.bundleId && privateContextApps.has(element.bundleId)) return undefined;
   const text = describePointerElement(element);
   if (!text) return undefined;
+  // “Named” means the helper gave something a person would recognise, not just “group”.
+  const named = Boolean(element.name);
   const frame = element.frame;
-  if (!frame || frame.width <= 0 || frame.height <= 0) return { text };
-  const topLeft = screenPointToScreenshot(frame, shot, shot.display);
-  const bottomRight = screenPointToScreenshot(
-    { x: frame.x + frame.width, y: frame.y + frame.height },
-    shot,
-    shot.display,
-  );
-  return {
-    text,
-    box: {
-      x: topLeft.x,
-      y: topLeft.y,
-      width: Math.max(1, bottomRight.x - topLeft.x),
-      height: Math.max(1, bottomRight.y - topLeft.y),
-    },
-  };
+  if (!frame || frame.width <= 0 || frame.height <= 0) return { text, named };
+  return { text, named, box: boxInScreenshot(frame, shot) };
 }
 
 function currentScreenAccess(): ScreenAccess {

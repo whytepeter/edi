@@ -37,7 +37,14 @@ import {
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
-export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact' | 'export';
+export type Caller =
+  | 'workspace'
+  | 'pet'
+  | 'menu'
+  | 'bubble'
+  | 'artifact'
+  | 'export'
+  | 'annotate';
 
 type CommandOf<T extends Command['type']> = Extract<Command, { type: T }>;
 interface Route<T extends Command['type']> {

@@ -94,7 +94,7 @@ import {
 } from '@edi/contracts';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
-import { captureScreensForPrompt } from './capture/screens';
+import { captureScreensForPrompt, showMarksInCaptures } from './capture/screens';
 import { documentText, shouldHideCardOnBlur } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
@@ -116,6 +116,7 @@ import { captureDesktopContext } from './context/desktop-context';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
+import { Annotations } from './presentation/annotations';
 import { CharacterActions } from './character/character-actions';
 import { sleepAfterReply } from './character/sleep-after-reply';
 import { CharacterMoodController } from './character/character-mood';
@@ -132,6 +133,7 @@ import { createMacMediaPermissions } from './platform/macos-media-permissions';
 import {
   broadcast,
   createCharacterMenuWindow,
+  createAnnotationWindow,
   createPointerWindow,
   createPetWindow,
   createStatusBubbleWindow,
@@ -991,6 +993,17 @@ async function start() {
     character: () => currentCharacter().manifest,
     create: createPointerWindow,
   });
+  // The person's own marks: drawing while Edi listens says “this bit” better than a cursor can.
+  const annotations = new Annotations({
+    displayUnderCursor: () => {
+      const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+      return { id: display.id, ...display.bounds };
+    },
+    create: (display, params) => createAnnotationWindow(display, params),
+    accent: () => currentCharacter().manifest.colors.accent,
+  });
+  // Their marks stay in the picture Edi takes; every other Edi window stays out of it.
+  showMarksInCaptures({ marks: () => annotations.current(), windows: () => annotations.captured });
   // Shown content opens in its own window beside the card. Focus may move between the two
   // without either hiding; leaving both (unless pinned) hides them together.
   const artifactWindow = new ArtifactWindow(
@@ -1288,9 +1301,12 @@ async function start() {
         pressedAt = Date.now();
         conversingAtPress = voice.mode === 'conversation';
         pet.showInactive();
+        // Held: a drag now draws on their screen instead of reaching the app underneath.
+        annotations.arm();
         character.requestListening('push-to-talk');
       },
       up: () => {
+        annotations.release();
         const tap = Date.now() - pressedAt < TAP_MS;
         if (tap && !conversingAtPress && voice.converse()) return;
         if (voice.phase !== 'idle') voice.release();
@@ -1406,6 +1422,8 @@ async function start() {
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
+    // Their marks belong to the question they asked; once it is answered, the screen is theirs.
+    if (state.status !== 'running' && previousAgentStatus === 'running') annotations.clear();
     // One place to decide: the card's own review while it is open, the bubble otherwise.
     character.showApproval(cardOpen() ? null : (state.approval ?? tasks.currentApproval));
     const running = state.status === 'running' && !state.approval;
@@ -1591,6 +1609,7 @@ async function start() {
       if (character.ownsBubble(sender)) return 'bubble';
       if (artifactWindow.owns(sender)) return 'artifact';
       if (exporter.owns(sender)) return 'export';
+      if (annotations.owns(sender)) return 'annotate';
       return undefined;
     },
     composioConfigured: () => composioCredentials.configured,
@@ -1625,6 +1644,7 @@ async function start() {
         if (exporter.lastPath) shell.showItemInFolder(exporter.lastPath);
       },
       exportReady: result => exporter.ready(result),
+      annotationDrawn: box => annotations.drew(box),
       previewVoice,
       removePersonalVoice: id => personalVoices.remove(id),
       setVoiceKey: async (provider, apiKey) => {
