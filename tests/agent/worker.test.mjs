@@ -63,6 +63,14 @@ function launch(mode, tools = [], context = {}) {
           : sse([chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_' + requests,
               type: 'function', function: { name: 'notes_save', arguments: '{"title":"Look","body":"again"}' } }] }),
             end('tool_calls')]);
+      // Finds a connected-app tool first, then uses it, then answers.
+      if (testMode === 'find' && requests === 1)
+        return sse([chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_f', type: 'function',
+          function: { name: 'find_app_tools', arguments: '{"query":"send gmail email"}' } }] }), end('tool_calls')]);
+      if (testMode === 'find' && requests === 2)
+        return sse([chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_g', type: 'function',
+          function: { name: 'mcp_gmail_gmail_send_email', arguments: '{"to":"sam@example.com"}' } }] }), end('tool_calls')]);
+      if (testMode === 'find') return sse([chunk({ content: 'Sent.' }), end('stop')]);
       if (testMode === 'tool' && requests === 1) {
         return sse([
           chunk({ role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_1', type: 'function',
@@ -103,6 +111,7 @@ function launch(mode, tools = [], context = {}) {
         ...(context.readerModel ? { readerModel: context.readerModel } : {}),
         ...(context.maxSteps ? { maxSteps: context.maxSteps } : {}),
         ...(context.desktopContext ? { desktopContext: context.desktopContext } : {}),
+        ...(context.skills ? { skills: context.skills } : {}),
         prompt: 'Hello',
         history: context.history ?? [],
         screenshots: context.screenshots ?? [],
@@ -396,4 +405,45 @@ test('a model that cannot write out its actions gets a specific error, not a gen
     provider: 'Google AI Studio',
     message: 'finish_reason: MALFORMED_FUNCTION_CALL',
   });
+});
+
+test('many connected-app tools are found by search, then used; skills reach the model', async () => {
+  const appTool = (name, description) => ({
+    name,
+    description,
+    inputSchema: { type: 'object', properties: { to: { type: 'string' } } },
+    app: 'Gmail',
+    deferred: true,
+  });
+  const tools = [
+    notesSave,
+    appTool('mcp_gmail_gmail_send_email', 'Send an email.'),
+    appTool('mcp_gmail_gmail_fetch_emails', 'Fetch emails.'),
+    { ...appTool('mcp_linear_list_issues', 'List issues.'), app: 'Linear' },
+  ];
+  const skills = [{ name: 'daily-brief', description: 'Plans the day. Use when asked about today.' }];
+  const { messages, requests } = await collect(launch('find', tools, { skills }), call => {
+    assert.equal(call.name, 'mcp_gmail_gmail_send_email');
+    return { status: 'succeeded', summary: 'Sent.' };
+  });
+  const names = request => request.tools.map(tool => tool.function?.name ?? tool.type);
+
+  // First request: built-in tools and the search, but no connected-app tools yet.
+  assert.ok(names(requests[0]).includes('notes_save'));
+  assert.ok(names(requests[0]).includes('find_app_tools'));
+  assert.ok(!names(requests[0]).some(name => name.startsWith('mcp_')));
+  assert.match(JSON.stringify(requests[0].messages[0].content), /connected apps \(Gmail, Linear\)/);
+  // The skill list and how to use it are in the instructions.
+  assert.match(JSON.stringify(requests[0].messages[0].content), /daily-brief: Plans the day/);
+  assert.match(JSON.stringify(requests[0].messages[0].content), /call skills_use/);
+
+  // After the search, the Gmail tools it found are offered; the unrelated one is not.
+  assert.ok(names(requests[1]).includes('mcp_gmail_gmail_send_email'));
+  assert.ok(!names(requests[1]).includes('mcp_linear_list_issues'));
+  // The search runs in the worker; only the real action goes to the host (and its review).
+  assert.deepEqual(
+    messages.filter(m => m.type === 'tool-call').map(m => m.name),
+    ['mcp_gmail_gmail_send_email'],
+  );
+  assert.equal(text(messages), 'Sent.');
 });
