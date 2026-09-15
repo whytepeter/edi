@@ -3,13 +3,20 @@ import assert from 'node:assert/strict';
 import {
   VoiceController,
   addressName,
+  describeTiming,
   cleanTranscript,
   speakable,
   takeSpeech,
   type VoiceDependencies,
   type VoiceStatus,
+  type VoiceTurnTiming,
 } from '../../apps/desktop/src/main/voice/voice-controller';
 import type { Transcriber } from '../../apps/desktop/src/main/voice/speech-io';
+import { SpeechDetector } from '../../apps/desktop/src/main/voice/speech-detector';
+import {
+  glossaryWords,
+  settleTranscript,
+} from '../../apps/desktop/src/main/voice/transcription-process';
 import {
   cueSegments,
   type AgentState,
@@ -201,6 +208,34 @@ test('an empty transcript asks nothing and says it did not catch that', async ()
   await wait(5);
   assert.equal(h.asked.length, 0);
   assert.deepEqual(h.statuses.at(-1), { notice: 'I didn’t catch that.' });
+});
+
+test('when another voice stands in for the chosen one, the turn ends saying why', async () => {
+  const reason = 'ElevenLabs has no credits left on this account.';
+  let voice: VoiceController | undefined;
+  const h = harness({
+    speak: async (_text, _signal, consume) => {
+      voice?.note(reason);
+      await consume(new Float32Array(4).fill(0.1), 24000);
+    },
+  });
+  voice = h.voice;
+  const stop = h.autoPlay();
+  try {
+    const generation = await holdAndSpeak(h);
+    h.voice.clientEvent(generation, 'captured');
+    await wait(30);
+    assert.ok(h.statuses.includes('speaking'));
+    assert.deepEqual(h.statuses.at(-1), { notice: reason });
+    // The next reply, spoken by the chosen voice, ends quietly.
+    const again = await holdAndSpeak(h);
+    voice = undefined;
+    h.voice.clientEvent(again, 'captured');
+    await wait(30);
+    assert.notDeepEqual(h.statuses.at(-1), { notice: reason });
+  } finally {
+    stop();
+  }
 });
 
 test('with spoken replies off, the answer stays in the conversation and nothing plays', async () => {
@@ -566,6 +601,97 @@ test('noise over Edi resumes her reply without cancelling anything', async () =>
   h.voice.stop();
 });
 
+test('hands-free: the room heard as a primed word is noise, not a question or an interruption', async () => {
+  let words = 'Hey Edi, how is it going?';
+  let finish!: (state: AgentState) => void;
+  const settle = (heard: string) => settleTranscript(heard, glossaryWords({ words: ['OAuth'] }));
+  const h = harness({
+    listen: fakeListener(() => words).listen,
+    whenFinished: () => new Promise(resolve => (finish = resolve)),
+    settle,
+  });
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  // Background sound while Edi answers: whisper writes it as a word from its glossary.
+  const stops = () => h.types().filter(type => type === 'stop-audio').length;
+  const stopsBefore = stops();
+  h.voice.clientEvent(generation, 'speech-detected');
+  words = 'OAuth.';
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  assert.equal(h.asked.length, 1, 'a short pause after noise asks nothing');
+  h.voice.clientEvent(generation, 'long-pause');
+  await wait(5);
+  assert.ok(h.types().includes('resume-audio'), 'her reply carries on');
+  assert.equal(stops(), stopsBefore, 'nothing was cut off');
+  assert.deepEqual(
+    h.asked.map(item => item.prompt),
+    ['Hey Edi, how is it going?'],
+  );
+  finish({ ...runningState, status: 'done', text: 'Going well.' });
+  h.voice.stop();
+
+  // Push-to-talk is deliberate: the same word is asked.
+  const held = harness({ listen: fakeListener(() => 'OAuth.').listen, settle });
+  const stop = held.autoPlay();
+  held.voice.clientEvent(await holdAndSpeak(held), 'captured');
+  await wait(20);
+  stop();
+  assert.deepEqual(
+    held.asked.map(item => item.prompt),
+    ['OAuth.'],
+  );
+});
+
+test('hands-free with detection in main: the pet streams everything, main finds the speech', async () => {
+  let voice = false;
+  const pushed: number[] = [];
+  const h = harness({
+    speechDetector: () => new SpeechDetector({ next: async () => (voice ? 0.9 : 0.05) }),
+    listen: () => ({
+      push: pcm => pushed.push(pcm.byteLength),
+      transcript: async () => 'Check my calendar for tomorrow.',
+      close: () => {},
+    }),
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await converse(h);
+  const started = h.sent.find(event => event.type === 'converse');
+  assert.deepEqual(started, { type: 'converse', generation, detect: 'main' });
+  /** Stream `seconds` of a steady level in 100 ms chunks, as the pet does. */
+  const stream = async (seconds: number, level: number) => {
+    for (let i = 0; i < seconds * 10; i++) {
+      const pcm = new Uint8Array(3200);
+      const view = new DataView(pcm.buffer);
+      for (let s = 0; s < 1600; s++)
+        view.setInt16(s * 2, Math.round(Math.sin(s / 3) * level * 32767), true);
+      h.voice.pcm(generation, pcm);
+    }
+    await wait(20);
+  };
+  await stream(1, 0.001);
+  // A door slam or typing: loud, but not a voice.
+  await stream(0.5, 0.3);
+  await stream(1, 0.001);
+  assert.equal(pushed.length, 0, 'noise never reached the recognizer');
+  assert.ok(!h.types().includes('pause-audio'));
+
+  voice = true;
+  await stream(1, 0.2);
+  voice = false;
+  await stream(1, 0.001);
+  await wait(20);
+  stopPlaying();
+  assert.ok(pushed.length > 0, 'the speech reached the recognizer');
+  assert.deepEqual(
+    h.asked.map(item => item.prompt),
+    ['Check my calendar for tomorrow.'],
+  );
+  h.voice.stop();
+});
+
 test('a tool starting without an acknowledgement gets a short spoken one first', async () => {
   const spoken: string[] = [];
   let report!: (state: AgentState) => void;
@@ -809,4 +935,94 @@ test('Edi’s name is spelled right where she is addressed, and nowhere else', a
   await wait(10);
   stopPlaying();
   assert.equal(h.asked[0]?.prompt, 'Hey Edi, what is my day like?');
+});
+
+test('each spoken turn reports where its wait went, from the moment the person finished', async () => {
+  // Real time plus jumps, so each stage has a known minimum and playback still drains.
+  const start = Date.now();
+  let jumped = 0;
+  const now = () => Date.now() - start + jumped;
+  const timings: VoiceTurnTiming[] = [];
+  const h = harness({
+    now,
+    timed: timing => timings.push(timing),
+    listen: fakeListener(() => {
+      jumped += 300;
+      return 'What is this button?';
+    }).listen,
+    captureScreens: async () => {
+      jumped += 10;
+      return 'none';
+    },
+    ask: async () => {
+      jumped += 200;
+      return 'run-1';
+    },
+    whenFinished: async (_runId, _signal, onUpdate) => {
+      jumped += 1500;
+      onUpdate?.({ ...runningState, text: 'It is the Save button.' });
+      return { ...runningState, status: 'done', text: 'It is the Save button.' };
+    },
+  });
+  const stop = h.autoPlay();
+  const generation = await holdAndSpeak(h);
+  h.voice.clientEvent(generation, 'captured');
+  for (let i = 0; i < 20 && !timings.length; i++) await wait(5);
+  stop();
+
+  const [timing] = timings;
+  assert.ok(timing, 'the turn reported its timing');
+  assert.equal(timing.outcome, 'answered');
+  assert.ok(timing.transcript >= 300 && timing.transcript < 400);
+  assert.ok(timing.screens >= 310);
+  assert.ok(timing.started !== undefined && timing.started >= 510);
+  assert.ok(timing.firstWords !== undefined && timing.firstWords >= 2010);
+  assert.ok(timing.toVoice !== undefined && timing.toVoice >= timing.firstWords);
+  assert.ok(timing.firstSound !== undefined && timing.firstSound >= timing.toVoice);
+  assert.ok(timing.finished >= timing.firstSound);
+  assert.match(
+    describeTiming(timing),
+    /^voice turn: transcript \d+ ms · screens \d+ ms · started \d+ ms · first words \d+ ms · to voice \d+ ms · first sound \d+ ms · finished \d+ ms \(answered\)$/,
+  );
+});
+
+test('with nothing able to listen, a hold is declined; a key or model added later works at once', async () => {
+  let listening = false;
+  const h = harness({ canListen: () => listening });
+  assert.equal(h.voice.available, false);
+  assert.equal(h.voice.start('push-to-talk'), false, 'the character says where to set voice up');
+  assert.equal(h.types().includes('open'), false);
+  listening = true; // e.g. a Cartesia key was added, or the whisper model finished downloading
+  assert.equal(h.voice.start('push-to-talk'), true);
+  await tick();
+  assert.ok(h.types().includes('open'));
+  h.voice.stop();
+});
+
+test('audio longer than a second reaches the player in one-second pieces, so a reply never stalls', async () => {
+  const chunks: number[] = [];
+  const h = harness({
+    // A whole sentence at once, as Kokoro makes it: 2.5 s at 24 kHz.
+    speak: async (_text, _signal, consume) => {
+      await consume(new Float32Array(60_000).fill(0.1), 24_000);
+    },
+  });
+  const generation = await holdAndSpeak(h);
+  // The pet's player: takes at most one second per chunk and acknowledges each one it takes.
+  let handled = h.sent.length;
+  const timer = setInterval(() => {
+    for (; handled < h.sent.length; handled++) {
+      const event = h.sent[handled];
+      if (event?.type !== 'pcm' || event.samples.length > event.rate) continue;
+      chunks.push(event.samples.length);
+      h.voice.played(event.generation, event.turn);
+    }
+  }, 1);
+  h.voice.clientEvent(generation, 'captured');
+  // The reply counts as speaking until its 2.5 s of audio has had time to play.
+  for (let i = 0; i < 80 && h.voice.phase !== 'idle'; i++) await wait(50);
+  clearInterval(timer);
+  assert.deepEqual(chunks, [24_000, 24_000, 12_000]);
+  assert.equal(h.voice.phase, 'idle', 'the reply finished instead of stalling');
+  assert.equal(h.statuses.at(-1), 'hidden');
 });

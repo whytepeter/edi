@@ -8,7 +8,7 @@ const runtime = {
   worker: resolve('tests/audio/worker-fixture.py'),
   cache: '/private/tmp/edi-unused-cache',
 };
-const chatterbox = { id: 'chatterbox-turbo', model: 'fixture', label: 'Chatterbox Turbo' } as const;
+const chatterbox = { id: 'chatterbox', model: 'fixture', label: 'Chatterbox Turbo' } as const;
 const kokoro = { id: 'kokoro', model: 'fixture', label: 'Kokoro', voice: 'af_heart' } as const;
 const live = () => new AbortController().signal;
 /** The fixture encodes which utterance a process is serving in its samples. */

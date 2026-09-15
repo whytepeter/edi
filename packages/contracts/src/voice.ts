@@ -63,16 +63,25 @@ export function cueSegments(text: string): CueSegment[] {
 }
 
 /** Main → pet renderer. */
+/**
+ * Who finds speech in a hands-free conversation: main (Silero and loudness, so the pet streams
+ * every frame) or the pet itself (loudness only, streaming just the speech). Defaults to the pet.
+ */
+const speechDetection = z.enum(['main', 'pet']);
+
 export const voiceHostEventSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('open'),
       generation,
       mode: z.enum(['push-to-talk', 'conversation']),
+      detect: speechDetection.optional(),
     })
     .strict(),
   /** A push-to-talk tap became a hands-free conversation on the same open microphone. */
-  z.object({ type: z.literal('converse'), generation }).strict(),
+  z
+    .object({ type: z.literal('converse'), generation, detect: speechDetection.optional() })
+    .strict(),
   /** Push-to-talk released: send what is left of the recording, then `captured`. */
   z.object({ type: z.literal('finish'), generation }).strict(),
   z.object({ type: z.literal('cancel'), generation }).strict(),
@@ -134,6 +143,8 @@ export const voiceCommandSchemas = [
     .object({
       type: z.literal('voice-pcm'),
       generation,
+      /** Edi's voice was audible while this was recorded (her echo must not count as speech). */
+      speaking: z.boolean().optional(),
       pcm: bytes.refine(
         pcm =>
           pcm.byteLength > 0 && pcm.byteLength % 2 === 0 && pcm.byteLength <= maxVoiceChunkBytes,

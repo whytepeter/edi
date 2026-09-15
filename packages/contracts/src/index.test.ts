@@ -157,10 +157,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   // Preferences saved before speech could be turned off keep speaking.
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).speakReplies, true);
   // Edi is a Chatterbox voice; it cannot be chosen for another model.
-  assert.equal(
-    voiceSelectionSchema.safeParse({ model: 'chatterbox-turbo', voice: 'edi' }).success,
-    true,
-  );
+  assert.equal(voiceSelectionSchema.safeParse({ model: 'chatterbox', voice: 'edi' }).success, true);
   assert.equal(voiceSelectionSchema.safeParse({ model: 'kokoro', voice: 'edi' }).success, false);
   // Words for recognition: trimmed, unique, bounded; anything malformed is dropped, not fatal.
   assert.deepEqual(
@@ -225,7 +222,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   );
   assert.equal(
     settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'chatterbox-turbo' }).voiceModel,
-    'chatterbox-turbo',
+    'chatterbox',
   );
   // Each model keeps its own voice; a retired voice falls back to that model's default.
   assert.deepEqual(
@@ -236,11 +233,38 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     }).voices,
     {
       kokoro: 'bf_emma',
-      'chatterbox-turbo': 'calm',
+      chatterbox: 'built-in',
       cartesia: null,
       elevenlabs: null,
     },
   );
+  // Chatterbox's Calm and Expressive were saved as voices; they are deliveries now, and the
+  // voice itself becomes the built-in one.
+  const wasExpressive = settingsSchema.parse({
+    skin: 'edi',
+    pinned: false,
+    voiceModel: 'chatterbox-turbo',
+    voices: { kokoro: 'af_heart', 'chatterbox-turbo': 'turbo' },
+  });
+  assert.equal(wasExpressive.voiceModel, 'chatterbox');
+  assert.equal(wasExpressive.voices.chatterbox, 'built-in');
+  assert.equal(wasExpressive.voiceDelivery, 'expressive');
+  const wasCalm = settingsSchema.parse({
+    skin: 'edi',
+    pinned: false,
+    voices: { kokoro: 'af_heart', 'chatterbox-turbo': 'calm' },
+  });
+  assert.equal(wasCalm.voices.chatterbox, 'built-in');
+  assert.equal(wasCalm.voiceDelivery, 'calm');
+  // A voice made from a recording is kept, and delivery stays whatever was saved.
+  const own = settingsSchema.parse({
+    skin: 'edi',
+    pinned: false,
+    voiceDelivery: 'expressive',
+    voices: { kokoro: 'af_heart', 'chatterbox-turbo': 'peter' },
+  });
+  assert.equal(own.voices.chatterbox, 'peter');
+  assert.equal(own.voiceDelivery, 'expressive');
   assert.equal(
     commandSchema.safeParse({
       type: 'set-voice',
@@ -359,7 +383,10 @@ test('the pointer maps into a screenshot, and pointing words ask for its close-u
   const display = { x: 1512, y: 0, width: 1512, height: 982 };
   const image = { width: 1280, height: 831 };
   // A point on the second display becomes that screenshot's own pixels.
-  assert.deepEqual(screenPointToScreenshot({ x: 2268, y: 491 }, image, display), { x: 640, y: 416 });
+  assert.deepEqual(screenPointToScreenshot({ x: 2268, y: 491 }, image, display), {
+    x: 640,
+    y: 416,
+  });
   // Anything off the display is clamped to its edge rather than sent as a wild coordinate.
   assert.deepEqual(screenPointToScreenshot({ x: 9000, y: -50 }, image, display), {
     x: 1280,
@@ -370,7 +397,12 @@ test('the pointer maps into a screenshot, and pointing words ask for its close-u
   const back = screenshotPointToScreen(at, image, display);
   assert.ok(Math.abs(back.x - 2000) <= 2 && Math.abs(back.y - 300) <= 2);
 
-  for (const prompt of ["What's this?", 'Explain this chart', 'What does it do?', 'Where am I pointing?'])
+  for (const prompt of [
+    "What's this?",
+    'Explain this chart',
+    'What does it do?',
+    'Where am I pointing?',
+  ])
     assert.equal(pointsAtCursor(prompt), true, prompt);
   for (const prompt of ['Summarize my screen', 'Read the visible chart', 'What can you do?'])
     assert.equal(pointsAtCursor(prompt), false, prompt);
@@ -662,7 +694,16 @@ test('system info accepts the longest cloud voice name with its model', () => {
     voice: {
       available: true,
       name: `${voice.name} · ElevenLabs`,
-      models: ['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
+      models: ['kokoro', 'chatterbox', 'cartesia', 'elevenlabs'].map(model),
+      packs: [
+        {
+          id: 'listening',
+          name: 'Listening model',
+          bytes: 487_614_201,
+          received: 120_000_000,
+          state: 'downloading',
+        },
+      ],
     },
     pushToTalk: { status: 'ready', label: '⌥ Space' },
     workspaceFolder: '/Users/me/Documents/Edi',

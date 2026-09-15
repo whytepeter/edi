@@ -3,6 +3,7 @@ import type {
   ArtifactRef,
   CloudProviderId,
   Settings,
+  VoicePackId,
   VoiceSelection,
   WorkspaceView,
 } from '@edi/contracts';
@@ -62,6 +63,8 @@ interface CommandDependencies {
   previewVoice(selection: VoiceSelection): Promise<void>;
   /** Settings → Voice: move an added voice's recording to the Trash. */
   removePersonalVoice(id: string): Promise<void>;
+  /** Settings → Voice: download (or resume), pause or remove an on-device voice pack. */
+  voicePack(action: 'download' | 'pause' | 'remove', id: VoicePackId): Promise<void> | void;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
   /** Library Rename, Pin and Regenerate; the person's click is the consent. */
@@ -106,6 +109,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     openLink,
     previewVoice,
     removePersonalVoice,
+    voicePack,
     setVoiceKey,
     deleteLibraryItem,
     renameLibraryItem,
@@ -161,7 +165,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'voice-pcm': {
       from: fromPet,
-      handle: ({ generation, pcm }) => voice.pcm(generation, pcm),
+      handle: ({ generation, pcm, speaking }) => voice.pcm(generation, pcm, speaking),
     },
     'voice-played': {
       from: fromPet,
@@ -215,6 +219,14 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'remove-personal-voice': {
       from: fromWorkspace,
       handle: ({ id }) => removePersonalVoice(id),
+    },
+    'voice-pack': {
+      from: fromWorkspace,
+      handle: ({ action, id }) => voicePack(action, id),
+    },
+    'set-voice-delivery': {
+      from: fromWorkspace,
+      handle: ({ delivery }) => settings.update({ voiceDelivery: delivery }),
     },
     'set-voice-words': {
       from: fromWorkspace,

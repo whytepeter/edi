@@ -49,7 +49,7 @@ test('a recording becomes a voice on this Mac: converted, trimmed, named and lis
   await assert.rejects(voices.add(spokenClip(dir), 'edi'), /already have a voice called edi/);
   const other = await voices.add(spokenClip(dir), 'E.D.I 2');
   assert.match(other.id, /^edi[a-z]{4}$/);
-  assert.ok(voiceSelectionSchema.safeParse({ model: 'chatterbox-turbo', voice: other.id }).success);
+  assert.ok(voiceSelectionSchema.safeParse({ model: 'chatterbox', voice: other.id }).success);
 
   await voices.remove('edi');
   assert.deepEqual(trashed, [voices.recording('edi')]);
@@ -71,7 +71,7 @@ test('short or unreadable recordings are refused with a reason, and nothing is s
   // Names must be real names; ids can never be built-in voices or paths.
   await assert.rejects(voices.add(spokenClip(dir), '   '));
   assert.equal(
-    voiceSelectionSchema.safeParse({ model: 'chatterbox-turbo', voice: '../calm' }).success,
+    voiceSelectionSchema.safeParse({ model: 'chatterbox', voice: '../calm' }).success,
     false,
   );
 });

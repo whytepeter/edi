@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  glossaryWords,
   pcmWave,
+  settleTranscript,
   transcribePcm,
   transcriptionPrompt,
 } from '../../apps/desktop/src/main/voice/transcription-process';
@@ -76,10 +78,7 @@ http.createServer((req, res) => {
 });
 
 test('the recognition prompt carries the name, the person’s words and the end of the last reply', () => {
-  assert.equal(
-    transcriptionPrompt(),
-    'Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.',
-  );
+  assert.equal(transcriptionPrompt(), 'Edi. Fewer Labs. OpenRouter.');
   const prompt = transcriptionPrompt({
     name: 'Mochi',
     words: ['Skaletek', 'Glown', 'edi'],
@@ -87,12 +86,42 @@ test('the recognition prompt carries the name, the person’s words and the end 
   });
   assert.equal(
     prompt,
-    'Mochi. Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira. Skaletek. Glown. ' +
+    'Mochi. Edi. Fewer Labs. OpenRouter. Skaletek. Glown. ' +
       'You have two meetings today: the Glown Update at nine, and Skaletek at noon.',
   );
   // A long reply keeps its end, cut at a word, and the whole prompt stays short.
   const long = transcriptionPrompt({ context: `${'start '.repeat(200)}the final words` });
   assert.ok(long.length <= 700);
   assert.ok(long.endsWith('the final words'));
-  assert.ok(!/\bstar\b|\bst\b/.test(long.split('Naira.')[1] ?? ''), 'no half word');
+  assert.ok(!/\bstar\b|\bst\b/.test(long.split('OpenRouter.')[1] ?? ''), 'no half word');
+});
+
+test('an open microphone hearing the room is not a question', () => {
+  const glossary = glossaryWords({
+    name: 'Edi',
+    words: ['OAuth', 'MCP', 'Skaletek', 'Peter Whyte'],
+  });
+  // Whisper writes the words it was primed with over background sound.
+  assert.equal(settleTranscript('OAuth.', glossary), '');
+  assert.equal(settleTranscript('MCP. OpenRouter.', glossary), '');
+  assert.equal(settleTranscript('Skaletek.', glossary), '');
+  // And its stock subtitle lines.
+  assert.equal(settleTranscript('Thanks for watching!', glossary), '');
+  assert.equal(settleTranscript(' you ', glossary), '');
+  assert.equal(settleTranscript('...', glossary), '');
+  // A loop keeps the phrase once; saying something twice is left alone.
+  assert.equal(settleTranscript('Not soon. Not soon. Not soon.', glossary), 'Not soon.');
+  assert.equal(settleTranscript('No. No.', glossary), 'No. No.');
+  assert.equal(
+    settleTranscript('Wait. Stop. Stop. Stop. Go back.', glossary),
+    'Wait. Stop. Go back.',
+  );
+  // Real requests pass, glossary words included.
+  assert.equal(settleTranscript('No.', glossary), 'No.');
+  assert.equal(settleTranscript('Hey Edi.', glossary), 'Hey Edi.');
+  assert.equal(settleTranscript('Thank you.', glossary), 'Thank you.');
+  assert.equal(
+    settleTranscript('How do I set up OAuth for Skaletek?', glossary),
+    'How do I set up OAuth for Skaletek?',
+  );
 });

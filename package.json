@@ -24,7 +24,7 @@
     "test:annotate": "node tests/desktop/annotate.mjs",
     "test:artifacts": "node --import tsx tests/desktop/artifacts.mjs",
     "test:agent": "pnpm build && node --test tests/agent/worker.test.mjs",
-    "test:audio": "node --import tsx --test tests/audio/player.test.ts tests/audio/process.test.ts tests/audio/session.test.ts tests/audio/capture.test.ts tests/audio/transcription.test.ts tests/audio/voice-controller.test.ts tests/audio/cloud-voice.test.ts tests/audio/turns.test.ts tests/audio/cartesia-realtime.test.ts tests/audio/personal-voices.test.ts",
+    "test:audio": "node --import tsx --test tests/audio/player.test.ts tests/audio/process.test.ts tests/audio/session.test.ts tests/audio/capture.test.ts tests/audio/transcription.test.ts tests/audio/voice-controller.test.ts tests/audio/cloud-voice.test.ts tests/audio/turns.test.ts tests/audio/speech-detector.test.ts tests/audio/runtime.test.ts tests/audio/voice-packs.test.ts tests/audio/phonemes.test.ts tests/audio/cartesia-realtime.test.ts tests/audio/personal-voices.test.ts",
     "test:capture:native": "node tests/audio/capture-native.mjs",
     "test:grounding:native": "sh native/screen-capture/build.sh && node --import tsx tests/native/text-grounding.mjs",
     "test:pointer:visual": "sh native/screen-capture/build.sh && pnpm build && node --import tsx tests/native/pointer-visual.mjs",

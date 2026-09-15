@@ -55,8 +55,8 @@ test('speech, a pause and a long pause come from loudness over time', () => {
     events.map(([, event]) => event),
     ['speech', 'pause', 'speech', 'pause', 'long-pause'],
   );
-  // Speech is reported after the onset time (160 ms), not on the first loud frame.
-  assert.equal(events[0]?.[0], 50 + 7);
+  // Speech is reported after the onset time (240 ms), not on the first loud frame.
+  assert.equal(events[0]?.[0], 50 + 11);
   assert.equal(activity.active, false);
 });
 
@@ -67,6 +67,9 @@ test('a click or a cough does not count as speech', () => {
     [0.2, 3],
     [0.002, 10],
     [0.2, 2],
+    [0.002, 50],
+    // A door or a burst of typing: 200 ms of loud sound.
+    [0.2, 10],
     [0.002, 50],
   ]);
   assert.deepEqual(events, []);

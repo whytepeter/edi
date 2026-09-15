@@ -13,6 +13,7 @@ import {
 } from '@edi/contracts';
 import type { VoiceRuntime } from './runtime';
 import type { Consume, SpeechStream, Transcriber } from './speech-io';
+import type { SpeechDetector } from './speech-detector';
 import {
   progressTiming,
   SpokenProgress,
@@ -47,6 +48,11 @@ export interface VoiceDependencies<Screens> {
   stopAgent(): void;
   /** A recognizer for one utterance: whisper on this Mac, or Cartesia when chosen in Settings. */
   listen(): Transcriber;
+  /**
+   * Something can listen right now: a downloaded whisper model, or Cartesia with its key.
+   * Checked at every start, so a model or key added later works without a restart.
+   */
+  canListen?(): boolean;
   speak(text: string, signal: AbortSignal, consume: Consume): Promise<void>;
   /** The whole reply as one stream, when the selected voice supports it (Cartesia); else null. */
   speechStream?(signal: AbortSignal, consume: Consume): SpeechStream | null;
@@ -58,9 +64,65 @@ export interface VoiceDependencies<Screens> {
   expressiveVoice?(): boolean;
   /** The companion's name, spelled right when a recognizer mishears it. Defaults to Edi. */
   companionName?(): string;
+  /**
+   * Hands-free only: what was heard with noise taken out ('' when it was only noise). An open
+   * microphone hears the room; push-to-talk is deliberate and keeps every word.
+   */
+  settle?(heard: string): string;
+  /**
+   * Hands-free turn detection in main (Silero and loudness). With one, the pet streams every
+   * frame of a conversation and main finds speech; without, the pet reports speech itself.
+   */
+  speechDetector?(): SpeechDetector;
+  /** Where each spoken turn's timings go (the main process log); nothing said is included. */
+  timed?(timing: VoiceTurnTiming): void;
+  /** A spoken turn broke: the whole error, for the log (the person sees a short notice). */
+  failed?(error: unknown): void;
   /** Tests shorten these. */
   timing?: Partial<ProgressTiming & { idleMs: number; tickMs: number }>;
   now?(): number;
+}
+
+/**
+ * How long one spoken turn took, in milliseconds from the moment Edi knew the person had
+ * finished: the release of a hold, or the pause that ended a hands-free turn (which itself
+ * comes `turnTiming.pauseMs` after the last word). Each stage is cumulative.
+ */
+export interface VoiceTurnTiming {
+  transcript: number;
+  screens: number;
+  /** The run is under way: desktop context gathered and the model called. */
+  started?: number;
+  /** The model's first words arrived. */
+  firstWords?: number;
+  /** The first words (an answer or an acknowledgement) went to the voice. */
+  toVoice?: number;
+  firstSound?: number;
+  finished: number;
+  outcome: 'answered' | 'stopped' | 'failed';
+}
+
+/** One log line: "voice turn: transcript 412 ms · … · first sound 2310 ms (answered)". */
+export function describeTiming(timing: VoiceTurnTiming) {
+  const stages = [
+    ['transcript', timing.transcript],
+    ['screens', timing.screens],
+    ['started', timing.started],
+    ['first words', timing.firstWords],
+    ['to voice', timing.toVoice],
+    ['first sound', timing.firstSound],
+    ['finished', timing.finished],
+  ] as const;
+  const parts = stages.flatMap(([label, value]) =>
+    value === undefined ? [] : [`${label} ${Math.round(value)} ms`],
+  );
+  return `voice turn: ${parts.join(' · ')} (${timing.outcome})`;
+}
+
+/** When the person finished, and how long reading their words took after that. */
+interface TurnMark {
+  ended: number;
+  transcript: number;
 }
 
 type Speak = (text: string, signal: AbortSignal, consume: Consume) => Promise<void>;
@@ -207,6 +269,9 @@ export class VoiceController<Screens> {
   private utterance?: { transcriber: Transcriber; epoch: number };
   /** The words that ended the last hands-free utterance, for `submit-turn`. */
   private heard = '';
+  private heardMark?: TurnMark;
+  /** Finds speech in an open conversation's audio; one per conversation. */
+  private detector?: SpeechDetector;
   private pendingAck?: { turn: number; resolve(): void };
   private previewing?: AbortController;
   private idleTimer?: ReturnType<typeof setTimeout>;
@@ -216,7 +281,7 @@ export class VoiceController<Screens> {
   constructor(private readonly deps: VoiceDependencies<Screens>) {}
 
   get available() {
-    return this.deps.runtime !== null;
+    return this.deps.runtime !== null && (this.deps.canListen?.() ?? true);
   }
 
   get phase() {
@@ -266,7 +331,12 @@ export class VoiceController<Screens> {
     if (before === this.session.mode) return false;
     // Push-to-talk streamed everything from the start; hands-free waits for speech instead.
     this.endUtterance(false);
-    this.deps.send({ type: 'converse', generation: this.session.generation });
+    this.detector = this.deps.speechDetector?.();
+    this.deps.send({
+      type: 'converse',
+      generation: this.session.generation,
+      detect: this.detector ? 'main' : 'pet',
+    });
     this.armIdle();
     return true;
   }
@@ -287,10 +357,7 @@ export class VoiceController<Screens> {
         if (!this.utterance) this.beginUtterance();
       } else this.armIdle();
     } else if (event === 'speech-detected') {
-      if (!this.utterance) this.beginUtterance();
-      this.utterance!.epoch++;
-      clearTimeout(this.idleTimer);
-      this.dispatch({ type: 'speech-detected', generation });
+      this.speechDetected(generation);
     } else if (event === 'pause' || event === 'long-pause') {
       void this.decide(event === 'long-pause');
     } else if (event === 'captured') {
@@ -298,9 +365,36 @@ export class VoiceController<Screens> {
     }
   }
 
-  /** Microphone audio of the current utterance, 16 kHz PCM16. */
-  pcm(generation: number, pcm: Uint8Array) {
-    if (generation === this.session.generation) this.utterance?.transcriber.push(pcm);
+  /**
+   * Microphone audio, 16 kHz PCM16: the current utterance, or in a conversation with a detector,
+   * everything the microphone hears (`speaking` while Edi's voice is audible).
+   */
+  pcm(generation: number, pcm: Uint8Array, speaking = false) {
+    if (generation !== this.session.generation) return;
+    const detector = this.detector;
+    if (!detector || this.session.mode !== 'conversation') {
+      this.utterance?.transcriber.push(pcm);
+      return;
+    }
+    void detector.push(pcm, speaking).then(
+      heard => {
+        if (this.detector !== detector || generation !== this.session.generation) return;
+        for (const item of heard) {
+          if ('audio' in item) this.utterance?.transcriber.push(item.audio);
+          else if (item.event === 'speech') this.speechDetected(generation);
+          else void this.decide(item.event === 'long-pause');
+        }
+      },
+      // A failed voice model run drops that chunk; the next one is read again.
+      () => {},
+    );
+  }
+
+  private speechDetected(generation: number) {
+    if (!this.utterance) this.beginUtterance();
+    this.utterance!.epoch++;
+    clearTimeout(this.idleTimer);
+    this.dispatch({ type: 'speech-detected', generation });
   }
 
   /**
@@ -352,8 +446,10 @@ export class VoiceController<Screens> {
     const utterance = this.utterance;
     this.utterance = undefined;
     utterance?.transcriber.close();
-    if (notify && utterance)
+    if (notify && utterance) {
+      this.detector?.finishUtterance();
       this.deps.send({ type: 'utterance-done', generation: this.session.generation });
+    }
   }
 
   /**
@@ -364,10 +460,15 @@ export class VoiceController<Screens> {
     const utterance = this.utterance;
     const { generation } = this.session;
     if (!utterance || this.session.mode !== 'conversation') return;
+    const now = this.deps.now ?? Date.now;
+    const ended = now();
     const epoch = utterance.epoch;
     // A recognizer that failed heard nothing; a long pause then ends the turn quietly.
     const heard = await utterance.transcriber.transcript().then(
-      text => this.heardText(text),
+      text => {
+        const words = this.heardText(text);
+        return this.deps.settle?.(words) ?? words;
+      },
       () => '',
     );
     // Speech resumed, the utterance was handed off, or the session changed meanwhile.
@@ -376,6 +477,7 @@ export class VoiceController<Screens> {
     if (!long && soundsUnfinished(heard)) return;
     this.endUtterance(true);
     this.heard = heard;
+    this.heardMark = { ended, transcript: now() - ended };
     this.dispatch({ type: 'end-of-turn', generation, heard: Boolean(heard) });
     if (!heard && this.session.phase === 'listening') this.armIdle();
   }
@@ -384,6 +486,8 @@ export class VoiceController<Screens> {
   private async finishHold() {
     const utterance = this.utterance;
     const { generation, turn } = this.session;
+    const now = this.deps.now ?? Date.now;
+    const ended = now();
     this.utterance = undefined;
     if (!utterance) return;
     if (this.session.phase !== 'processing' || this.session.mode !== 'push-to-talk') {
@@ -402,18 +506,29 @@ export class VoiceController<Screens> {
       utterance.transcriber.close();
     }
     if (generation !== this.session.generation || turn !== this.session.turn) return;
-    await this.runTurn(heard);
+    await this.runTurn(heard, { ended, transcript: now() - ended });
   }
 
   /** One request: screens if needed → agent → spoken acknowledgement, progress and answer. */
-  private async runTurn(heard: string) {
+  private async runTurn(heard: string, mark: TurnMark) {
     const { generation, turn } = this.session;
     const reply: Reply = { turn, abort: new AbortController(), paused: false };
     this.reply = reply;
     const { signal } = reply.abort;
+    const now = this.deps.now ?? Date.now;
+    const since = () => now() - mark.ended;
+    const timing: VoiceTurnTiming = {
+      transcript: mark.transcript,
+      screens: 0,
+      finished: 0,
+      outcome: 'failed',
+    };
+    this.standIn = undefined;
     const ended = (notice?: string) => {
       if (this.reply === reply) this.reply = undefined;
-      this.notice = notice;
+      // A voice that stood in for the chosen one says why, unless there is more to say.
+      this.notice = notice ?? this.standIn;
+      this.standIn = undefined;
       this.dispatch({ type: 'reply-ended', generation, turn });
       if (this.session.mode === 'conversation' && this.session.phase === 'listening')
         this.armIdle();
@@ -427,6 +542,7 @@ export class VoiceController<Screens> {
       // The voice connects now, while screens are captured and the model starts thinking.
       const voice = speakAloud
         ? this.openVoice(generation, turn, signal, expressiveVoice, () => {
+            timing.firstSound ??= since();
             // Edi looks like she is speaking only while there is sound; between bursts (a tool
             // running after "Let me check") the bubble goes back to thinking and its progress.
             if (this.session.phase === 'processing' && this.reply === reply && !reply.paused)
@@ -435,19 +551,24 @@ export class VoiceController<Screens> {
         : null;
 
       const screens = await this.deps.captureScreens(heard);
+      timing.screens = since();
       if (signal.aborted) return;
       const runId = await this.deps.ask(heard, { screens, spoken: true, expressiveVoice });
+      timing.started = since();
       if (signal.aborted) return;
       if (!runId) return ended('Open Edi to continue.');
 
-      const now = this.deps.now ?? Date.now;
       const progress = new SpokenProgress({ ...progressTiming, ...this.deps.timing });
       let spoken = '';
       let latest: AgentState | undefined;
+      const say = (text: string) => {
+        timing.toVoice ??= since();
+        voice?.say(text);
+      };
       const pull = (text: string, final: boolean) => {
         const next = takeSpeech(text, spoken, expressiveVoice, final);
         spoken = next.spoken;
-        if (next.say) voice?.say(next.say);
+        if (next.say) say(next.say);
       };
       // Acknowledgements and progress are spoken between the answer's own sentences, never
       // while the person talks over Edi.
@@ -458,12 +579,13 @@ export class VoiceController<Screens> {
           this.dispatch({ type: 'reply-quiet', generation, turn });
         if (!latest) return;
         const line = progress.next(latest, now(), quiet);
-        if (line) voice.say(line);
+        if (line) say(line);
       };
       timer = setInterval(narrate, this.deps.timing?.tickMs ?? 250);
 
       const result = await this.deps.whenFinished(runId, signal, state => {
         if (state.status === 'error' || state.status === 'stopped') return;
+        if (state.text.trim()) timing.firstWords ??= since();
         latest = state;
         // Words written before a tool starts ("Sure, checking.") are said before the tool runs,
         // and that burst of speech closes while the tool works.
@@ -477,6 +599,7 @@ export class VoiceController<Screens> {
       if (result.status !== 'done') {
         return ended(result.status === 'error' ? spokenFailure(result.error) : undefined);
       }
+      timing.outcome = 'answered';
       if (!speakAloud || !voice) return ended('Answered in Conversations.');
       // A reply that arrived all at once still starts with a short first clip.
       if (!spoken) pull(result.text, false);
@@ -486,14 +609,18 @@ export class VoiceController<Screens> {
       if (!signal.aborted) ended();
     } catch (error) {
       if (signal.aborted) return;
-      this.notice =
-        error instanceof Error && error.message === 'Set up OpenRouter first.'
-          ? error.message
-          : 'Voice stopped. Try again.';
+      // Say what actually broke: "Voice stopped" alone left nobody (including us) any wiser.
+      this.deps.failed?.(error);
+      this.notice = spokenFailure(error instanceof Error ? error.message : '');
       this.dispatch({ type: 'failed', generation });
     } finally {
       clearInterval(timer);
       if (this.reply === reply && signal.aborted) this.reply = undefined;
+      if (heard) {
+        timing.finished = since();
+        if (signal.aborted) timing.outcome = 'stopped';
+        this.deps.timed?.(timing);
+      }
     }
   }
 
@@ -656,8 +783,25 @@ export class VoiceController<Screens> {
     }
   }
 
-  /** Resolves once the player accepts the chunk: the speech engine waits on this. */
-  private play(
+  /**
+   * Resolves once the player accepts the audio: the speech engine waits on this. The player takes
+   * at most one second per chunk, so longer audio (a whole Kokoro sentence) goes in one-second
+   * pieces, each acknowledged before the next. A chunk the player refused used to be dropped
+   * without an acknowledgement, and the reply stalled.
+   */
+  private async play(
+    generation: number,
+    turn: number,
+    samples: Float32Array,
+    rate: number,
+    signal: AbortSignal,
+  ) {
+    const second = Math.max(1, Math.floor(rate));
+    for (let start = 0; start < samples.length; start += second)
+      await this.playChunk(generation, turn, samples.subarray(start, start + second), rate, signal);
+  }
+
+  private playChunk(
     generation: number,
     turn: number,
     samples: Float32Array,
@@ -704,6 +848,14 @@ export class VoiceController<Screens> {
     this.idleTimer.unref?.();
   }
 
+  /** Why the chosen voice couldn't speak this reply, when another voice stood in for it. */
+  private standIn?: string;
+
+  /** The chosen voice failed and a local one spoke instead: say why once the reply ends. */
+  note(reason: string) {
+    this.standIn = spokenFailure(reason);
+  }
+
   private dispatch(event: VoiceEvent) {
     const previous = this.session;
     const { state, effects } = transitionVoice(previous, event);
@@ -721,6 +873,7 @@ export class VoiceController<Screens> {
     const generation = this.session.generation;
     if (effect === 'cancel-all') {
       clearTimeout(this.idleTimer);
+      this.detector = undefined;
       this.reply?.abort.abort();
       this.reply = undefined;
       this.previewing?.abort();
@@ -744,7 +897,12 @@ export class VoiceController<Screens> {
         const mode = this.session.mode ?? 'push-to-talk';
         // Push-to-talk audio can arrive just before `capture-ready`: be ready for it.
         if (mode === 'push-to-talk') this.beginUtterance();
-        this.deps.send({ type: 'open', generation, mode });
+        this.deps.send({
+          type: 'open',
+          generation,
+          mode,
+          ...(mode === 'conversation' ? { detect: this.detector ? 'main' : 'pet' } : {}),
+        });
       });
     } else if (effect === 'close-microphone') {
       this.deps.send({ type: 'finish', generation });
@@ -763,7 +921,8 @@ export class VoiceController<Screens> {
       this.deps.send({ type: 'stop-audio' });
       this.deps.stopAgent();
     } else if (effect === 'submit-turn' && this.session.mode === 'conversation') {
-      void this.runTurn(this.heard);
+      const now = this.deps.now ?? Date.now;
+      void this.runTurn(this.heard, this.heardMark ?? { ended: now(), transcript: 0 });
     }
     // Push-to-talk 'submit-turn': the last audio arrives, then `captured` runs the turn.
   }

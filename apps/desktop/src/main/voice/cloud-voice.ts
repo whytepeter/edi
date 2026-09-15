@@ -39,17 +39,71 @@ function headers(provider: CloudProviderId, key: string): Record<string, string>
     : { 'xi-api-key': key };
 }
 
-/** A person-readable failure that never includes the key or the response body. */
-export function cloudError(provider: CloudProviderId, status: number) {
+/**
+ * Provider reason codes, to Edi's own words. ElevenLabs sends most account problems as 401
+ * (quota, missing permission, blocked free use), so the status alone blames the key wrongly.
+ */
+const reasons = {
+  invalid_api_key: name => `${name} rejected the key. Replace it in Settings → Voice.`,
+  missing_permissions: name =>
+    `This ${name} key isn’t allowed to make speech. Turn on Text to Speech for it.`,
+  quota_exceeded: name => `${name} has no credits left on this account.`,
+  detected_unusual_activity: name =>
+    `${name} blocked free use on this account. A paid plan lifts it.`,
+  voice_access_denied: name =>
+    `Your ${name} plan can’t use that voice from other apps. Choose another.`,
+  voice_not_found: name => `That ${name} voice is no longer available. Choose another.`,
+  rate_limit_exceeded: name => `${name} is limiting requests right now. Try again shortly.`,
+} satisfies Record<string, (name: string) => string>;
+const sameReason: Record<string, keyof typeof reasons> = {
+  missing_api_key: 'invalid_api_key',
+  invalid_authorization_header: 'invalid_api_key',
+  unauthorized: 'invalid_api_key',
+  insufficient_permissions: 'missing_permissions',
+  insufficient_credits: 'quota_exceeded',
+  subscription_required: 'voice_access_denied',
+  feature_not_available: 'voice_access_denied',
+  payment_required: 'voice_access_denied',
+  paid_plan_required: 'voice_access_denied',
+  invalid_voice_id: 'voice_not_found',
+  concurrent_limit_exceeded: 'rate_limit_exceeded',
+  too_many_concurrent_requests: 'rate_limit_exceeded',
+  system_busy: 'rate_limit_exceeded',
+};
+
+/**
+ * A person-readable failure that never includes the key or the response body; a provider's
+ * reason code only picks the words (an unknown one is shown, for diagnosis).
+ */
+export function cloudError(provider: CloudProviderId, status: number, code?: string) {
   const name = names[provider];
-  if (status === 401 || status === 403)
-    return new Error(`${name} rejected the key. Replace it in Settings → Voice.`);
-  if (status === 402) return new Error(`${name} has no credits left on this account.`);
-  if (status === 404)
-    return new Error(`That ${name} voice is no longer available. Choose another.`);
-  if (status === 429)
-    return new Error(`${name} is limiting requests right now. Try again shortly.`);
-  return new Error(`${name} could not speak that (${status}).`);
+  // Own keys only: a code like "constructor" must not reach Object.prototype.
+  const own = <T extends object>(table: T, key: string): key is Extract<keyof T, string> =>
+    Object.hasOwn(table, key);
+  const reason = !code
+    ? undefined
+    : own(reasons, code)
+      ? code
+      : own(sameReason, code)
+        ? sameReason[code]
+        : undefined;
+  if (reason) return new Error(reasons[reason](name));
+  if (!code && (status === 401 || status === 403)) return new Error(reasons.invalid_api_key(name));
+  if (status === 402) return new Error(reasons.quota_exceeded(name));
+  if (status === 404) return new Error(reasons.voice_not_found(name));
+  if (status === 429) return new Error(reasons.rate_limit_exceeded(name));
+  return new Error(`${name} could not speak that (${status}${code ? `, ${code}` : ''}).`);
+}
+
+/** The reason code in an error reply: `detail.code`, or `detail.status` in older replies. */
+async function failureCode(response: Response) {
+  try {
+    const body = (await response.json()) as { detail?: { code?: unknown; status?: unknown } };
+    const code = body.detail?.code ?? body.detail?.status;
+    return typeof code === 'string' && /^[a-z_]{1,60}$/.test(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const text = (value: unknown, max: number) =>
@@ -84,7 +138,7 @@ export async function listCloudVoices(
       signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
     },
   );
-  if (!response.ok) throw cloudError(provider, response.status);
+  if (!response.ok) throw cloudError(provider, response.status, await failureCode(response));
   const body = (await response.json()) as { data?: unknown[]; voices?: unknown[] };
   const listed = (provider === 'cartesia' ? body.data : body.voices) ?? [];
   const seen = new Set<string>();
@@ -153,7 +207,12 @@ export async function speakCloud(
             signal: total,
           },
         );
-  if (!response.ok || !response.body) throw cloudError(provider, response.status);
+  if (!response.ok || !response.body)
+    throw cloudError(
+      provider,
+      response.status,
+      response.ok ? undefined : await failureCode(response),
+    );
 
   const reader = response.body.getReader();
   let pending = new Uint8Array(0);

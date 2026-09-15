@@ -195,6 +195,9 @@ import {
   voiceInputSchema,
   voiceModelSchema,
   voiceWordsSchema,
+  voiceDeliverySchema,
+  voicePackIdSchema,
+  voicePackStatusSchema,
   voiceSelectionSchema,
   personalVoiceIdSchema,
   personalVoiceListSchema,
@@ -241,6 +244,16 @@ export const settingsSchema = z.preprocess(
     delete saved.petSize;
     // Pocket was removed and Kokoro is the default: a saved Pocket choice moves to Kokoro.
     if (saved.voiceModel === 'pocket') saved.voiceModel = 'kokoro';
+    // Chatterbox is the original model now: it speaks only in a voice made from a recording,
+    // and its old built-in voice ("Calm"/"Expressive") became the delivery setting.
+    if (saved.voiceModel === 'chatterbox-turbo') saved.voiceModel = 'chatterbox';
+    const voices = saved.voices as Record<string, unknown> | undefined;
+    if (voices && 'chatterbox-turbo' in voices) {
+      const chosen = voices['chatterbox-turbo'];
+      if (chosen === 'turbo') saved.voiceDelivery ??= 'expressive';
+      voices.chatterbox = chosen === 'calm' || chosen === 'turbo' ? 'built-in' : chosen;
+      delete voices['chatterbox-turbo'];
+    }
     return saved;
   },
   z.object({
@@ -264,6 +277,8 @@ export const settingsSchema = z.preprocess(
     voiceWords: voiceWordsSchema.catch([]).default([]),
     /** The chosen voice within each speech model. */
     voices: voiceChoicesSchema,
+    /** How Chatterbox reads, whichever of its voices is chosen. */
+    voiceDelivery: voiceDeliverySchema.catch('calm').default('calm'),
     petScale: petScaleSchema.default(1),
     /** The companion's name; null means the character's own name (Edi, Mochi). */
     name: assistantNameSchema.nullable().catch(null).default(null),
@@ -283,9 +298,10 @@ export const defaultSettings: Settings = {
   voiceModel: 'kokoro',
   voiceInput: 'local',
   voiceWords: [],
+  voiceDelivery: 'calm',
   voices: {
     kokoro: 'af_heart',
-    'chatterbox-turbo': 'calm',
+    chatterbox: 'built-in',
     cartesia: null,
     elevenlabs: null,
   },
@@ -383,6 +399,8 @@ export const systemInfoSchema = z
               .strict(),
           )
           .length(4),
+        /** On-device packs to download, with their progress. */
+        packs: z.array(voicePackStatusSchema).max(4),
       })
       .strict(),
     pushToTalk: z
@@ -540,6 +558,16 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
   z.object({ type: z.literal('set-voice-input'), input: voiceInputSchema }).strict(),
   z.object({ type: z.literal('set-voice-words'), words: voiceWordsSchema }).strict(),
+  /** How Chatterbox reads: steadier, or livelier. */
+  z.object({ type: z.literal('set-voice-delivery'), delivery: voiceDeliverySchema }).strict(),
+  /** Download (or resume), pause, or remove an on-device voice pack. */
+  z
+    .object({
+      type: z.literal('voice-pack'),
+      action: z.enum(['download', 'pause', 'remove']),
+      id: voicePackIdSchema,
+    })
+    .strict(),
   z.object({ type: z.literal('remove-personal-voice'), id: personalVoiceIdSchema }).strict(),
   /** Choose a voice within a model; the voice must belong to that model. */
   z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),

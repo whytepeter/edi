@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   isCloudVoiceModel,
   voiceCatalog,
@@ -6,8 +6,10 @@ import {
   type CloudProviderId,
   type SystemInfo,
   type VoiceChoices,
+  type VoiceDelivery,
   type VoiceInput,
   type VoiceModelId,
+  type VoicePackStatus,
   type VoiceSelection,
 } from '@edi/contracts';
 import {
@@ -22,6 +24,7 @@ import {
 } from '../../components/ui';
 import './settings.css';
 import { useAssistantName } from '../../hooks/useAssistantName';
+import { commandMessage } from '../../lib/command-message';
 
 interface VoiceSettingsProps {
   system: SystemInfo | null;
@@ -30,8 +33,11 @@ interface VoiceSettingsProps {
   speakReplies: boolean;
   voiceInput: VoiceInput;
   voiceWords: string[];
+  /** How Chatterbox reads, whichever of its voices is chosen. */
+  voiceDelivery: VoiceDelivery;
   onVoiceModel(model: VoiceModelId): void;
   onVoiceInput(input: VoiceInput): void;
+  onVoiceDelivery(delivery: VoiceDelivery): void;
   onVoiceWords(words: string[]): void;
   onVoice(selection: VoiceSelection): void;
   onPreview(selection: VoiceSelection): Promise<void>;
@@ -42,7 +48,7 @@ interface VoiceSettingsProps {
 
 const modelHelp = (assistant: string): Record<VoiceModelId, string> => ({
   kokoro: `Choose who ${assistant} sounds like. Play a sample before you pick.`,
-  'chatterbox-turbo': `Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when ${assistant} means to.`,
+  chatterbox: `Chatterbox speaks in a voice you record, and can laugh or sigh when ${assistant} means to. Add a recording below, then choose how it reads.`,
   cartesia: 'Voices on your Cartesia account: ones you created, cloned or saved there.',
   elevenlabs: 'Voices on your ElevenLabs account: ones you created, cloned or saved there.',
 });
@@ -69,6 +75,9 @@ const providerInfo: Record<CloudProviderId, { about: string; keyUrl: string; voi
 const listeningLabels = ['This Mac', 'Cartesia'] as const;
 type ListeningLabel = (typeof listeningLabels)[number];
 
+const deliveryLabels = ['Calm', 'Expressive'] as const;
+type DeliveryLabel = (typeof deliveryLabels)[number];
+
 type VoiceType = 'Female' | 'Male';
 const voiceTypes: readonly VoiceType[] = ['Female', 'Male'];
 
@@ -91,8 +100,10 @@ export function VoiceSettings({
   speakReplies,
   voiceInput,
   voiceWords,
+  voiceDelivery,
   onVoiceModel,
   onVoiceInput,
+  onVoiceDelivery,
   onVoiceWords,
   onVoice,
   onPreview,
@@ -151,6 +162,17 @@ export function VoiceSettings({
   const provider = isCloudVoiceModel(viewing) ? viewing : null;
   const hasKey = Boolean(provider && model?.available);
   const cartesiaKey = Boolean(models.find(entry => entry.id === 'cartesia')?.available);
+  const listeningPack = system?.voice.packs.find(pack => pack.id === 'listening');
+  const speakingPack = system?.voice.packs.find(pack => pack.id === 'speaking');
+  const listensHere =
+    listeningPack?.state === 'installed' || listeningPack?.state === 'development';
+  const downloading = system?.voice.packs.some(pack => pack.state === 'downloading') ?? false;
+  // Progress lives in main; read it again while a download runs.
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setInterval(onKeysChanged, 500);
+    return () => clearInterval(timer);
+  }, [downloading, onKeysChanged]);
 
   useEffect(() => {
     if (!provider || !hasKey || !window.edi) return;
@@ -187,7 +209,7 @@ export function VoiceSettings({
           detail: voice.accent,
           gender: voice.gender,
         })),
-        ...(viewing === 'chatterbox-turbo'
+        ...(viewing === 'chatterbox'
           ? personal.map(voice => ({
               id: voice.id,
               name: voice.name,
@@ -256,8 +278,14 @@ export function VoiceSettings({
     setMessage('');
     try {
       await onPreview(select(voice));
-    } catch {
-      setMessage(`Couldn’t play that sample. Try again when ${assistant} isn’t speaking.`);
+    } catch (error) {
+      // Main says why (a cloud voice's account problem, or Edi busy speaking).
+      setMessage(
+        commandMessage(
+          error,
+          `Couldn’t play that sample. Try again when ${assistant} isn’t speaking.`,
+        ),
+      );
     } finally {
       setPreviewing(null);
     }
@@ -291,7 +319,7 @@ export function VoiceSettings({
     <div className="settings-page">
       <GroupedList
         title="Speech model"
-        footer={`Local models run on this Mac. Cloud voices use your own account and receive only the words ${assistant} speaks.`}
+        footer={`Local models run on this Mac and never send anything anywhere. Cloud voices use your own account and receive only the words ${assistant} speaks.`}
       >
         <div className="voice-model-list" role="radiogroup" aria-label="Speech model">
           {models.map(entry => {
@@ -409,6 +437,7 @@ export function VoiceSettings({
           })}
           {system === null && <p className="settings-prose">Checking voices…</p>}
         </div>
+        {speakingPack && <VoicePackRow pack={speakingPack} onChanged={onKeysChanged} />}
       </GroupedList>
 
       {model && (model.available || provider) && (!provider || hasKey) && (
@@ -416,6 +445,22 @@ export function VoiceSettings({
           title={`${model.name} voice`}
           footer={message || cloudError || modelHelp(assistant)[viewing]}
         >
+          {viewing === 'chatterbox' && (
+            <GroupedRow
+              title="Delivery"
+              detail="Calm is steadier and softer; Expressive is livelier. Applies to every Chatterbox voice."
+              control={
+                <SegmentedControl<DeliveryLabel>
+                  label="Delivery"
+                  options={deliveryLabels}
+                  value={voiceDelivery === 'expressive' ? 'Expressive' : 'Calm'}
+                  onChange={label =>
+                    onVoiceDelivery(label === 'Expressive' ? 'expressive' : 'calm')
+                  }
+                />
+              }
+            />
+          )}
           {(splitByType || all.length > 12) && (
             <div className="voice-filter">
               {splitByType && (
@@ -464,7 +509,12 @@ export function VoiceSettings({
               </span>
             </div>
           )}
-          <div className="voice-list" role="radiogroup" aria-label={`${model.name} voice`}>
+          <div
+            // A long list (Kokoro has 27) scrolls inside the card instead of stretching it.
+            className={`voice-list${shown.length > 6 ? ' voice-list-scroll' : ''}`}
+            role="radiogroup"
+            aria-label={`${model.name} voice`}
+          >
             {shown.map(option => (
               <div
                 key={option.id}
@@ -531,7 +581,7 @@ export function VoiceSettings({
               </div>
             ))}
           </div>
-          {viewing === 'chatterbox-turbo' && model.available && (
+          {viewing === 'chatterbox' && model.personalVoices !== undefined && (
             <div className="voice-add">
               {adding ? (
                 <form
@@ -600,11 +650,13 @@ export function VoiceSettings({
       <GroupedList
         title="Listening"
         footer={
-          cartesiaKey
-            ? voiceInput === 'cartesia'
-              ? 'While you talk, your microphone audio goes to Cartesia to be turned into words, billed to your account. If Cartesia can’t be reached, this Mac takes over.'
-              : 'Your voice is turned into words on this Mac and never leaves it.'
-            : 'Your voice is turned into words on this Mac. Add a Cartesia key above to use Cartesia’s faster live transcription instead.'
+          cartesiaKey && voiceInput === 'cartesia'
+            ? `While you talk, your microphone audio goes to Cartesia to be turned into words, billed to your account.${listensHere ? ' If Cartesia can’t be reached, this Mac takes over.' : ''}`
+            : listensHere
+              ? `Your voice is turned into words on this Mac and never leaves it.${cartesiaKey ? '' : ' Add a Cartesia key above to use Cartesia’s faster live transcription instead.'}`
+              : cartesiaKey
+                ? `Download the listening model to hear you on this Mac. Until then, Cartesia listens.`
+                : `Download the listening model so ${assistant} can hear you on this Mac, or add a Cartesia key above.`
         }
       >
         <GroupedRow
@@ -618,6 +670,7 @@ export function VoiceSettings({
             />
           }
         />
+        {listeningPack && <VoicePackRow pack={listeningPack} onChanged={onKeysChanged} />}
       </GroupedList>
 
       <GroupedList
@@ -649,4 +702,75 @@ export function VoiceSettings({
       </GroupedList>
     </div>
   );
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
+
+/**
+ * An on-device pack in Settings → Voice: its size, then Download, progress with Pause, Resume,
+ * Try Again, or Remove (asked once more, since it is hundreds of megabytes to fetch again).
+ */
+function VoicePackRow({ pack, onChanged }: { pack: VoicePackStatus; onChanged(): void }) {
+  const [confirming, setConfirming] = useState(false);
+  const act = (action: 'download' | 'pause' | 'remove') =>
+    void window.edi
+      ?.command({ type: 'voice-pack', action, id: pack.id })
+      .catch(() => {})
+      .finally(() => {
+        setConfirming(false);
+        onChanged();
+      });
+  const size = megabytes(pack.bytes);
+  const progress = `${megabytes(pack.received)} of ${size}`;
+  const button = (label: string, action: 'download' | 'pause' | 'remove', prominent = false) => (
+    <Button size="small" variant={prominent ? 'prominent' : 'glass'} onClick={() => act(action)}>
+      {label}
+    </Button>
+  );
+  if (pack.state === 'installed' && confirming)
+    return (
+      <GroupedRow
+        title={`Remove ${pack.name.toLowerCase()}?`}
+        detail={`You can download it again (${size}).`}
+        control={
+          <span className="settings-actions">
+            <Button size="small" variant="plain" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            {button('Remove', 'remove')}
+          </span>
+        }
+      />
+    );
+  const rows: Record<VoicePackStatus['state'], { detail: ReactNode; control: ReactNode }> = {
+    missing: { detail: `On this Mac · ${size}`, control: button('Download', 'download', true) },
+    development: {
+      detail: 'Using the development copy',
+      control: button('Download', 'download'),
+    },
+    downloading: {
+      detail: (
+        <span className="voice-pack-progress">
+          <progress max={pack.bytes} value={pack.received} aria-label="Download progress" />
+          <span>{progress}</span>
+        </span>
+      ),
+      control: button('Pause', 'pause'),
+    },
+    paused: { detail: `Paused at ${progress}`, control: button('Resume', 'download', true) },
+    failed: {
+      detail: pack.error ?? 'The download stopped.',
+      control: button('Try Again', 'download'),
+    },
+    installed: {
+      detail: `On this Mac · ${size}`,
+      control: (
+        <Button size="small" variant="plain" onClick={() => setConfirming(true)}>
+          Remove…
+        </Button>
+      ),
+    },
+  };
+  const row = rows[pack.state];
+  return <GroupedRow title={pack.name} detail={row.detail} control={row.control} />;
 }

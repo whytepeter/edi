@@ -37,6 +37,11 @@ interface Capture {
   abort: AbortController;
   capture?: PcmCapture;
   activity: SpeechActivity;
+  /**
+   * Main finds speech in this conversation (Silero), so every frame goes there and this window
+   * makes no decisions; otherwise speech is found here by loudness.
+   */
+  detectInMain: boolean;
   /** Sending the current utterance to main (push-to-talk: the whole hold). */
   streaming: boolean;
   preroll: Int16Array[];
@@ -87,7 +92,7 @@ export function startVoiceClient(
     event: 'capture-ready' | 'speech-detected' | 'pause' | 'long-pause' | 'captured' | 'failed',
   ) => void bridge.command({ type: 'voice-event', generation, event }).catch(() => {});
 
-  function sendChunk(current: Capture, frames: Int16Array[]) {
+  function sendChunk(current: Capture, frames: Int16Array[], speaking?: boolean) {
     if (!frames.length) return;
     const pcm = new Uint8Array(frames.length * FRAME_SAMPLES * 2);
     frames.forEach((frame, index) =>
@@ -96,7 +101,14 @@ export function startVoiceClient(
         index * FRAME_SAMPLES * 2,
       ),
     );
-    void bridge.command({ type: 'voice-pcm', generation: current.generation, pcm }).catch(() => {});
+    void bridge
+      .command({
+        type: 'voice-pcm',
+        generation: current.generation,
+        pcm,
+        ...(speaking === undefined ? {} : { speaking }),
+      })
+      .catch(() => {});
   }
 
   function flush(current: Capture) {
@@ -108,6 +120,13 @@ export function startVoiceClient(
 
   function onFrame(current: Capture, frame: Int16Array, rms: number) {
     if (capture !== current) return;
+    if (current.mode === 'conversation' && current.detectInMain) {
+      // Main hears everything and pauses Edi itself (`pause-audio`) when someone talks over her.
+      current.outgoing.push(frame);
+      if (current.outgoing.length >= CHUNK_FRAMES)
+        sendChunk(current, current.outgoing.splice(0), edisSpeaking());
+      return;
+    }
     const speaking = edisSpeaking();
     for (const event of current.activity.frame(rms, FRAME_MS, speaking)) {
       if (event === 'speech') {
@@ -141,13 +160,14 @@ export function startVoiceClient(
     capture = undefined;
   }
 
-  async function open(generation: number, mode: VoiceMode) {
+  async function open(generation: number, mode: VoiceMode, detectInMain: boolean) {
     cancelCapture();
     const current: Capture = {
       generation,
       mode,
       abort: new AbortController(),
       activity: new SpeechActivity(),
+      detectInMain,
       // Push-to-talk sends everything from the moment the microphone opens.
       streaming: mode === 'push-to-talk',
       preroll: [],
@@ -256,15 +276,18 @@ export function startVoiceClient(
   }
 
   const unsubscribe = bridge.onVoice(event => {
-    if (event.type === 'open') void open(event.generation, event.mode);
+    if (event.type === 'open') void open(event.generation, event.mode, event.detect === 'main');
     else if (event.type === 'finish') finish(event.generation);
     else if (event.type === 'cancel' && capture?.generation === event.generation) cancelCapture();
     else if (event.type === 'converse' && capture?.generation === event.generation) {
       capture.mode = 'conversation';
+      capture.detectInMain = event.detect === 'main';
       capture.streaming = false;
       capture.outgoing = [];
       capture.activity.reset();
     } else if (event.type === 'utterance-done' && capture?.generation === event.generation) {
+      // Main's own detector already waits for new speech; the stream carries on.
+      if (capture.detectInMain) return;
       capture.streaming = false;
       capture.outgoing = [];
       capture.preroll = [];

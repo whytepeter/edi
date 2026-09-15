@@ -86,7 +86,7 @@ function voiceId(name: string, taken: Set<string>) {
       .replace(/[^a-z]/g, '')
       .slice(0, 14) || 'voice';
   let id = base.length >= 2 ? base : `${base}voice`;
-  while (taken.has(id) || id === 'calm' || id === 'turbo') {
+  while (taken.has(id) || id === 'built-in') {
     const letters = [...randomBytes(4)].map(byte => String.fromCharCode(97 + (byte % 26))).join('');
     id = `${base.slice(0, 14)}${letters}`;
   }

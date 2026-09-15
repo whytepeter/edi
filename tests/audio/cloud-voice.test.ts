@@ -121,6 +121,56 @@ test('Cartesia sends its version header, model and raw PCM request; errors never
   }
 });
 
+test('ElevenLabs refusals name the real reason, not always the key, and never echo the body', async () => {
+  const replies: [number, unknown][] = [
+    [401, { detail: { status: 'quota_exceeded', message: 'xi-secret quota' } }],
+    [401, { detail: { code: 'missing_permissions', status: 'missing_permissions' } }],
+    [401, { detail: { status: 'detected_unusual_activity' } }],
+    [402, { detail: { status: 'payment_required' } }],
+    [403, { detail: { code: 'voice_access_denied' } }],
+    [401, { detail: { status: 'invalid_api_key' } }],
+    [401, 'not json'],
+    [400, { detail: { code: 'brand_new_reason' } }],
+    [400, { detail: { code: 'constructor' } }],
+  ];
+  let next = 0;
+  const { server, base } = await serve((_request, _body, response) => {
+    const [status, body] = replies[next++]!;
+    response.writeHead(status, { 'content-type': 'application/json' });
+    response.end(typeof body === 'string' ? body : JSON.stringify(body));
+  });
+  try {
+    const messages: string[] = [];
+    for (const _ of replies) {
+      const error = await speakCloud(
+        'elevenlabs',
+        'xi-secret',
+        'Obry8zWnqii5oX5Qsllx',
+        'Hi.',
+        live(),
+        async () => {},
+        { baseUrl: { elevenlabs: base } },
+      ).catch((failure: Error) => failure);
+      assert.ok(error instanceof Error);
+      messages.push(error.message);
+    }
+    assert.deepEqual(messages, [
+      'ElevenLabs has no credits left on this account.',
+      'This ElevenLabs key isn’t allowed to make speech. Turn on Text to Speech for it.',
+      'ElevenLabs blocked free use on this account. A paid plan lifts it.',
+      'Your ElevenLabs plan can’t use that voice from other apps. Choose another.',
+      'Your ElevenLabs plan can’t use that voice from other apps. Choose another.',
+      'ElevenLabs rejected the key. Replace it in Settings → Voice.',
+      'ElevenLabs rejected the key. Replace it in Settings → Voice.',
+      'ElevenLabs could not speak that (400, brand_new_reason).',
+      'ElevenLabs could not speak that (400, constructor).',
+    ]);
+    assert.ok(messages.every(message => !message.includes('xi-secret')));
+  } finally {
+    server.close();
+  }
+});
+
 test('voice lists hold only the person’s own account voices, never the public library', async () => {
   const urls: string[] = [];
   const { server, base } = await serve((request, _body, response) => {

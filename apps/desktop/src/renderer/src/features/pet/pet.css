@@ -43,7 +43,7 @@
   justify-content: center;
   animation: none;
 }
-/* A one-line status like "voice coming soon" stays on one line in its fitted window. */
+/* A one-line status like "Set up voice in Settings" stays on one line in its fitted window. */
 .status-bubble-surface[data-state='unavailable'] .bubble-reply {
   white-space: nowrap;
   font-size: 13px;

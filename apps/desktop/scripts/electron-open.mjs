@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,10 +29,18 @@ for (const [name, value] of Object.entries(process.env)) {
 }
 envArgs.push('--env', `EDI_CWD=${process.cwd()}`);
 
+// LaunchServices drops the app's output; point it back at this terminal so main-process lines
+// (like the voice timings) show where `pnpm dev` runs.
+const terminal = spawnSync('tty', { stdio: ['inherit', 'pipe', 'ignore'], encoding: 'utf8' });
+const tty = terminal.status === 0 ? terminal.stdout.trim() : '';
+const output = tty ? ['--stdout', tty, '--stderr', tty] : [];
+
 const forwarded = process.argv.slice(2).map(arg => (arg === '.' ? process.cwd() : arg));
-const child = spawn('/usr/bin/open', ['-n', '-W', ediApp, ...envArgs, '--args', ...forwarded], {
-  stdio: 'inherit',
-});
+const child = spawn(
+  '/usr/bin/open',
+  ['-n', '-W', ...output, ediApp, ...envArgs, '--args', ...forwarded],
+  { stdio: 'inherit' },
+);
 
 const quit = () => {
   spawn('osascript', ['-e', 'tell application "Edi" to quit'], { stdio: 'ignore' });

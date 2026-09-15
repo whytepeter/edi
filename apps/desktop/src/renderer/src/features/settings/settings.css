@@ -146,6 +146,47 @@
 .voice-list {
   display: grid;
 }
+/* A long voice list scrolls, and fades where it runs past its edges (as connector tools do). */
+@property --voice-fade-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --voice-fade-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+.voice-list-scroll {
+  max-height: min(320px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--voice-fade-top),
+    #000 calc(100% - var(--voice-fade-bottom)),
+    transparent
+  );
+  animation: voice-list-fade linear both;
+  animation-timeline: scroll(self);
+}
+@keyframes voice-list-fade {
+  0% {
+    --voice-fade-top: 0px;
+    --voice-fade-bottom: 24px;
+  }
+  6% {
+    --voice-fade-top: 24px;
+  }
+  94% {
+    --voice-fade-bottom: 24px;
+  }
+  100% {
+    --voice-fade-top: 24px;
+    --voice-fade-bottom: 0px;
+  }
+}
 .voice-option {
   display: flex;
   align-items: center;
@@ -352,6 +393,29 @@
 /* Settings → Voice → Words to recognize: one field inside the grouped list. */
 .voice-words {
   padding: var(--space-3) var(--space-4);
+}
+
+/* Settings → Voice → Listening model: a download's progress under its title. */
+.voice-pack-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.voice-pack-progress progress {
+  appearance: none;
+  inline-size: 7.5rem;
+  block-size: 4px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.voice-pack-progress progress::-webkit-progress-bar {
+  background: var(--fill);
+}
+.voice-pack-progress progress::-webkit-progress-value {
+  background: var(--accent-fill);
+  border-radius: 2px;
 }
 
 /* Settings → Voice → Chatterbox: voices added from recordings. */

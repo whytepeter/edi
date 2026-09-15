@@ -47,7 +47,7 @@ try {
     .poll(() => app.windows().some(page => page.url().includes('surface=voice-status')))
     .toBe(true);
   const bubble = app.windows().find(page => page.url().includes('surface=voice-status'));
-  await expect(bubble.getByText('voice coming soon')).toBeVisible();
+  await expect(bubble.getByText('Set up voice in Settings')).toBeVisible();
   await expect(bubble.locator('.listening-bars')).toHaveCount(0);
   expect(await visible('workspace')).toBe(false);
   await bubble.screenshot({ path: join(profile, 'voice-unavailable.png') });

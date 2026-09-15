@@ -13,7 +13,7 @@ import './pet.css';
 const announcement = (
   name: string,
 ): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>, string> => ({
-  unavailable: 'voice coming soon',
+  unavailable: 'Set up voice in Settings',
   thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.
   listening: 'I’m listening',
@@ -159,7 +159,7 @@ export function StatusBubble({
             className={
               state === 'unavailable' || state === 'notice' ? 'bubble-reply' : 'ds-visually-hidden'
             }
-            title={state === 'unavailable' ? 'No microphone is active' : undefined}
+            title={state === 'unavailable' ? 'Settings → Voice' : undefined}
           >
             {staticText}
           </span>

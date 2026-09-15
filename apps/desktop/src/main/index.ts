@@ -104,12 +104,30 @@ import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
 import { progressLabel } from './agent/step-labels';
-import { resolveVoiceRuntime } from './voice/runtime';
+import {
+  resolveChatterboxVoice,
+  resolveKokoro,
+  resolveLocalTranscription,
+  resolveVoiceRuntime,
+  type VoicePaths,
+} from './voice/runtime';
 import { cartesiaTranscriber, streamCartesiaSpeech } from './voice/cartesia-realtime';
 import { localTranscriber, WhisperServer } from './voice/transcription-server';
 import { PersonalVoices, RECORDING_EXTENSIONS } from './voice/personal-voices';
-import { transcriptionPrompt } from './voice/transcription-process';
-import { speakable, spokenFailure, VoiceController } from './voice/voice-controller';
+import { KokoroOnnx } from './voice/kokoro-onnx';
+import { SileroVad, SpeechDetector } from './voice/speech-detector';
+import { VoicePacks } from './voice/voice-packs';
+import {
+  glossaryWords,
+  settleTranscript,
+  transcriptionPrompt,
+} from './voice/transcription-process';
+import {
+  describeTiming,
+  speakable,
+  spokenFailure,
+  VoiceController,
+} from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { FileAccessManager } from './platform/file-access';
@@ -255,22 +273,48 @@ async function start() {
   const permissionPort: { current?: PermissionManager } = {};
   // Local speech/transcription assets are resolved before the agent so its setup skill
   // reports the same availability used by the voice controller.
-  const voiceRuntime =
-    process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(app.getAppPath(), app.isPackaged);
+  const voicePaths: VoicePaths = {
+    appPath: app.getAppPath(),
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    modelsDir: join(app.getPath('userData'), 'models'),
+  };
+  const voiceRuntime = process.env.EDI_VOICE === 'off' ? null : resolveVoiceRuntime(voicePaths);
+  // Settings → Voice downloads on-device packs into the models folder the runtime reads.
+  const voicePacks = new VoicePacks({
+    dir: voicePaths.modelsDir,
+    elsewhere: id =>
+      id === 'listening' && !voicePaths.packaged && Boolean(resolveLocalTranscription(voicePaths)),
+  });
+  // Silero tells a voice from other sound in hands-free conversations; it ships with the app.
+  // Until it loads (a few ms), or if it cannot, loudness alone decides.
+  let silero: SileroVad | null = null;
+  if (voiceRuntime)
+    void SileroVad.load(
+      app.isPackaged
+        ? join(process.resourcesPath, 'silero_vad.onnx')
+        : join(app.getAppPath(), 'voice/silero_vad.onnx'),
+    ).then(
+      loaded => (silero = loaded),
+      () => {},
+    );
   // Chatterbox voices the person added from their own recordings, kept only in this Mac's app
   // data (Settings → Voice). Read once here and again whenever one is added or removed.
   const personalVoices = new PersonalVoices(join(app.getPath('userData'), 'voices/chatterbox'), {
     trash: path => shell.trashItem(path),
   });
   let personalVoiceList = await personalVoices.list();
+  // The recording Chatterbox speaks Edi's own voice from; null when the app is missing it.
+  const chatterboxReference = resolveChatterboxVoice(voicePaths);
   const personalReferences = () =>
     Object.fromEntries(
       personalVoiceList.map(voice => [voice.id, personalVoices.recording(voice.id)]),
     );
   // The MLX engines are created after the settings snapshot helpers; read them lazily.
-  let kokoroVoice: MlxVoice | null = null;
-  let chatterboxVoice: MlxVoice | null = null;
-  const engineDetail = (engine: MlxVoice | null, base: string) => {
+  // Set once the engines exist; Settings reads them whenever it lists voices.
+  let kokoroVoice: () => KokoroOnnx | MlxVoice | null = () => null;
+  let chatterboxVoice: () => MlxVoice | null = () => null;
+  const engineDetail = (engine: KokoroOnnx | MlxVoice | null, base: string) => {
     if (engine?.status === 'loading') return `${base} Warming up on this Mac.`;
     const first = engine?.lastFirstAudioMs ?? null;
     if (engine?.status === 'ready' && first !== null)
@@ -281,17 +325,21 @@ async function start() {
     {
       id: 'kokoro',
       name: 'Kokoro',
-      available: Boolean(voiceRuntime?.mlx?.kokoro),
+      available: Boolean(voiceRuntime && kokoroVoice()),
       expressions: false,
-      detail: engineDetail(kokoroVoice, 'Natural, fast voices. The default.'),
+      detail: engineDetail(kokoroVoice(), 'Natural, fast voices. The default.'),
     },
     {
-      id: 'chatterbox-turbo',
-      name: 'Chatterbox Turbo',
-      available: Boolean(voiceRuntime?.mlx?.chatterbox),
+      id: 'chatterbox',
+      name: 'Chatterbox',
+      available: Boolean(voiceRuntime?.mlx?.chatterbox && chatterboxReference),
       expressions: true,
-      detail: engineDetail(chatterboxVoice, 'Expressive, with laughs and sighs.'),
-      personalVoices: personalVoiceList,
+      detail: engineDetail(
+        chatterboxVoice(),
+        'Expressive, with laughs and sighs. Can speak in a voice you record.',
+      ),
+      // Present (even empty) once the engine is installed, so Settings can offer Add Voice.
+      ...(voiceRuntime?.mlx?.chatterbox ? { personalVoices: personalVoiceList } : {}),
     },
     {
       id: 'cartesia',
@@ -330,7 +378,7 @@ async function start() {
     if (voiceKeys.has(provider)) void loadCloudVoices(provider).catch(() => {});
   const spokenVoiceName = ({ model, voice }: VoiceSelection) => {
     const personal = personalVoiceList.find(entry => entry.id === voice);
-    if (model === 'chatterbox-turbo' && personal) return personal.name;
+    if (model === 'chatterbox' && personal) return personal.name;
     if (!isCloudVoiceModel(model)) return voiceName(model, voice);
     const listed = cloudVoiceLists[model]?.find(entry => entry.id === voice);
     return listed?.name ?? `Your ${model === 'cartesia' ? 'Cartesia' : 'ElevenLabs'} voice`;
@@ -341,16 +389,11 @@ async function start() {
       model: settings.current.voiceModel,
       voice: settings.current.voices[settings.current.voiceModel],
     });
-    // A personal voice whose recording is gone speaks with the built-in Calm voice instead.
-    if (
-      chosen.success &&
-      chosen.data.model === 'chatterbox-turbo' &&
-      chosen.data.voice !== 'calm' &&
-      chosen.data.voice !== 'turbo'
-    )
+    // A personal voice whose recording is gone falls back to Edi's own Chatterbox voice.
+    if (chosen.success && chosen.data.model === 'chatterbox' && chosen.data.voice !== 'built-in')
       return personalVoiceList.some(voice => voice.id === chosen.data.voice)
         ? chosen.data
-        : { model: 'chatterbox-turbo', voice: 'calm' };
+        : { model: 'chatterbox', voice: 'built-in' };
     if (
       chosen.success &&
       (!isCloudVoiceModel(chosen.data.model) || voiceKeys.has(chosen.data.model))
@@ -516,10 +559,10 @@ async function start() {
           expressions: selectedModel.expressions,
           detail: selectedModel.detail,
           status:
-            selectedModel.id === 'chatterbox-turbo'
-              ? (chatterboxVoice?.status ?? 'off')
+            selectedModel.id === 'chatterbox'
+              ? (chatterboxVoice()?.status ?? 'off')
               : selectedModel.id === 'kokoro'
-                ? (kokoroVoice?.status ?? 'off')
+                ? (kokoroVoice()?.status ?? 'off')
                 : selectedModel.available
                   ? 'ready'
                   : 'unavailable',
@@ -565,9 +608,12 @@ async function start() {
     };
   };
   // EDI_MODEL_CATALOG=off keeps automated desktop tests off the network.
-  const modelCatalog =
+  const modelCatalog: Pick<ModelCatalog, 'list' | 'quickEffort'> =
     process.env.EDI_MODEL_CATALOG === 'off'
-      ? { list: () => Promise.reject(new Error('Model catalog disabled.')) }
+      ? {
+          list: () => Promise.reject(new Error('Model catalog disabled.')),
+          quickEffort: () => undefined,
+        }
       : new ModelCatalog();
   // Web pages are read by the newest Gemini Flash Lite in OpenRouter's catalog (cached an hour).
   let readerModel: string | null = null;
@@ -953,6 +999,7 @@ async function start() {
       refreshReaderModel();
       return readerModel;
     },
+    spokenEffort: model => modelCatalog.quickEffort(model),
     desktopContext: async () =>
       settings.current.shareDesktopContext ? captureDesktopContext() : null,
     credentials: openRouter,
@@ -1055,27 +1102,44 @@ async function start() {
   const mlx = voiceRuntime?.mlx ?? null;
   // Warm engines stay loaded for an hour while selected; Kokoro is small and also stands in
   // while Chatterbox loads.
-  const kokoro = mlx?.kokoro
+  // Kokoro speaks through ONNX Runtime once its pack is downloaded (no Python); the MLX build
+  // stands in while developing. Found on demand, so a finished download speaks without a restart.
+  let kokoroEngine: { model: string; engine: KokoroOnnx } | null = null;
+  const kokoroMlx = mlx?.kokoro
     ? new MlxVoice(
         mlx,
         { id: 'kokoro', model: mlx.kokoro, label: 'Kokoro', voice: settings.current.voices.kokoro },
         { idleMs: 60 * 60_000 },
       )
     : null;
+  const kokoro = (): KokoroOnnx | MlxVoice | null => {
+    const local = resolveKokoro(voicePaths);
+    if (kokoroEngine && kokoroEngine.model !== local?.model) {
+      void kokoroEngine.engine.dispose();
+      kokoroEngine = null;
+    }
+    if (local && !kokoroEngine)
+      kokoroEngine = { model: local.model, engine: new KokoroOnnx(local, { idleMs: 60 * 60_000 }) };
+    return kokoroEngine?.engine ?? kokoroMlx;
+  };
   const chatterbox = mlx?.chatterbox
     ? new MlxVoice(
         mlx,
         {
-          id: 'chatterbox-turbo',
+          id: 'chatterbox',
           model: mlx.chatterbox,
-          label: 'Chatterbox Turbo',
-          references: personalReferences,
+          label: 'Chatterbox',
+          // Edi's own voice comes with the app; the rest are the person's recordings.
+          references: () => ({
+            ...(chatterboxReference ? { 'built-in': chatterboxReference } : {}),
+            ...personalReferences(),
+          }),
         },
         { idleMs: 60 * 60_000 },
       )
     : null;
   kokoroVoice = kokoro;
-  chatterboxVoice = chatterbox;
+  chatterboxVoice = () => chatterbox;
   type Consume = (pcm: Float32Array, rate: number) => Promise<void>;
   /** Speak with one exact model and voice. Only Chatterbox understands [laugh]-style tags. */
   const speakWith = (
@@ -1084,10 +1148,15 @@ async function start() {
     signal: AbortSignal,
     consume: Consume,
   ) => {
-    if (selection.model === 'chatterbox-turbo' && chatterbox)
-      return chatterbox.speak(text, signal, consume, { voice: selection.voice });
-    if (selection.model === 'kokoro' && kokoro)
-      return kokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
+    if (selection.model === 'chatterbox' && chatterbox)
+      // Delivery applies to every Chatterbox voice, the person's own recordings included.
+      return chatterbox.speak(text, signal, consume, {
+        voice: selection.voice,
+        delivery: settings.current.voiceDelivery,
+      });
+    const localKokoro = kokoro();
+    if (selection.model === 'kokoro' && localKokoro)
+      return localKokoro.speak(speakable(text, false), signal, consume, { voice: selection.voice });
     if (isCloudVoiceModel(selection.model) && voiceKeys.has(selection.model)) {
       const provider = selection.model;
       const words = speakable(text, false);
@@ -1127,36 +1196,49 @@ async function start() {
     return Promise.reject(new Error('That voice is not installed on this Mac.'));
   };
   const standIn = (): VoiceSelection | null =>
-    kokoro ? { model: 'kokoro', voice: settings.current.voices.kokoro } : null;
+    kokoro() ? { model: 'kokoro', voice: settings.current.voices.kokoro } : null;
   const warmSelected = () => {
     const model = settings.current.voiceModel;
-    if (model === 'chatterbox-turbo') {
-      chatterbox?.warm();
-      kokoro?.warm();
-    } else kokoro?.warm(); // Kokoro, or the local stand-in for a cloud voice
+    if (model === 'chatterbox') chatterbox?.warm();
+    // Kokoro, or the local stand-in for a cloud voice.
+    kokoro()?.warm();
   };
   const expressiveReady = () =>
-    settings.current.voiceModel === 'chatterbox-turbo' && chatterbox?.status === 'ready';
+    settings.current.voiceModel === 'chatterbox' && chatterbox?.status === 'ready';
   // Whisper stays loaded between turns (and pause checks) instead of starting for each one.
-  const whisper = voiceRuntime
-    ? new WhisperServer(voiceRuntime.transcription, voiceRuntime.transcriptionServer, {
-        // The person's words, and the end of Edi's last reply so follow-ups spell its names.
-        prompt: () =>
-          transcriptionPrompt({
-            name: companion(),
-            words: settings.current.voiceWords,
-            context: speakable(
-              agent.state.messages.findLast(message => message.role === 'assistant')?.text ?? '',
-            ),
-          }),
-        idleMs: 30 * 60_000,
-        gpu: voiceRuntime.transcriptionGpu,
-      })
-    : null;
-  const transcribeLocally = (pcm: Uint8Array, signal: AbortSignal) => {
-    if (!whisper) return Promise.reject(new Error('Transcription is not installed.'));
-    return whisper.transcribe(pcm, signal);
+  // Found on demand: a model downloaded in Settings → Voice is used without a restart.
+  let whisper: { model: string; server: WhisperServer } | null = null;
+  const localWhisper = () => {
+    const local = voiceRuntime ? resolveLocalTranscription(voicePaths) : null;
+    if (whisper && whisper.model !== local?.transcription.model) {
+      whisper.server.dispose();
+      whisper = null;
+    }
+    if (local && !whisper)
+      whisper = {
+        model: local.transcription.model,
+        server: new WhisperServer(local.transcription, local.server, {
+          // The person's words, and the end of Edi's last reply so follow-ups spell its names.
+          prompt: () =>
+            transcriptionPrompt({
+              name: companion(),
+              words: settings.current.voiceWords,
+              context: speakable(
+                agent.state.messages.findLast(message => message.role === 'assistant')?.text ?? '',
+              ),
+            }),
+          idleMs: 30 * 60_000,
+          gpu: local.gpu,
+        }),
+      };
+    return whisper?.server ?? null;
   };
+  const transcribeLocally = (pcm: Uint8Array, signal: AbortSignal) => {
+    const server = localWhisper();
+    if (!server) return Promise.reject(new Error('Transcription is not installed.'));
+    return server.transcribe(pcm, signal);
+  };
+  const cartesiaListening = () => voiceKeys.has('cartesia');
   const voice = new VoiceController({
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
@@ -1171,11 +1253,32 @@ async function start() {
       }),
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
+    // Whisper hears the room as the words it was primed with; those turns are noise.
+    speechDetector: () => new SpeechDetector(silero?.stream() ?? null),
+    settle: heard =>
+      settleTranscript(
+        heard,
+        glossaryWords({ name: companion(), words: settings.current.voiceWords }),
+      ),
+    // Why a spoken turn broke, in the terminal running Edi; the bubble shows a short version.
+    failed: error =>
+      // eslint-disable-next-line no-console -- a deliberate diagnostic line
+      console.error('[voice]', error instanceof Error ? (error.stack ?? error.message) : error),
+    // Timings only, never words: where a spoken reply's wait goes, in the terminal running Edi.
+    timed: timing =>
+      // eslint-disable-next-line no-console -- a deliberate diagnostic line, numbers only
+      console.info(
+        `${describeTiming(timing)} · ${openRouter.model}, reasoning ${
+          modelCatalog.quickEffort(openRouter.model) ?? 'default'
+        }`,
+      ),
     // Cartesia recognition only with its key; any failure falls back to whisper for the same audio.
+    // Chosen whisper with no model yet: Cartesia listens when it can.
     listen: () =>
-      settings.current.voiceInput === 'cartesia' && voiceKeys.has('cartesia')
+      cartesiaListening() && (settings.current.voiceInput === 'cartesia' || !localWhisper())
         ? cartesiaTranscriber(voiceKeys.get('cartesia'), transcribeLocally)
         : localTranscriber(transcribeLocally),
+    canListen: () => Boolean(localWhisper()) || cartesiaListening(),
     // A Cartesia reply is one stream: sentences go in as the model writes them.
     speechStream: (signal, consume) => {
       const selected = selectedVoice();
@@ -1224,9 +1327,7 @@ async function start() {
       const selected = selectedVoice();
       // Chatterbox answers once loaded; until then Kokoro keeps the reply prompt.
       const chosen =
-        selected.model === 'chatterbox-turbo' && chatterbox?.status !== 'ready'
-          ? standIn()
-          : selected;
+        selected.model === 'chatterbox' && chatterbox?.status !== 'ready' ? standIn() : selected;
       if (!chosen) throw new Error('No voice');
       let delivered = false;
       try {
@@ -1238,14 +1339,20 @@ async function start() {
         // A failed engine hands the reply to a local voice, but never repeats audio already heard.
         const backup = standIn();
         if (signal.aborted || delivered || !backup || backup.model === chosen.model) throw error;
+        // Otherwise the stand-in's result is all anyone sees; keep the real reason in the log.
+        // eslint-disable-next-line no-console -- a deliberate diagnostic line
+        console.error(`[voice] ${chosen.model} failed, Kokoro took over:`, error);
+        voice.note(error instanceof Error ? error.message : String(error));
         await speakWith(backup, text, signal, consume);
       }
     },
     warmSpeech: () => {
       warmSelected();
-      whisper?.warm();
+      localWhisper()?.warm();
     },
-    speakReplies: () => settings.current.speakReplies,
+    // With no voice able to speak (nothing downloaded, no cloud key), answers stay written.
+    speakReplies: () =>
+      settings.current.speakReplies && voiceModels().some(model => model.available),
     expressiveVoice: expressiveReady,
     companionName: companion,
   });
@@ -1255,13 +1362,13 @@ async function start() {
     const name = spokenVoiceName(selection);
     const self = companion();
     const sample =
-      selection.model === 'chatterbox-turbo'
+      selection.model === 'chatterbox'
         ? `Hi, I'm ${self}. [chuckle] This is how I sound with ${name}.`
         : `Hi, I'm ${self}. This is how I sound as ${name}.`;
     const played = await voice.preview(
       sample,
       (words, signal, consume) => speakWith(selection, words, signal, consume),
-      selection.model === 'chatterbox-turbo',
+      selection.model === 'chatterbox',
     );
     if (!played) throw new Error(`${companion()} is using its voice right now.`);
   };
@@ -1304,12 +1411,13 @@ async function start() {
   });
 
   // Global hold-to-talk: the same turn as holding the character, and it wakes Edi
-  // from Sleep. Only while voice works, so ⌥ Space is left alone otherwise. A quick tap
+  // from Sleep. Registered whenever voice is possible, so a model or key added later works at
+  // once; before that, a hold says where to set voice up. A quick tap
   // (nothing said) keeps listening hands-free; a tap during that conversation ends it.
   let pressedAt = 0;
   let conversingAtPress = false;
   const hotkey = new HoldHotkey(
-    voice.available
+    voiceRuntime
       ? resolveHotkeyHelper(app.getAppPath(), app.isPackaged, process.resourcesPath)
       : null,
     optionSpace,
@@ -1438,10 +1546,11 @@ async function start() {
   personalVoices.onChange(() => {
     void personalVoices.list().then(list => {
       personalVoiceList = list;
-      const chosen = settings.current.voices['chatterbox-turbo'];
-      if (chosen !== 'calm' && chosen !== 'turbo' && !list.some(voice => voice.id === chosen))
+      const chosen = settings.current.voices.chatterbox;
+      // The chosen recording is gone: fall back to Edi's own Chatterbox voice.
+      if (chosen !== 'built-in' && !list.some(voice => voice.id === chosen))
         void settings.update({
-          voices: { ...settings.current.voices, 'chatterbox-turbo': 'calm' },
+          voices: { ...settings.current.voices, chatterbox: 'built-in' },
         });
       chatterbox?.dispose();
       warmSelected();
@@ -1451,7 +1560,7 @@ async function start() {
     const shown = artifactWindow.window;
     broadcast(shown ? [workspace, pet, shown] : [workspace, pet], 'edi:settings', value);
     // Chatterbox is large; unload it when another model is chosen. Kokoro stays small and warm.
-    if (value.voiceModel !== 'chatterbox-turbo') chatterbox?.dispose();
+    if (value.voiceModel !== 'chatterbox') chatterbox?.dispose();
     warmSelected();
   });
   let runWasSpoken = false;
@@ -1685,6 +1794,13 @@ async function start() {
       annotationDrawn: box => annotations.drew(box),
       previewVoice,
       removePersonalVoice: id => personalVoices.remove(id),
+      // A download runs in the background; Settings follows it through `system()`.
+      voicePack: (action, id) =>
+        action === 'download'
+          ? void voicePacks.download(id)
+          : action === 'pause'
+            ? voicePacks.pause(id)
+            : voicePacks.remove(id),
       setVoiceKey: async (provider, apiKey) => {
         // A key is saved only after the provider accepts it.
         const listed = apiKey
@@ -1758,6 +1874,7 @@ async function start() {
           available: selected.available,
           name: `${spokenVoiceName(speaking)} · ${selected.name}`.slice(0, 120),
           models: voiceModels(),
+          packs: voicePacks.status(),
         },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },
         workspaceFolder,
@@ -1814,8 +1931,8 @@ async function start() {
         // the previous voice (after removing a voice that is Calm, which sounds like someone else).
         personalVoiceList = await personalVoices.list();
         await settings.update({
-          voiceModel: 'chatterbox-turbo',
-          voices: { ...settings.current.voices, 'chatterbox-turbo': voice.id },
+          voiceModel: 'chatterbox',
+          voices: { ...settings.current.voices, chatterbox: voice.id },
         });
         return { ok: true as const, voice };
       } catch (error) {
@@ -1876,8 +1993,9 @@ async function start() {
     void connectors.dispose();
     tasks.dispose();
     chatterbox?.dispose();
-    kokoro?.dispose();
-    whisper?.dispose();
+    kokoroMlx?.dispose();
+    void kokoroEngine?.engine.dispose();
+    whisper?.server.dispose();
     database.close();
   });
 }

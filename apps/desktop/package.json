@@ -9,7 +9,7 @@
     "dev": "node scripts/prepare-electron.mjs && sh ../../native/screen-capture/build.sh && ELECTRON_EXEC_PATH=\"$PWD/scripts/electron-open.mjs\" electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "package": "sh ../../native/hotkey/build.sh && sh ../../native/screen-capture/build.sh && electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist"
+    "package": "sh ../../native/hotkey/build.sh && sh ../../native/whisper/build.sh && sh ../../native/espeak/build.sh && sh ../../native/screen-capture/build.sh && electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist"
   },
   "dependencies": {
     "@edi/capabilities": "workspace:*",
@@ -22,6 +22,7 @@
     "ai": "^7.0.97",
     "koffi": "^2.16.3",
     "mermaid": "^11.17.2",
+    "onnxruntime-node": "^1.30.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zod": "^4.0.0"
@@ -45,7 +46,9 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/onnxruntime-node/bin/napi-v*/{linux,win32}/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/darwin/*/libonnxruntime.1.30.0.dylib"
     ],
     "afterPack": "./scripts/after-pack.cjs",
     "mac": {
@@ -73,7 +76,36 @@
       {
         "from": "../../native/screen-capture/build/libedi_screen_ask.dylib",
         "to": "libedi_screen_ask.dylib"
+      },
+      {
+        "from": "voice/silero_vad.onnx",
+        "to": "silero_vad.onnx"
+      },
+      {
+        "from": "../../native/whisper/build",
+        "to": "whisper",
+        "filter": [
+          "whisper-server",
+          "whisper-cli",
+          "ggml-silero-v6.2.0.bin"
+        ]
+      },
+      {
+        "from": "../../native/espeak/build",
+        "to": "espeak",
+        "filter": [
+          "espeak-ng",
+          "espeak-ng-data/**",
+          "espeak-ng-COPYING"
+        ]
+      },
+      {
+        "from": "voice/chatterbox-voice.wav",
+        "to": "chatterbox-voice.wav"
       }
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**"
     ]
   }
 }
