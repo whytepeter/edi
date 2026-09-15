@@ -173,7 +173,8 @@ export function WorkspaceCard() {
 
         <div className="workspace-pane">
           <main className="workspace-content" inert={blocked}>
-            {shownError && (
+            {/* A permission ask covers the page; its own errors show inside it. */}
+            {shownError && !activePermission && (
               <div role="alert" className="workspace-error">
                 {shownError}
               </div>

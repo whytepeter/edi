@@ -1,0 +1,69 @@
+/*
+ * A permission ask takes over the whole content area, whatever page is open: it covers the
+ * page edge to edge (under the header too), and its content sits in one centred column with
+ * the same margins in every view, compact or expanded.
+ */
+.permission-card {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  overflow: auto;
+  padding: 72px 24px 32px;
+  scrollbar-width: thin;
+}
+.workspace-card[data-expanded] .permission-card {
+  padding: 80px 40px 40px;
+}
+.permission-card-body {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 340px;
+  text-align: center;
+}
+.permission-card-body > .ds-button {
+  width: 100%;
+}
+.permission-card-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.permission-card h1 {
+  margin: 0;
+}
+.permission-card-text {
+  margin: 0 0 8px;
+  font: var(--text-body);
+  color: var(--label-secondary);
+  overflow-wrap: anywhere;
+}
+.permission-card-note {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.permission-card-error {
+  margin: 0;
+  font: var(--text-footnote);
+  color: #c2502e;
+}
+.permission-card-privacy {
+  margin: 4px 0 0;
+  font: var(--text-footnote);
+  color: var(--label-tertiary);
+}
+@media (prefers-color-scheme: dark) {
+  .permission-card-error {
+    color: #f2a283;
+  }
+}

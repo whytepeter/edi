@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import type { PermissionId, PermissionState } from '@edi/contracts';
-import { Button } from '../../components/ui';
+import { Button, Icon, type IconName } from '../../components/ui';
+import './permission-card.css';
+
+const icons: Record<PermissionId, IconName> = {
+  microphone: 'mic',
+  'screen-recording': 'window',
+  accessibility: 'shield',
+  reminders: 'tasks',
+  calendar: 'calendar',
+};
 
 const copy: Record<
   PermissionId,
@@ -43,7 +52,10 @@ const copy: Record<
   },
 };
 
-/** One state-driven card for every OS permission Edi supports. */
+/**
+ * One state-driven card for every OS permission Edi supports. It takes over the whole content
+ * area, whatever page is open, so the ask is the only thing on screen until it's answered.
+ */
 export function PermissionCard({ permission }: { permission: PermissionState }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -69,15 +81,20 @@ export function PermissionCard({ permission }: { permission: PermissionState }) 
     }
   };
   return (
-    <section className="response-view permission-card" aria-labelledby="permission-title">
-      <h1 id="permission-title" className="ds-title">
-        {words.title}
-      </h1>
-      <p className="content-paragraph">{words.body}</p>
-      {restricted ? (
-        <p role="note">This access is unavailable or restricted on this Mac.</p>
-      ) : (
-        <div className="response-actions">
+    <section className="permission-card" aria-labelledby="permission-title">
+      <div className="permission-card-body">
+        <span className="permission-card-icon" aria-hidden="true">
+          <Icon name={icons[permission.id]} size={26} />
+        </span>
+        <h1 id="permission-title" className="ds-title">
+          {words.title}
+        </h1>
+        <p className="permission-card-text">{words.body}</p>
+        {restricted ? (
+          <p role="note" className="permission-card-note">
+            This access is unavailable or restricted on this Mac.
+          </p>
+        ) : (
           <Button variant="prominent" block disabled={busy} onClick={() => void act()}>
             {busy
               ? settings
@@ -87,22 +104,28 @@ export function PermissionCard({ permission }: { permission: PermissionState }) 
                 ? words.settings
                 : words.allow}
           </Button>
-        </div>
-      )}
-      {permission.requested && permission.status === 'not-determined' && (
-        <p role="status">Finish the request in macOS. You may need to reopen Edi afterward.</p>
-      )}
-      {error && <p role="alert">{error}</p>}
-      <Button
-        variant="plain"
-        block
-        onClick={() =>
-          void window.edi?.command({ type: 'permission-dismiss', permission: permission.id })
-        }
-      >
-        Not now
-      </Button>
-      <p className="ds-footnote ds-tertiary">{words.privacy}</p>
+        )}
+        {permission.requested && permission.status === 'not-determined' && (
+          <p role="status" className="permission-card-note">
+            Finish the request in macOS. You may need to reopen Edi afterward.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="permission-card-error">
+            {error}
+          </p>
+        )}
+        <Button
+          variant="plain"
+          block
+          onClick={() =>
+            void window.edi?.command({ type: 'permission-dismiss', permission: permission.id })
+          }
+        >
+          Not now
+        </Button>
+        <p className="permission-card-privacy">{words.privacy}</p>
+      </div>
     </section>
   );
 }
