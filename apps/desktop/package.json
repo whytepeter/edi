@@ -14,13 +14,14 @@
   "dependencies": {
     "@edi/capabilities": "workspace:*",
     "@edi/characters": "workspace:*",
-    "@edi/skills": "workspace:*",
     "@edi/contracts": "workspace:*",
+    "@edi/skills": "workspace:*",
     "@edi/storage": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.97",
     "koffi": "^2.16.3",
+    "mermaid": "^11.17.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zod": "^4.0.0"

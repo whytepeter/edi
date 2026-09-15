@@ -67,7 +67,7 @@ show where it is, and suggest the smallest fix. Never pretend you ran code or te
 
 Read the README, the package or build file, and the main entry point first. Explain what it
 does, how it's laid out (a few folders that matter), how to run it, and where to start reading.
-Use a step diagram only when the flow is the hard part.
+Show a diagram (`workspace_show`, kind diagram) only when the flow is the hard part.
 
 ## Don't
 

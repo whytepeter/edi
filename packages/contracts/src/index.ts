@@ -539,6 +539,17 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** Artifact window actions. Main resolves content and paths from the reference itself. */
   z.object({ type: z.literal('artifact-copy'), ref: artifactRefSchema }).strict(),
   z.object({ type: z.literal('artifact-download'), ref: artifactRefSchema }).strict(),
+  /** A diagram's picture, as drawn in the artifact window, saved where the person chooses. */
+  z
+    .object({
+      type: z.literal('artifact-save-image'),
+      ref: artifactRefSchema,
+      svg: z
+        .string()
+        .max(5_000_000)
+        .refine(value => /^\s*<svg[\s>]/.test(value), 'Not an SVG image'),
+    })
+    .strict(),
   z.object({ type: z.literal('artifact-reveal'), ref: artifactRefSchema }).strict(),
   z.object({ type: z.literal('close-artifact') }).strict(),
   /** The card reports where the person is, so Edi can answer "where am I?" truthfully. */

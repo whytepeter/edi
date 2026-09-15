@@ -28,7 +28,7 @@ refreshing).
 
 ## 2. Explain briefly
 
-If they're new to it, a short plain explanation with one example first (use a step diagram for
+If they're new to it, a short plain explanation with one example first (show a diagram for
 processes). Then move to recall quickly.
 
 ## 3. Practise

@@ -54,7 +54,7 @@ const noteRow = z.object({
 export type NoteRecord = z.infer<typeof noteRow>;
 const artifactRow = z.object({
   id: z.string(),
-  kind: z.enum(['document', 'checklist', 'table', 'html']),
+  kind: z.enum(['document', 'checklist', 'table', 'diagram', 'html']),
   title: z.string(),
   content: z.string(),
   path: z.string(),
@@ -65,7 +65,7 @@ const artifactRow = z.object({
 /** Generated workspace content. `content` is the structured data; `path` is workspace-relative. */
 export interface ArtifactRecord {
   id: string;
-  kind: 'document' | 'checklist' | 'table' | 'html';
+  kind: 'document' | 'checklist' | 'table' | 'diagram' | 'html';
   title: string;
   content: unknown;
   path: string;

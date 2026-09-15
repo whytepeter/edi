@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { ArtifactSummary } from '@edi/contracts';
+import { artifactExport, type ArtifactSummary } from '@edi/contracts';
 import {
   CapabilityBroker,
   defineCapability,
@@ -415,6 +415,59 @@ test('notes.show displays a note without returning its text to the model', async
   assert.deepEqual(shown, [
     { id: callId, kind: 'note', title: 'Groceries', preview: 'Groceries\n• milk\n• eggs', noteId },
   ]);
+});
+
+test('a diagram is Mermaid: shown, saved as .mmd, previewed, copied as a fence, updated in place', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-workspace-'));
+  const shown: ArtifactSummary[] = [];
+  const artifacts = memoryArtifacts();
+  const [show, , , update] = workspaceCapabilities({
+    directory: () => folder,
+    shown: artifact => {
+      shown.push(artifact);
+    },
+    artifacts,
+    notes: { store: emptyStore(), directory: () => join(folder, 'Notes') },
+    trash: async () => {},
+    now: () => 5,
+  });
+  const context = { callId: '00000000-0000-4000-8000-000000000031', runId: run };
+  const mermaid = 'flowchart LR\n  app[Edi] --> api[API]\n  api --> db[(Database)]';
+  const result = await (
+    await show.prepare({ kind: 'diagram', title: 'Architecture', mermaid }, context)
+  ).execute(live());
+  const path = join('Artifacts', 'Diagrams', 'architecture.mmd');
+  assert.equal((result.output as { path: string }).path, path);
+  assert.equal(await readFile(join(folder, path), 'utf8'), `${mermaid}\n`);
+  assert.equal(shown[0]?.preview, 'Flowchart: Edi → API → Database');
+  assert.equal(
+    artifactExport({ kind: 'diagram', title: 'A', mermaid }).copy,
+    `\`\`\`mermaid\n${mermaid}\n\`\`\`\n`,
+  );
+  assert.throws(
+    () => show.prepare({ kind: 'diagram', title: 'Empty' }, context),
+    /needs its Mermaid source/,
+  );
+
+  // “Add the MCP layer” replaces the same diagram rather than making a new one.
+  const next = `${mermaid}\n  app --> mcp[MCP servers]`;
+  await (
+    await update.prepare(
+      { id: context.callId, kind: 'diagram', title: 'Architecture', mermaid: next },
+      context,
+    )
+  ).execute(live());
+  assert.equal(await readFile(join(folder, path), 'utf8'), `${next}\n`);
+  assert.equal(artifacts.records.length, 1);
+  assert.match(shown.at(-1)?.preview ?? '', /MCP servers/);
+  assert.throws(
+    () =>
+      update.prepare(
+        { id: context.callId, kind: 'table', title: 'X', columns: ['a'], rows: [['1']] },
+        context,
+      ),
+    /is a diagram/,
+  );
 });
 
 test('workspace.show validates content by kind and is exposed as a plain object schema', async () => {

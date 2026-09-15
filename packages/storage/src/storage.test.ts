@@ -691,3 +691,20 @@ test('failures keep only a safe summary, newest first, capped', () => {
     ),
   );
 });
+
+test('diagrams are stored like other generated content', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const content = { kind: 'diagram', title: 'Flow', mermaid: 'flowchart LR\n  a --> b' };
+  repos.artifacts.add({
+    id: uuid(9),
+    kind: 'diagram',
+    title: 'Flow',
+    content,
+    path: 'Artifacts/Diagrams/flow.mmd',
+    bytes: 22,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  assert.equal(repos.artifacts.get(uuid(9))?.kind, 'diagram');
+  assert.deepEqual(repos.artifacts.get(uuid(9))?.content, content);
+});

@@ -13,6 +13,7 @@ import { createRepositories, openDatabase } from '../../packages/storage/src/ind
 const profile = await mkdtemp(join(tmpdir(), 'edi-artifacts-'));
 const runId = '00000000-0000-4000-8000-000000000001';
 const callId = '00000000-0000-4000-8000-000000000002';
+const diagramId = '00000000-0000-4000-8000-000000000003';
 
 const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><body>
 <button id="count">Count 0</button><pre id="result">running</pre>
@@ -82,6 +83,41 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     createdAt: 3,
     updatedAt: 3,
   });
+  // A diagram, drawn by the bundled Mermaid inside the artifact window.
+  const mermaid = 'flowchart LR\n  app[Edi] --> api[API]\n  api --> db[(Database)]';
+  repositories.toolCalls.create({
+    id: diagramId,
+    runId,
+    capability: 'workspace.show',
+    title: 'Show content',
+    effect: 'read',
+    input: { kind: 'diagram', title: 'Architecture', mermaid },
+    status: 'running',
+    at: 4,
+  });
+  repositories.toolCalls.finish(
+    diagramId,
+    'succeeded',
+    'Showed “Architecture”.',
+    {
+      shown: true,
+      kind: 'diagram',
+      title: 'Architecture',
+      path: 'Artifacts/Diagrams/x.mmd',
+      bytes: 60,
+    },
+    5,
+  );
+  repositories.artifacts.add({
+    id: diagramId,
+    kind: 'diagram',
+    title: 'Architecture',
+    content: { kind: 'diagram', title: 'Architecture', mermaid },
+    path: 'Artifacts/Diagrams/edi-test-architecture-missing.mmd',
+    bytes: 60,
+    createdAt: 5,
+    updatedAt: 5,
+  });
   database.close();
 }
 
@@ -127,9 +163,10 @@ try {
   } finally {
     await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard);
   }
-  expect(
-    await workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view),
-  ).toBe('conversations');
+  // Navigation lands a moment after launch; wait for it rather than reading once.
+  await expect
+    .poll(() => workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view))
+    .toBe('conversations');
   const [card, shown] = await app.evaluate(({ BrowserWindow }) =>
     ['surface=workspace', 'surface=artifact'].map(surface =>
       BrowserWindow.getAllWindows()
@@ -202,8 +239,21 @@ try {
     callId,
   );
 
+  // 6. A diagram opens drawn: Mermaid renders its SVG in the window, offline and sandboxed.
+  await workspace.evaluate(ref => window.edi.command({ type: 'open-artifact', ref }), {
+    callId: diagramId,
+  });
+  artifact = await artifactWindow();
+  await expect(artifact.getByRole('heading', { name: 'Architecture' })).toBeVisible();
+  await expect(artifact.getByText('Diagram', { exact: true })).toBeVisible();
+  await expect(artifact.locator('.artifact-diagram svg')).toBeVisible({ timeout: 15_000 });
+  await expect(artifact.locator('.artifact-diagram')).toContainText('Database');
+  for (const name of ['Copy', 'Download'])
+    await expect(artifact.getByRole('button', { name })).toBeVisible();
+  await artifact.keyboard.press('Escape').catch(() => {});
+
   console.log(
-    'PASS: artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
+    'PASS: diagrams draw; artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
   );
 } finally {
   await app?.close();

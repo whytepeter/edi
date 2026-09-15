@@ -212,7 +212,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Dynamic content area renders rich artifacts | 2 | Documents, checklists, tables, notes and sandboxed interactive HTML in the artifact window; composition blocks planned |
 | Artifact lifecycle: show → save → revisit → export | 2–3 | Show, auto-save, Library, copy, download (md/csv/html) done; rename, pin, regenerate planned |
 | Semantic artifact types, with HTML only sandboxed | 2 | Four structured types plus `html`, isolated from Edi (CSP sandbox, private scheme, isolated session) |
-| Diagrams as first-class, updatable artifacts | 2–3 | Step diagrams only; updatable diagrams planned |
+| Diagrams as first-class, updatable artifacts | 2–3 | Done (2026-09-15): `diagram` kind in Mermaid, drawn offline in strict mode, saved as .mmd, updated in place by workspace_update, copied as a mermaid fence, downloaded as SVG |
 | Reports and exports (save ≠ export) | 3 | Planned |
 | Workspace is not memory | Principle | Held: nothing shown or saved is used as memory |
 | Ambient companion, background tasks, task lifecycle, watches | 7 | Planned |

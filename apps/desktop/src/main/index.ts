@@ -1198,7 +1198,9 @@ async function start() {
           ? { name: 'CSV', extensions: ['csv'] }
           : extension === 'html'
             ? { name: 'Web page', extensions: ['html'] }
-            : { name: 'Markdown', extensions: ['md'] },
+            : extension === 'mmd'
+              ? { name: 'Mermaid diagram', extensions: ['mmd'] }
+              : { name: 'Markdown', extensions: ['md'] },
       ],
     };
     const owner = artifactWindow.window;
@@ -1206,6 +1208,21 @@ async function start() {
       ? await dialog.showSaveDialog(owner, options)
       : await dialog.showSaveDialog(options);
     if (!result.canceled && result.filePath) await writeFile(result.filePath, file);
+  };
+  /** A diagram's picture, drawn by the artifact window (main has no DOM to draw Mermaid). */
+  const saveArtifactImage = async (ref: ArtifactRef, svg: string) => {
+    const content = await resolveArtifact(ref);
+    if (content.kind !== 'diagram') throw new Error('Only diagrams are saved as pictures.');
+    const name = content.title.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Diagram';
+    const options = {
+      defaultPath: join(app.getPath('downloads'), `${name}.svg`),
+      filters: [{ name: 'SVG image', extensions: ['svg'] }],
+    };
+    const owner = artifactWindow.window;
+    const result = owner
+      ? await dialog.showSaveDialog(owner, options)
+      : await dialog.showSaveDialog(options);
+    if (!result.canceled && result.filePath) await writeFile(result.filePath, svg);
   };
   showArtifact = artifact => {
     // A background task's content goes quietly to Library and its task, not onto the screen.
@@ -1499,6 +1516,7 @@ async function start() {
       permissions,
       openArtifact,
       artifactAction,
+      saveArtifactImage,
       previewVoice,
       setVoiceKey: async (provider, apiKey) => {
         // A key is saved only after the provider accepts it.

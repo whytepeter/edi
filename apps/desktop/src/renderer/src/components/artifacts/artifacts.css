@@ -423,3 +423,41 @@
   font-weight: 600;
   color: var(--label-secondary);
 }
+
+/* ── Diagram (Mermaid, drawn in strict mode) ── */
+.artifact-diagram {
+  display: grid;
+  place-items: center;
+  overflow: auto;
+}
+.artifact-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+.artifact-diagram-status {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-tertiary);
+}
+.artifact-diagram-error {
+  display: grid;
+  gap: var(--space-2);
+}
+.artifact-diagram-error p {
+  margin: 0;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.artifact-diagram-error pre {
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--fill);
+  font:
+    12px/1.5 ui-monospace,
+    'SF Mono',
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+}

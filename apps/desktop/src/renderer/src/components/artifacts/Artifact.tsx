@@ -4,6 +4,7 @@ import { useSettings } from '../../hooks/useSettings';
 import { characterById, useCharacters } from '../../hooks/useCharacters';
 import { Icon, IconButton, type IconName } from '../ui';
 import { Markdown } from './Markdown';
+import { Diagram } from './Diagram';
 import './artifacts.css';
 
 const kindIcon: Record<ArtifactKind, IconName> = {
@@ -11,6 +12,7 @@ const kindIcon: Record<ArtifactKind, IconName> = {
   note: 'library',
   checklist: 'check',
   table: 'window',
+  diagram: 'chart',
   html: 'code',
 };
 const kindLabel: Record<ArtifactKind, string> = {
@@ -18,6 +20,7 @@ const kindLabel: Record<ArtifactKind, string> = {
   note: 'Note',
   checklist: 'Checklist',
   table: 'Table',
+  diagram: 'Diagram',
   html: 'Interactive',
 };
 
@@ -48,6 +51,7 @@ const previewLabel: Record<ArtifactKind, string> = {
   note: 'Note',
   checklist: 'Checklist',
   table: 'Table',
+  diagram: 'Diagram',
   html: 'Interactive page',
 };
 
@@ -147,7 +151,17 @@ function InteractivePage({ reference, title }: { reference: ArtifactRef; title: 
   );
 }
 
-function Body({ artifact, reference }: { artifact: Artifact; reference: ArtifactRef }) {
+function Body({
+  artifact,
+  reference,
+  onDiagram,
+}: {
+  artifact: Artifact;
+  reference: ArtifactRef;
+  onDiagram?: (svg: string | null) => void;
+}) {
+  if (artifact.kind === 'diagram')
+    return <Diagram source={artifact.mermaid} {...(onDiagram ? { onRendered: onDiagram } : {})} />;
   if (artifact.kind === 'html')
     return <InteractivePage reference={reference} title={artifact.title} />;
   if (artifact.kind === 'checklist')
@@ -193,6 +207,7 @@ const canCopy: Record<ArtifactKind, boolean> = {
   note: true,
   checklist: true,
   table: true,
+  diagram: true,
   html: true,
 };
 const canDownload: Record<ArtifactKind, boolean> = {
@@ -200,6 +215,7 @@ const canDownload: Record<ArtifactKind, boolean> = {
   note: true,
   checklist: true,
   table: true,
+  diagram: true,
   html: true,
 };
 
@@ -219,6 +235,11 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
   });
   const [actionError, setActionError] = useState({ key: '', message: '' });
   const [copiedKey, setCopiedKey] = useState('');
+  // A diagram's drawn SVG, so Download saves exactly what's on screen.
+  const [diagram, setDiagram] = useState<{ key: string; svg: string | null }>({
+    key: '',
+    svg: null,
+  });
   const artifact = loaded.key === key ? (loaded.artifact ?? null) : null;
   const error =
     (loaded.key === key ? loaded.error : '') ||
@@ -261,6 +282,12 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     if (!reference || !window.edi) return;
     try {
       setActionError({ key: '', message: '' });
+      const svg = diagram.key === key ? diagram.svg : null;
+      if (type === 'artifact-download' && artifact?.kind === 'diagram') {
+        if (!svg) throw new Error('Not drawn');
+        await window.edi.command({ type: 'artifact-save-image', ref: reference, svg });
+        return;
+      }
       await window.edi.command({ type, ref: reference });
       if (type === 'artifact-copy') setCopiedKey(key);
     } catch {
@@ -328,7 +355,13 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
             {error}
           </p>
         )}
-        {artifact && reference && <Body artifact={artifact} reference={reference} />}
+        {artifact && reference && (
+          <Body
+            artifact={artifact}
+            reference={reference}
+            onDiagram={svg => setDiagram({ key, svg })}
+          />
+        )}
       </div>
     </article>
   );

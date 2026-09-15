@@ -27,9 +27,10 @@ import {
 const showInput = z
   .object({
     kind: z
-      .enum(['document', 'checklist', 'table', 'html'])
+      .enum(['document', 'checklist', 'table', 'diagram', 'html'])
       .describe(
         'document: Markdown text · checklist: items to tick · table: rows and columns · ' +
+          'diagram: a flowchart, architecture, sequence, timeline or mind map in Mermaid · ' +
           'html: an interactive page, only when the others cannot express it',
       ),
     title: z.string().trim().min(1).max(120).describe('Short title'),
@@ -45,6 +46,14 @@ const showInput = z
       .max(100)
       .optional()
       .describe('For table'),
+    mermaid: z
+      .string()
+      .max(20_000)
+      .optional()
+      .describe(
+        'For diagram: Mermaid source, e.g. "flowchart LR\n  app[Edi] --> api[API]". Short ' +
+          'labels, left-to-right for flows; quote labels with punctuation.',
+      ),
     html: z
       .string()
       .max(120_000)
@@ -65,7 +74,9 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
         ? { kind: input.kind, title: input.title, items: input.items }
         : input.kind === 'html'
           ? { kind: input.kind, title: input.title, html: input.html }
-          : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
+          : input.kind === 'diagram'
+            ? { kind: input.kind, title: input.title, mermaid: input.mermaid }
+            : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
   const parsed = artifactContentSchema.safeParse(candidate);
   if (!parsed.success)
     throw new Error(
@@ -75,7 +86,9 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
           ? 'A checklist needs at least one item.'
           : input.kind === 'html'
             ? 'An interactive page needs its HTML.'
-            : 'A table needs columns and at least one row.',
+            : input.kind === 'diagram'
+              ? 'A diagram needs its Mermaid source.'
+              : 'A table needs columns and at least one row.',
     );
   return parsed.data;
 }
@@ -84,6 +97,7 @@ const artifactFolder = {
   document: 'Reports',
   checklist: 'Checklists',
   table: 'Tables',
+  diagram: 'Diagrams',
   html: 'Interactive',
 } as const;
 
@@ -332,7 +346,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     title: 'Show content',
     description:
       'Display content in Edi’s card instead of putting it in the reply: a document (Markdown), a ' +
-      'checklist, or a table. Use whenever the user asks to see, show, draft, write, list, plan, ' +
+      'checklist, a table, or a diagram (Mermaid) for flows, architecture, sequences and timelines. Use whenever the user asks to see, show, draft, write, list, plan, ' +
       'compare or organize something, and for anything longer than a few sentences. After showing ' +
       'it, reply in one short sentence and do not repeat or read out the content. Edi automatically ' +
       'places the generated file under Documents/Edi/Artifacts; do not ask the user to save it.',
@@ -497,7 +511,8 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     title: 'Update workspace content',
     description:
       'Replace a workspace item with a new version, keeping its place: a generated document, ' +
-      'checklist, table or interactive page (same kind), or a saved note (kind note, with the ' +
+      'checklist, table, diagram or interactive page (same kind; for a diagram, the whole new ' +
+      'Mermaid), or a saved note (kind note, with the ' +
       'new title and the complete Markdown). Pass its id from workspace.search. The user reviews ' +
       'the change first, and Edi opens the result.',
     effect: 'write',
@@ -505,7 +520,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     input: showInput.extend({
       id: itemId,
       kind: z
-        .enum(['document', 'checklist', 'table', 'html', 'note'])
+        .enum(['document', 'checklist', 'table', 'diagram', 'html', 'note'])
         .describe('The item’s kind, unchanged; note for a saved note (use markdown)'),
     }),
     prepare(input, { callId }) {

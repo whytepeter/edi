@@ -47,6 +47,8 @@ interface CommandDependencies {
   openArtifact(ref: ArtifactRef): void;
   /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
   artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
+  /** Save a diagram's drawn SVG where the person chooses. */
+  saveArtifactImage(ref: ArtifactRef, svg: string): Promise<void>;
   closeArtifact(): void;
   /** Open a validated http(s) link from a reply in the default browser. */
   openLink(url: string): Promise<void>;
@@ -87,6 +89,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     revealLibraryItem,
     openArtifact,
     artifactAction,
+    saveArtifactImage,
     closeArtifact,
     openLink,
     previewVoice,
@@ -216,6 +219,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ ref }) => artifactAction('download', ref),
     },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
+    'artifact-save-image': {
+      from: fromArtifact,
+      handle: ({ ref, svg }) => saveArtifactImage(ref, svg),
+    },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
     'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },
     'workspace-view': { from: fromWorkspace, handle: ({ view }) => reportView(view) },

@@ -282,6 +282,29 @@ export const migrations: readonly { version: number; sql: string }[] = [
     version: 13,
     sql: `ALTER TABLE runs ADD COLUMN note TEXT;`,
   },
+  {
+    // Diagrams (Mermaid) join the generated kinds. SQLite can't change a CHECK in place, so the
+    // table is rebuilt with every row kept.
+    version: 14,
+    sql: `
+      CREATE TABLE artifacts_next (
+        id           TEXT PRIMARY KEY,
+        kind         TEXT    NOT NULL
+                     CHECK (kind IN ('document', 'checklist', 'table', 'diagram', 'html')),
+        title        TEXT    NOT NULL,
+        content_json TEXT    NOT NULL,
+        path         TEXT    NOT NULL,
+        bytes        INTEGER NOT NULL,
+        created_at   INTEGER NOT NULL,
+        updated_at   INTEGER NOT NULL
+      );
+      INSERT INTO artifacts_next (id, kind, title, content_json, path, bytes, created_at, updated_at)
+      SELECT id, kind, title, content_json, path, bytes, created_at, updated_at FROM artifacts;
+      DROP TABLE artifacts;
+      ALTER TABLE artifacts_next RENAME TO artifacts;
+      CREATE INDEX artifacts_updated ON artifacts (updated_at DESC);
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

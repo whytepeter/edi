@@ -9,6 +9,7 @@ const icon = {
   document: 'notes',
   checklist: 'check',
   table: 'window',
+  diagram: 'chart',
   html: 'code',
 } as const;
 const label = {
@@ -16,6 +17,7 @@ const label = {
   document: 'Report',
   checklist: 'Checklist',
   table: 'Table',
+  diagram: 'Diagram',
   html: 'Interactive',
 } as const;
 
