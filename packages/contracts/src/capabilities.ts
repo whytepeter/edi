@@ -69,7 +69,14 @@ export const approvalRequestSchema = z
   .object({
     callId: z.string().uuid(),
     runId: z.string().uuid(),
-    capability: z.object({ id: z.string().max(80), title: z.string().max(120) }).strict(),
+    capability: z
+      .object({
+        id: z.string().max(80),
+        title: z.string().max(120),
+        /** The connected app a tool belongs to (“Gmail”), shown with its logo. */
+        app: z.string().max(80).optional(),
+      })
+      .strict(),
     preview: approvalPreviewSchema,
     scope: approvalScopeSchema.optional(),
   })

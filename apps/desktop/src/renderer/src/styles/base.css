@@ -46,6 +46,10 @@ button:disabled {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+/* Containers focused from code (a dialog, so keys reach it) aren't controls: no ring. */
+[tabindex='-1']:focus-visible {
+  box-shadow: none;
+}
 
 ::selection {
   background: var(--accent-soft);

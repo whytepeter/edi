@@ -23,6 +23,9 @@
   --accent-fill: var(--accent);
   --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 9%, transparent);
+  /* Keyboard focus: a crisp accent ring with a soft halo. Used by :focus-visible everywhere. */
+  --focus-ring:
+    0 0 0 1.5px var(--accent-strong), 0 0 0 4px color-mix(in oklab, var(--accent) 24%, transparent);
 }
 /*
  * Dark mode. Skin accents can be very dark (Edi's is deep brown), so dark-mode variants set a

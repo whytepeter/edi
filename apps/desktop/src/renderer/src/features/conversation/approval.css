@@ -10,57 +10,37 @@
   background: rgb(16 18 26 / 0.28);
   animation: approval-fade 200ms ease-out both;
 }
+/* A notification-style panel: thick glass, soft shadow, rounded like a macOS alert. */
 .approval-sheet {
+  box-sizing: border-box;
   width: 100%;
   max-height: calc(100% - 48px);
   overflow: auto;
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-4) var(--space-3);
-  border-radius: var(--radius-inset);
+  padding: 16px;
+  border-radius: 20px;
   /* Dense enough that the conversation behind never reads through the buttons. */
-  background: color-mix(in oklab, var(--content-base) 92%, transparent);
-  backdrop-filter: blur(24px) saturate(1.4);
+  background: var(--glass-thick-fill);
+  box-shadow:
+    0 0 0 0.5px var(--separator),
+    0 12px 32px rgb(0 0 0 / 0.22);
   transform-origin: bottom center;
   animation: approval-rise var(--spring-fast) var(--spring) both;
 }
 .approval-sheet:focus-visible {
-  box-shadow: var(--shadow-control), var(--focus-ring);
+  box-shadow:
+    0 0 0 0.5px var(--separator),
+    0 12px 32px rgb(0 0 0 / 0.22);
 }
-.approval-kind {
-  margin: 0;
-  font: var(--text-caption);
-  font-weight: 600;
-  color: var(--label-tertiary);
-}
-.approval-question {
-  margin: 0;
-  font: var(--text-headline);
-  color: var(--label);
-  overflow-wrap: anywhere;
-}
-.approval-always {
-  justify-self: center;
-  margin-top: 2px;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: var(--radius-small);
-  background: transparent;
-  color: var(--label-secondary);
-  font: var(--text-footnote);
-  cursor: pointer;
-}
-.approval-always:hover:not(:disabled) {
-  background: var(--fill-hover);
-  color: var(--label);
-}
-.approval-always:disabled {
-  opacity: 0.5;
+/* What the card will do, in full: labelled fields and the exact change. */
+.approval-review {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: 48px;
 }
 .approval-fields {
   display: grid;
   gap: 6px;
-  margin: var(--space-2) 0 0;
+  margin: 0;
 }
 .approval-fields > div {
   display: grid;
@@ -81,9 +61,9 @@
 .approval-body {
   max-height: 128px;
   overflow: auto;
-  margin: var(--space-1) 0 0;
+  margin: 0;
   padding: var(--space-3);
-  border-radius: var(--radius-control);
+  border-radius: 10px;
   background: var(--fill);
   font:
     11px/1.5 ui-monospace,
@@ -94,16 +74,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
-}
-.approval-error {
-  font: var(--text-footnote);
-  color: #c2502e;
-}
-.approval-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
 }
 @keyframes approval-fade {
   from {

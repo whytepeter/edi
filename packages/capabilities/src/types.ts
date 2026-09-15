@@ -80,7 +80,7 @@ export interface ApprovalGate {
       callId: string;
       runId: string;
       /** Which kind of action this is, so a person can allow it for the rest of a chat. */
-      capability: { id: string; title: string };
+      capability: { id: string; title: string; app?: string };
       preview: ApprovalPreview;
     },
     signal: AbortSignal,

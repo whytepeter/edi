@@ -1,19 +1,13 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import {
-  alwaysAllowLabel,
   type ApprovalRequest,
   type ArtifactSummary,
   type BubbleSide,
   type StatusBubbleState,
 } from '@edi/contracts';
 import { ArtifactPreview } from '../../components/artifacts/Artifact';
-import {
-  Button,
-  ListeningBars,
-  SpeakingBars,
-  SpeechBubble,
-  ThinkingDots,
-} from '../../components/ui';
+import { ApprovalCard, type ApprovalDecision } from '../../components/approval/ApprovalCard';
+import { ListeningBars, SpeakingBars, SpeechBubble, ThinkingDots } from '../../components/ui';
 import './pet.css';
 
 const announcement = (
@@ -36,18 +30,6 @@ interface ApprovalBubbleBridge {
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
-
-/** One short line under the question: the target for a single item, the first few for a batch. */
-function approvalDetail(approval: ApprovalRequest) {
-  const { fields, body } = approval.preview;
-  const to = fields.find(field => field.label === 'To' || field.label === 'Location');
-  if (to) return to.value;
-  if (fields[0]) return fields[0].value;
-  if (!body) return '';
-  const lines = body.split('\n').filter(Boolean);
-  const shown = lines.slice(0, 2).join(', ');
-  return lines.length > 2 ? `${shown} +${lines.length - 2} more` : shown;
-}
 
 /** A side-of-head state bubble. Ordinary chat text is deliberately not accepted here. */
 export function StatusBubble({
@@ -94,7 +76,7 @@ export function StatusBubble({
     return () => window.clearTimeout(timer);
   }, [approval]);
 
-  async function respond(decision: 'approve' | 'approve-always' | 'deny') {
+  async function respond(decision: ApprovalDecision) {
     if (!approval || sending) return;
     setSending(true);
     setError('');
@@ -158,38 +140,16 @@ export function StatusBubble({
         {state === 'speaking' && <SpeakingBars />}
         {state === 'approval' ? (
           approval ? (
-            <section className="bubble-approval" aria-labelledby="bubble-approval-title">
-              <h2 id="bubble-approval-title">{approval.preview.summary}</h2>
-              {approvalDetail(approval) && (
-                <p className="bubble-approval-detail">{approvalDetail(approval)}</p>
-              )}
-              {error && <p role="alert">{error}</p>}
-              <div className="bubble-approval-actions">
-                <Button size="small" disabled={sending} onClick={() => void respond('deny')}>
-                  Deny
-                </Button>
-                <Button
-                  size="small"
-                  variant="prominent"
-                  disabled={!armed || sending}
-                  onClick={() => void respond('approve')}
-                >
-                  {approval.preview.action}
-                </Button>
-              </div>
-              <div className="bubble-approval-more">
-                <button
-                  type="button"
-                  disabled={!armed || sending}
-                  onClick={() => void respond('approve-always')}
-                >
-                  {alwaysAllowLabel(approval, true)}
-                </button>
-                <button type="button" disabled={sending} onClick={() => void showDetails()}>
-                  Details
-                </button>
-              </div>
-            </section>
+            <ApprovalCard
+              approval={approval}
+              compact
+              armed={armed}
+              sending={sending}
+              error={error}
+              titleId="bubble-approval-title"
+              onRespond={decision => void respond(decision)}
+              onDetails={() => void showDetails()}
+            />
           ) : (
             <ThinkingDots />
           )

@@ -138,7 +138,11 @@ export class CapabilityBroker {
         decision = await this.deps.approvals.request(
           {
             ...context,
-            capability: { id: capability.id, title: capability.title },
+            capability: {
+              id: capability.id,
+              title: capability.title,
+              ...(capability.app ? { app: capability.app } : {}),
+            },
             preview: action.preview,
             ...(action.scope ? { scope: action.scope } : {}),
           },

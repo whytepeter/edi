@@ -71,65 +71,12 @@
   width: 100%;
   max-width: 100%;
   min-height: 100%;
-  padding: var(--space-4);
+  padding: 14px;
   white-space: normal;
 }
-
-.bubble-approval {
-  align-items: stretch;
+/* The approval itself is the shared notification-style card (components/approval). */
+.status-bubble-surface[data-state='approval'] .approval-card {
   width: 100%;
-  min-width: 0;
-}
-
-.bubble-approval h2,
-.bubble-approval p {
-  margin: 0;
-}
-
-/* Claude-style review: the question, one detail line, Deny and the action, then quieter options. */
-.bubble-approval h2 {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--label-primary);
-  font: var(--text-callout);
-  font-weight: 600;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.bubble-approval-detail {
-  margin-top: 2px;
-  overflow: hidden;
-  color: var(--label-secondary);
-  font: var(--text-caption);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.bubble-approval-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.bubble-approval-more {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-}
-
-.bubble-approval-more button {
-  padding: 2px 0;
-  border: 0;
-  color: var(--label-tertiary);
-  background: transparent;
-  font: var(--text-caption);
-  cursor: pointer;
-}
-
-.bubble-approval-more button:hover:not(:disabled) {
-  color: var(--label-secondary);
 }
 
 .bubble-reply {
