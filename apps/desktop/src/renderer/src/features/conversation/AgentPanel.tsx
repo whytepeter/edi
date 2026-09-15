@@ -253,8 +253,10 @@ export function AgentPanel({
                   }
                 />
               ))}
-              {message.id === liveAssistantId && (
+              {message.id === liveAssistantId ? (
                 <ActionTrail steps={state.steps} working={running} />
+              ) : (
+                message.steps && <ActionTrail steps={message.steps} working={false} />
               )}
               {message.id === failedId && (
                 <Button

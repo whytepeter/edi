@@ -81,6 +81,7 @@ import {
   voiceName,
   connectorCatalog,
   voiceSelectionSchema,
+  voiceWordsSchema,
   type VoiceSelection,
   defaultCharacterId,
   replyMood,
@@ -483,9 +484,10 @@ async function start() {
         },
         { name: 'Open any page in Edi, including Settings', asksFirst: false },
         {
-          name: 'Change its character, size, pin, voice and whether replies are spoken',
+          name: 'Change its name, character, size, pin, voice, spoken replies, speech recognition and its words, sharing what is in front, the task budget, and skills on or off',
           asksFirst: false,
         },
+        { name: 'Switch the AI model it answers with', asksFirst: true },
         { name: 'Close its card or go to sleep', asksFirst: false },
         {
           name: 'Run longer work as background tasks with a spending cap, and report how they are going',
@@ -523,6 +525,10 @@ async function start() {
                   : 'unavailable',
         },
         speakReplies: settings.current.speakReplies,
+        shareDesktopContext: settings.current.shareDesktopContext,
+        taskBudgetUsd: settings.current.taskBudgetUsd,
+        voiceInput: settings.current.voiceInput,
+        voiceWords: settings.current.voiceWords,
         ai: { connected: agent?.state.configured ?? false, model: agent?.state.model || null },
         pushToTalk: pushToTalk(),
       },
@@ -616,6 +622,8 @@ async function start() {
       open: page => openSetup(page),
       change: patch => applyPreferences(patch),
       window: action => windowAction(action),
+      models: () => modelCatalog.list(),
+      chooseModel: id => agent.chooseModel(id),
     }),
   ];
   const taskTools = [
@@ -1364,6 +1372,20 @@ async function start() {
         !cloudVoiceLists[model]?.some(entry => entry.id === speakingVoice.data.voice))
     )
       throw new Error(`That voice is not one of ${model}'s voices. Check availableVoices.`);
+    if (patch.voiceInput === 'cartesia' && !voiceKeys.has('cartesia'))
+      throw new Error('Cartesia needs its key first (Settings → Voice).');
+    const unknownSkill = patch.skills?.find(entry => !skills.get(entry.id));
+    if (unknownSkill) throw new Error(`There is no skill “${unknownSkill.id}”. Check skills.`);
+    for (const entry of patch.skills ?? []) await skills.setEnabled(entry.id, entry.on);
+    const dropped = new Set(patch.removeWords?.map(word => word.toLowerCase()));
+    const words =
+      patch.addWords || patch.removeWords
+        ? voiceWordsSchema.safeParse([
+            ...settings.current.voiceWords.filter(word => !dropped.has(word.toLowerCase())),
+            ...(patch.addWords ?? []),
+          ])
+        : null;
+    if (words && !words.success) throw new Error('Speech recognition keeps up to 50 words.');
     if (patch.size !== undefined) {
       const geometry = characters.get(patch.character ?? settings.current.skin).manifest.geometry;
       const bounds = resizePetWindow(pet, patch.size, geometry);
@@ -1375,6 +1397,12 @@ async function start() {
       ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
       ...(patch.speakReplies !== undefined ? { speakReplies: patch.speakReplies } : {}),
       ...(patch.voice ? { voiceModel: patch.voice } : {}),
+      ...(patch.shareDesktopContext !== undefined
+        ? { shareDesktopContext: patch.shareDesktopContext }
+        : {}),
+      ...(patch.taskBudgetUsd !== undefined ? { taskBudgetUsd: patch.taskBudgetUsd } : {}),
+      ...(patch.voiceInput ? { voiceInput: patch.voiceInput } : {}),
+      ...(words?.success ? { voiceWords: words.data } : {}),
       ...(speakingVoice?.success
         ? {
             voices: {

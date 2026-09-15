@@ -113,6 +113,7 @@ export class AgentService {
   /** The person chose this conversation, so it continues however long ago it was used. */
   private conversationChosen = false;
   private cachedArtifacts = new Map<string, ArtifactSummary[]>();
+  private cachedSteps = new Map<string, ToolStep[]>();
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
   private starting?: object;
   private configuring = false;
@@ -171,6 +172,17 @@ export class AgentService {
     } finally {
       this.configuring = false;
     }
+  }
+
+  /**
+   * The person asked Edi to use another model: saved now, used from the next turn (the one
+   * running keeps its model). The key stays as it is.
+   */
+  async chooseModel(model: string) {
+    const key = this.options.credentials.apiKey;
+    if (!key) throw new Error('Connect OpenRouter in Settings → AI first.');
+    await this.options.credentials.save(key, model);
+    this.update({ ...this.state, model });
   }
 
   async disconnect() {
@@ -630,8 +642,9 @@ export class AgentService {
 
   private refreshThread() {
     this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS, this.conversationId);
-    this.cachedArtifacts =
-      this.options.threadArtifacts?.(this.cachedThread.map(turn => turn.id)) ?? new Map();
+    const runIds = this.cachedThread.map(turn => turn.id);
+    this.cachedArtifacts = this.options.threadArtifacts?.(runIds) ?? new Map();
+    this.cachedSteps = this.options.repositories.toolCalls.steps(runIds);
   }
 
   private withMessages(state: AgentState): AgentState {
@@ -651,12 +664,14 @@ export class AgentService {
       );
       const reply = turn.reply || turn.error;
       const artifacts = this.cachedArtifacts.get(turn.id);
-      if (reply || artifacts?.length)
+      const steps = this.cachedSteps.get(turn.id);
+      if (reply || artifacts?.length || steps?.length)
         messages.push({
           id: `${turn.id}-a`,
           role: 'assistant',
           text: reply,
           ...(artifacts?.length ? { artifacts } : {}),
+          ...(steps?.length ? { steps } : {}),
         });
     }
     const live =

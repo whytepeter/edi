@@ -633,6 +633,15 @@ export class ScheduleRepository {
   }
 }
 
+const trailRow = z.object({
+  id: z.string(),
+  runId: z.string(),
+  capability: z.string(),
+  title: z.string(),
+  status: z.string(),
+  summary: z.string().nullable(),
+});
+
 export class ToolCallRepository {
   constructor(private readonly db: Database) {}
 
@@ -684,6 +693,35 @@ export class ToolCallRepository {
       .all(...values)
       .map(row => shownRow.parse(row))
       .map(row => ({ ...row, input: parseJson(row.input), output: parseJson(row.output) }));
+  }
+
+  /** Every run's actions, oldest first: the trail under each reply in a conversation. */
+  steps(runIds: readonly string[]) {
+    const byRun = new Map<
+      string,
+      { callId: string; capability: string; title: string; status: ToolCallStatus; summary: string }[]
+    >();
+    if (!runIds.length) return byRun;
+    const rows = this.db
+      .prepare(
+        `SELECT id, run_id AS runId, capability, title, status, summary FROM tool_calls
+         WHERE run_id IN (${runIds.map(() => '?').join(', ')}) ORDER BY created_at`,
+      )
+      .all(...runIds);
+    for (const raw of rows) {
+      const row = trailRow.parse(raw);
+      const steps = byRun.get(row.runId) ?? [];
+      if (steps.length >= 40) continue;
+      steps.push({
+        callId: row.id,
+        capability: row.capability.slice(0, 80),
+        title: row.title.slice(0, 120) || row.capability.slice(0, 80),
+        status: row.status as ToolCallStatus,
+        summary: (row.summary ?? '').slice(0, 400),
+      });
+      byRun.set(row.runId, steps);
+    }
+    return byRun;
   }
 
   create(call: {

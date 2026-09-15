@@ -116,6 +116,8 @@ export const chatMessageSchema = z
     text: z.string().max(32000),
     /** Content Edi showed during this turn, rendered inline in the conversation. */
     artifacts: z.array(artifactSummarySchema).max(6).optional(),
+    /** What Edi did during a finished turn; the live turn's steps are on the state. */
+    steps: z.array(toolStepSchema).max(40).optional(),
   })
   .strict();
 export type ChatMessage = z.infer<typeof chatMessageSchema>;

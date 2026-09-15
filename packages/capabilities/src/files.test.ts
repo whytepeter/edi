@@ -54,6 +54,32 @@ async function home() {
   return { base, roots, trashed, results, tool, run };
 }
 
+test('a name retyped with plain spaces finds the macOS name with a narrow no-break space', async () => {
+  const { base, run } = await home();
+  const shot = 'Screenshot 2026-09-11 at 10.35.11 PM.png';
+  await writeFile(join(base, 'Desktop', shot), 'png');
+  await mkdir(join(base, 'Desktop/Screenshots'));
+  const moved = await run('files.move', {
+    moves: [
+      {
+        from: '~/Desktop/Screenshot 2026-09-11 at 10.35.11 PM.png',
+        to: '~/Desktop/Screenshots/Screenshot 2026-09-11 at 10.35.11 PM.png',
+      },
+    ],
+  });
+  assert.equal(moved.summary, 'Moved 1 item.');
+  assert.deepEqual(await readdir(join(base, 'Desktop/Screenshots')), [
+    'Screenshot 2026-09-11 at 10.35.11 PM.png',
+  ]);
+  // Reading works the same way.
+  await writeFile(join(base, 'Desktop', 'It’s done.txt'), 'yes');
+  assert.equal(
+    ((await run('files.read', { path: "~/Desktop/It's done.txt" })).output as { text: string })
+      .text,
+    'yes',
+  );
+});
+
 test('search finds by name across allowed folders, skipping hidden items and refused folders', async () => {
   const { run, roots, results } = await home();
   const found = (await run('files.search', { query: 'invoice' })).output as {

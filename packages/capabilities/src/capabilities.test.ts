@@ -786,6 +786,8 @@ test('Edi can open every page, including Settings itself, and change only its ow
     open: page => opened.push(page),
     change: patch => void changes.push(patch),
     window: () => {},
+    models: async () => [],
+    chooseModel: async () => {},
   });
   const context = { callId: '00000000-0000-4000-8000-000000000022', runId: run };
   for (const page of ['settings', 'home', 'library', 'settings.about'])

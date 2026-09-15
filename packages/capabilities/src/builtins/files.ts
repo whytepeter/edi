@@ -97,11 +97,39 @@ function accessMessage(root: FileRoot) {
 }
 
 /**
+ * A name as a person would type it. macOS writes some names with look-alike characters, like
+ * the narrow no-break space before “PM” in screenshot names; retyped, that is a plain space.
+ */
+const typedName = (name: string) =>
+  name
+    .normalize('NFC')
+    .replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, ' ')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .toLowerCase();
+
+/** The path as it is on disk when a missing name differs only by look-alike characters. */
+async function onDisk(path: string): Promise<string> {
+  const exists = await lstat(path).then(
+    () => true,
+    () => false,
+  );
+  if (exists) return path;
+  const parent = dirname(path);
+  if (parent === path) return path;
+  const folder = await onDisk(parent);
+  const wanted = typedName(basename(path));
+  const names = await readdir(folder).catch(() => [] as string[]);
+  const matches = names.filter(name => typedName(name) === wanted);
+  return join(folder, matches.length === 1 ? matches[0]! : basename(path));
+}
+
+/**
  * Resolve a path against the allowed folders, following symlinks so a link inside Downloads
  * cannot reach somewhere else. Returns the most specific root that contains it.
  */
 export async function locateFile(deps: FileDependencies, raw: string) {
-  const path = expand(raw, deps.home);
+  const path = await onDisk(expand(raw, deps.home));
   const real = await realOrParent(path);
   const roots = await Promise.all(
     deps.roots().map(async root => ({ root, real: await realOrParent(root.path) })),
