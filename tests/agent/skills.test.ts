@@ -81,6 +81,7 @@ test('every skill by Fewerlabs passes the same check, with a title and author', 
     .filter(entry => entry.isDirectory() && entry.name !== 'node_modules')
     .map(entry => entry.name);
   assert.deepEqual(folders.sort(), [
+    'communication-coach',
     'daily-brief',
     'developer-companion',
     'file-tidy',
