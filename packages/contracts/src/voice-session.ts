@@ -41,7 +41,8 @@ export type VoiceEvent =
         | 'failed';
       generation: number;
     }
-  | { type: 'reply-started' | 'reply-ended'; generation: number; turn: number }
+  /** `reply-quiet`: the reply's audio stopped for now (a tool is running), though work goes on. */
+  | { type: 'reply-started' | 'reply-quiet' | 'reply-ended'; generation: number; turn: number }
   /** The turn detector decided the person finished; `heard` is whether they said any words. */
   | { type: 'end-of-turn'; generation: number; heard: boolean };
 
@@ -84,8 +85,7 @@ export function transitionVoice(
   }
   if (event.generation !== state.generation || state.mode === null) return result(state);
   // A reply from an older turn (one the person talked over) cannot end or start a newer one.
-  if ((event.type === 'reply-started' || event.type === 'reply-ended') && event.turn !== state.turn)
-    return result(state);
+  if ('turn' in event && event.turn !== state.turn) return result(state);
   const talking = state.phase === 'processing' || state.phase === 'speaking';
 
   if (event.type === 'failed') {
@@ -145,6 +145,9 @@ export function transitionVoice(
   }
   if (event.type === 'reply-started' && state.phase === 'processing') {
     return result({ ...state, phase: 'speaking' });
+  }
+  if (event.type === 'reply-quiet' && state.phase === 'speaking') {
+    return result({ ...state, phase: 'processing' });
   }
   if (event.type === 'reply-ended' && talking) {
     if (state.mode === 'conversation') {

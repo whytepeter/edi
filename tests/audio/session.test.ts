@@ -26,7 +26,11 @@ function session(mode: VoiceMode) {
     ) {
       return apply({ type, generation });
     },
-    reply(type: 'reply-started' | 'reply-ended', turn = state.turn, generation = state.generation) {
+    reply(
+      type: 'reply-started' | 'reply-quiet' | 'reply-ended',
+      turn = state.turn,
+      generation = state.generation,
+    ) {
       return apply({ type, generation, turn });
     },
     endOfTurn(heard: boolean) {
@@ -158,4 +162,19 @@ test('Stop invalidates pending replies and prevents hands-free reactivation', ()
   s.stop();
   s.reply('reply-ended', s.state.turn, old);
   assert.equal(s.state.phase, 'idle');
+});
+
+test('between bursts of speech the reply is back to working, and speaking again when sound returns', () => {
+  const s = session('push-to-talk');
+  s.event('capture-ready');
+  s.event('speech-detected');
+  s.event('release');
+  s.reply('reply-started');
+  assert.equal(s.state.phase, 'speaking');
+  s.reply('reply-quiet');
+  assert.equal(s.state.phase, 'processing');
+  s.reply('reply-started');
+  assert.equal(s.state.phase, 'speaking');
+  s.reply('reply-quiet', s.state.turn - 1);
+  assert.equal(s.state.phase, 'speaking', 'an older turn cannot quiet this one');
 });

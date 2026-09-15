@@ -153,6 +153,8 @@ export function takeSpeech(
 /** How one reply is voiced: a stream when the engine has one, else clip by clip. */
 interface ReplyVoice {
   say(text: string): void;
+  /** A tool is starting: finish the current burst of speech; the next sentence starts a new one. */
+  pause(): void;
   /** Resolves once everything said has been handed to the player. */
   end(): Promise<void>;
   /**
@@ -384,15 +386,14 @@ export class VoiceController<Screens> {
       if (!heard) return ended('I didn’t catch that.');
       const expressiveVoice = this.deps.expressiveVoice?.() ?? false;
       const speakAloud = this.deps.speakReplies?.() !== false;
-      let audible = false;
+
       // The voice connects now, while screens are captured and the model starts thinking.
       const voice = speakAloud
         ? this.openVoice(generation, turn, signal, expressiveVoice, () => {
-            // Edi looks like it is speaking only once there is sound. Synthesis can take
-            // seconds, and until the first samples arrive the bubble keeps showing thinking.
-            if (audible) return;
-            audible = true;
-            this.dispatch({ type: 'reply-started', generation, turn });
+            // Edi looks like she is speaking only while there is sound; between bursts (a tool
+            // running after "Let me check") the bubble goes back to thinking and its progress.
+            if (this.session.phase === 'processing' && this.reply === reply && !reply.paused)
+              this.dispatch({ type: 'reply-started', generation, turn });
           })
         : null;
 
@@ -414,8 +415,12 @@ export class VoiceController<Screens> {
       // Acknowledgements and progress are spoken between the answer's own sentences, never
       // while the person talks over Edi.
       const narrate = () => {
-        if (!voice || !latest || reply.paused || signal.aborted) return;
-        const line = progress.next(latest, now(), voice.quiet(now()));
+        if (!voice || reply.paused || signal.aborted) return;
+        const quiet = voice.quiet(now());
+        if (this.session.phase === 'speaking' && quiet.quietMs > 400 && this.reply === reply)
+          this.dispatch({ type: 'reply-quiet', generation, turn });
+        if (!latest) return;
+        const line = progress.next(latest, now(), quiet);
         if (line) voice.say(line);
       };
       timer = setInterval(narrate, this.deps.timing?.tickMs ?? 250);
@@ -423,8 +428,11 @@ export class VoiceController<Screens> {
       const result = await this.deps.whenFinished(runId, signal, state => {
         if (state.status === 'error' || state.status === 'stopped') return;
         latest = state;
-        // Words written before a tool starts ("Sure, checking.") are said before the tool runs.
-        pull(state.text, progress.workStarted(state));
+        // Words written before a tool starts ("Sure, checking.") are said before the tool runs,
+        // and that burst of speech closes while the tool works.
+        const toolStarted = progress.workStarted(state);
+        pull(state.text, toolStarted);
+        if (toolStarted) voice?.pause();
         narrate();
       });
       clearInterval(timer);
@@ -453,9 +461,11 @@ export class VoiceController<Screens> {
   }
 
   /**
-   * A stream when the engine has one (the whole reply keeps one delivery and starts sooner),
-   * otherwise clip by clip. A stream that fails before any sound hands everything said so far
-   * to the clip path, so the person still hears the reply.
+   * A stream when the engine has one (sentences keep one delivery and start sooner), otherwise
+   * clip by clip. A stream covers one burst of speech: it ends when a tool starts, and the next
+   * sentence opens a fresh one, because a provider closes a connection left idle while tools
+   * run (Cartesia did after an acknowledgement, and the answer was never heard). Sentences a
+   * stream never voiced go to the clip path, and all audio plays in the order it was said.
    */
   private openVoice(
     generation: number,
@@ -469,13 +479,19 @@ export class VoiceController<Screens> {
     let lastSayAt = 0;
     let audioEndsAt = now();
     let pendingClips = 0;
-    let streamHeard = false;
     let lastAudioAt = 0;
+    // One chunk at a time reaches the player, whichever stream or clip it came from.
+    let playing: Promise<void> = Promise.resolve();
     const consume: Consume = (samples, rate) => {
-      onAudio();
-      lastAudioAt = now();
-      audioEndsAt = Math.max(now(), audioEndsAt) + (samples.length / rate) * 1000;
-      return this.play(generation, turn, samples, rate, signal);
+      const next = playing.then(() => {
+        signal.throwIfAborted();
+        onAudio();
+        lastAudioAt = now();
+        audioEndsAt = Math.max(now(), audioEndsAt) + (samples.length / rate) * 1000;
+        return this.play(generation, turn, samples, rate, signal);
+      });
+      playing = next.catch(() => {});
+      return next;
     };
     let queue: Promise<void> = Promise.resolve();
     const clip = (text: string) => {
@@ -495,40 +511,65 @@ export class VoiceController<Screens> {
         })
         .finally(() => pendingClips--);
     };
+
+    interface Burst {
+      stream: SpeechStream;
+      sent: string[];
+      heard: boolean;
+      closed: boolean;
+    }
     // Expression tags are performed per clip, so expressive engines always go clip by clip.
-    let stream = expressive
-      ? null
-      : (this.deps.speechStream?.(signal, (samples, rate) => {
-          streamHeard = true;
-          return consume(samples, rate);
-        }) ?? null);
-    const sentToStream: string[] = [];
-    // A stream that failed before any sound: everything said so far goes to the clip path.
-    const fallBack = () => {
-      stream = null;
-      for (const text of sentToStream.splice(0)) clip(text);
+    let streaming = !expressive && Boolean(this.deps.speechStream);
+    let burst: Burst | undefined;
+    const closings: Promise<void>[] = [];
+    // Nothing from this burst was heard: its sentences go to clips, and so does the rest.
+    const rescue = (from: Burst) => {
+      if (signal.aborted || from.heard) return;
+      streaming = false;
+      for (const text of from.sent.splice(0)) clip(text);
     };
+    const close = (current: Burst | undefined) => {
+      if (!current || current.closed) return;
+      current.closed = true;
+      closings.push(current.stream.end().catch(() => rescue(current)));
+    };
+    const open = (): Burst | undefined => {
+      const opened: Burst = { stream: undefined!, sent: [], heard: false, closed: false };
+      const stream = this.deps.speechStream?.(signal, (samples, rate) => {
+        opened.heard = true;
+        return consume(samples, rate);
+      });
+      if (!stream) return undefined;
+      opened.stream = stream;
+      return opened;
+    };
+
     return {
       say(text) {
         said++;
         lastSayAt = now();
-        if (stream?.failed && !streamHeard) fallBack();
-        if (stream) {
-          sentToStream.push(text);
-          stream.say(text);
-        } else clip(text);
+        if (burst?.stream.failed) {
+          const broken = burst;
+          burst = undefined;
+          broken.closed = true;
+          if (!broken.heard) rescue(broken);
+        }
+        if (streaming && (!burst || burst.closed)) {
+          burst = open();
+          if (!burst) streaming = false;
+        }
+        if (!streaming || !burst) return clip(text);
+        burst.sent.push(text);
+        burst.stream.say(text);
+      },
+      pause() {
+        close(burst);
       },
       async end() {
-        if (stream) {
-          try {
-            await stream.end();
-          } catch {
-            // Cut off after it was heard: what was heard stays heard.
-            if (signal.aborted || streamHeard) return;
-            fallBack();
-          }
-        }
+        close(burst);
+        await Promise.all(closings);
         await queue;
+        await playing;
       },
       async drain(paused) {
         for (;;) {
@@ -543,7 +584,7 @@ export class VoiceController<Screens> {
       },
       quiet(time) {
         // Text handed to a stream counts as speech until its audio arrives (a few seconds at most).
-        const awaitingStream = stream && lastSayAt > lastAudioAt && time - lastSayAt < 3000;
+        const awaitingStream = burst && lastSayAt > lastAudioAt && time - lastSayAt < 3000;
         if (pendingClips > 0 || awaitingStream) return { spokeAnything: said > 0, quietMs: 0 };
         return { spokeAnything: said > 0, quietMs: Math.max(0, time - audioEndsAt) };
       },

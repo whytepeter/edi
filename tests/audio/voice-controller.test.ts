@@ -716,3 +716,76 @@ test('a quick tap after speech is not a conversation; hands-free ends after a qu
   assert.equal(h.voice.wantsMicrophone, false);
   assert.ok(h.sent.some(event => event.type === 'cancel' && event.generation === generation));
 });
+
+test('an answer after a long tool is still spoken when the first stream was closed meanwhile', async () => {
+  // Recorded run 0499a0e8: Cartesia voiced "On it. Let me check…" (47 characters), the connection
+  // closed during 50 s of tools, and the answer was never heard.
+  const streams: { said: string[]; failed: boolean; ended: boolean }[] = [];
+  let report!: (state: AgentState) => void;
+  let finish!: (state: AgentState) => void;
+  const h = harness({
+    speechStream: (_signal, consume) => {
+      const record = { said: [] as string[], failed: false, ended: false };
+      streams.push(record);
+      return {
+        say: text => {
+          if (record.failed) return;
+          record.said.push(text);
+          void consume(new Float32Array(240).fill(0.1), 24000).catch(() => {});
+        },
+        get failed() {
+          return record.failed;
+        },
+        end: async () => {
+          record.ended = true;
+          if (record.failed) throw new Error('Cartesia closed the connection.');
+        },
+      };
+    },
+    whenFinished: (_runId, _signal, onUpdate) => {
+      report = onUpdate!;
+      return new Promise(resolve => (finish = resolve));
+    },
+    timing: { stepQuietMs: 10_000, stillQuietMs: 60_000, tickMs: 5 },
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await holdAndSpeak(h);
+  h.voice.clientEvent(generation, 'captured');
+  await wait(5);
+  const step = {
+    callId: '00000000-0000-4000-8000-000000000003',
+    capability: 'calendar.events',
+    title: 'Check the calendar',
+    status: 'running' as const,
+    summary: '',
+  };
+  report({
+    ...runningState,
+    text: 'On it. Let me check your schedule and reminders.',
+    steps: [step],
+  });
+  await wait(20);
+  assert.deepEqual(streams[0]?.said, ['On it. Let me check your schedule and reminders.']);
+  assert.equal(streams[0]?.ended, true, 'the burst closes while the tool runs');
+  // The acknowledgement finished playing: after a short silence the bubble goes back to thinking.
+  await wait(450);
+  assert.equal(h.voice.phase, 'processing');
+  assert.equal(h.statuses.at(-1), 'thinking');
+  streams[0]!.failed = true; // the provider dropped the idle connection
+
+  const answer =
+    'On it. Let me check your schedule and reminders.\n\n[MOOD:happy] You have two meetings today.';
+  const done = {
+    ...runningState,
+    status: 'done' as const,
+    text: answer,
+    steps: [{ ...step, status: 'succeeded' as const }],
+  };
+  report(done);
+  finish(done);
+  await wait(40);
+  stopPlaying();
+  assert.equal(streams.length, 2, 'a fresh stream for the answer');
+  assert.deepEqual(streams[1]?.said, ['You have two meetings today.']);
+  assert.equal(h.voice.phase, 'idle');
+});

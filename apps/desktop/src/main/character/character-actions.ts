@@ -46,6 +46,8 @@ export class CharacterActions {
   private bubble?: { window: BrowserWindow; state: StatusBubbleState; side: BubbleSide };
   /** The thinking bubble's current progress line. */
   private bubbleText?: string;
+  /** The latest progress line for running work, even while the bubble shows something else. */
+  private progress?: string;
   private ackTimer?: ReturnType<typeof setTimeout>;
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
@@ -75,6 +77,8 @@ export class CharacterActions {
    * conversation ("Searching the web"). The line updates in place; the bubble never flickers.
    */
   setThinking = (thinking: boolean, text?: string) => {
+    // Kept while the bubble is busy, so a voice reply that goes quiet shows what Edi is doing.
+    this.progress = thinking ? text : undefined;
     if (!thinking) {
       clearTimeout(this.ackTimer);
       if (this.bubble?.state === 'thinking') this.hideBubble();
@@ -125,6 +129,8 @@ export class CharacterActions {
       else if (this.bubble?.state !== 'approval' && this.bubble?.state !== 'artifact')
         this.hideBubble();
     } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
+    else if (status === 'thinking' && this.bubble?.state !== 'approval')
+      this.showThinking(this.progress);
     else if (this.bubble?.state !== status) this.showStatus(status);
   };
 
