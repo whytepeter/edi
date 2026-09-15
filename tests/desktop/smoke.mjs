@@ -294,8 +294,15 @@ try {
     'page',
   );
   await sidebar.getByRole('button', { name: 'Skills' }).click();
-  // Built-in abilities work under the hood; Skills lists only add-ons, and there are none yet.
-  await expect(workspace.getByRole('heading', { name: 'No skills yet.' })).toBeVisible();
+  // Skills by Fewerlabs are listed by category; each opens to its own page with its switch.
+  await expect(workspace.getByRole('radio', { name: 'Fewerlabs' })).toBeChecked();
+  await expect(workspace.getByRole('heading', { name: 'Your day' })).toBeVisible();
+  await workspace.getByRole('button', { name: /^Daily Brief/ }).click();
+  await expect(workspace.getByRole('heading', { name: 'Daily Brief' })).toBeVisible();
+  await expect(workspace.getByRole('switch', { name: 'Use Daily Brief' })).toBeChecked();
+  await workspace.locator('.skill-back').click();
+  await workspace.getByRole('radio', { name: 'Yours' }).click();
+  await expect(workspace.getByRole('button', { name: 'Open Folder' })).toBeVisible();
   await expect(workspace.getByText('Edi setup guide')).toHaveCount(0);
   await workspace.screenshot({ path: 'tests/desktop/workspace-expanded.png' });
   await sidebar.getByRole('button', { name: 'Conversations' }).click();
