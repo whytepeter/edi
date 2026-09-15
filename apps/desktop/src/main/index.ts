@@ -110,6 +110,7 @@ import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
 import { PointerOverlay } from './presentation/pointer';
 import { CharacterActions } from './character/character-actions';
+import { sleepAfterReply } from './character/sleep-after-reply';
 import { CharacterMoodController } from './character/character-mood';
 import { CharacterLibrary } from './characters/library';
 import { maxPackageBytes, packageExtension } from './characters/package-file';
@@ -1380,9 +1381,24 @@ async function start() {
     });
     placement.place();
   };
+  let pendingSleep: (() => void) | undefined;
   windowAction = action => {
-    if (action === 'close') workspace.hide();
-    else character.sleep();
+    if (action === 'close') return workspace.hide();
+    pendingSleep?.();
+    // Asked to sleep mid-reply ("and you go to sleep"): say goodnight first, then sleep.
+    if (agent.state.status !== 'running') return character.sleep();
+    const runId = agent.state.runId;
+    pendingSleep = sleepAfterReply(
+      {
+        writing: () => agent.state.status === 'running' && agent.state.runId === runId,
+        speaking: () => voice.phase === 'processing' || voice.phase === 'speaking',
+        // A new question (typed or spoken) keeps Edi awake.
+        exchange: () =>
+          `${voice.turn}:${agent.state.status === 'running' ? agent.state.runId : runId}`,
+        asking: () => voice.holding,
+      },
+      () => character.sleep(),
+    );
   };
 
   // A voice added or removed: Chatterbox reloads with the new set of recordings.

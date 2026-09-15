@@ -223,6 +223,17 @@ export class VoiceController<Screens> {
     return this.session.phase;
   }
 
+  /** Counts submitted questions: a new one means a new exchange. */
+  get turn() {
+    return this.session.turn;
+  }
+
+  /** Someone is holding the shortcut (or the character) to ask something. */
+  get holding() {
+    const { mode, phase } = this.session;
+    return mode === 'push-to-talk' && (phase === 'opening' || phase === 'listening');
+  }
+
   get mode() {
     return this.session.mode;
   }
