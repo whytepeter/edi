@@ -28,7 +28,7 @@ Next: bounded native transcription supervision, decode captured WebM to PCM16, r
 
 `provision_transcription.py` pins the model revisions, SHA-256 hashes, CMake wheel and whisper.cpp source commit. Models and the build tool are hash-checked against published metadata. The source archive's digest was recorded from the commit-specific official download and is now pinned for reuse. Downloads have per-file caps and no automatic retries. Partial files require review before retrying.
 
-Source commit: `927cfce34f31707e17f2bff35c349632fb9e2c3a`. Build only the local CLI with Metal, server, download support and third-party network services disabled. This initial setup is development-only, not a packaged app dependency.
+Source commit: `927cfce34f31707e17f2bff35c349632fb9e2c3a`. Build the local CLI and `whisper-server` (bound to 127.0.0.1 on a port Edi picks, so the model stays loaded between turns: about 0.8 s instead of 1.3–1.7 s for an 11 s clip with small.en on an M2 Pro) with Metal, download support and third-party network services disabled. This initial setup is development-only, not a packaged app dependency.
 
 After building, from the Edi root:
 

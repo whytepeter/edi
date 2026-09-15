@@ -1,12 +1,13 @@
-import type { DesktopBridge, SpeechCue } from '@edi/contracts';
-import { decodeRecording } from './DecodeRecording';
-import { openMicrophone, type CapturedTurn } from './MicrophoneCapture';
+import { SpeechActivity, type DesktopBridge, type SpeechCue, type VoiceMode } from '@edi/contracts';
+import { FRAME_MS, FRAME_SAMPLES, openPcmCapture, type PcmCapture } from './PcmCapture';
 import { PcmPlayer } from './PcmPlayer';
 
-/** Speech is assumed once the input level stays above this RMS for a few meter frames. */
-const SPEECH_RMS = 0.02;
-const SPEECH_FRAMES = 3;
-const METER_MS = 50;
+/** Microphone audio goes to main in chunks of this many 20 ms frames. */
+const CHUNK_FRAMES = 5;
+/** Audio kept from just before speech is detected, so the first word is not clipped. */
+const PREROLL_FRAMES = 20;
+/** A local pause on barge-in lifts itself if main does not confirm a reply is being talked over. */
+const BARGE_CONFIRM_MS = 600;
 /** Backpressure: retry an unaccepted chunk this often, for at most this long. */
 const RETRY_MS = 100;
 const RETRY_LIMIT = 60;
@@ -30,15 +31,21 @@ const CUE_END_LEAD: Record<SpeechCue, number> = {
 
 interface Capture {
   generation: number;
+  mode: VoiceMode;
   abort: AbortController;
-  turn?: CapturedTurn;
-  stopMeter?: () => void;
+  capture?: PcmCapture;
+  activity: SpeechActivity;
+  /** Sending the current utterance to main (push-to-talk: the whole hold). */
+  streaming: boolean;
+  preroll: Int16Array[];
+  outgoing: Int16Array[];
 }
 
 /**
- * The pet window's half of a voice turn. Main decides when to open, finish or
- * cancel; this owns the microphone, decodes the recording to 16 kHz PCM16, and
- * plays spoken replies. Everything is tagged with main's session generation.
+ * The pet window's half of voice. Main decides when to open, finish or cancel and owns the
+ * turn; this owns the microphone and speaker. It streams 16 kHz PCM to main while someone
+ * speaks, reports speech starting and pausing, and pauses Edi's audio the instant someone
+ * talks over her in a hands-free conversation. Everything is tagged with main's generation.
  */
 export function startVoiceClient(
   bridge: DesktopBridge,
@@ -53,9 +60,10 @@ export function startVoiceClient(
   let player: PcmPlayer | undefined;
   let output: AnalyserNode | undefined;
   let mouthFrame = 0;
-  let playback: { generation: number; token: number | null } | undefined;
+  let playback: { key: string; token: number | null } | undefined;
+  let bargeTimer: ReturnType<typeof setTimeout> | undefined;
   // A `next` cue waits for its audio chunk to be scheduled; timers fire as that audio plays.
-  let pendingCue: { generation: number; cue: SpeechCue } | undefined;
+  let pendingCue: { key: string; cue: SpeechCue } | undefined;
   const cueTimers = new Set<ReturnType<typeof setTimeout>>();
 
   function performIn(seconds: number, cue: SpeechCue) {
@@ -72,30 +80,90 @@ export function startVoiceClient(
     cueTimers.clear();
   }
 
-  const report = (generation: number, event: 'capture-ready' | 'speech-detected' | 'failed') =>
-    void bridge.command({ type: 'voice-event', generation, event }).catch(() => {});
+  const report = (
+    generation: number,
+    event: 'capture-ready' | 'speech-detected' | 'pause' | 'long-pause' | 'captured' | 'failed',
+  ) => void bridge.command({ type: 'voice-event', generation, event }).catch(() => {});
+
+  function sendChunk(current: Capture, frames: Int16Array[]) {
+    if (!frames.length) return;
+    const pcm = new Uint8Array(frames.length * FRAME_SAMPLES * 2);
+    frames.forEach((frame, index) =>
+      pcm.set(
+        new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength),
+        index * FRAME_SAMPLES * 2,
+      ),
+    );
+    void bridge.command({ type: 'voice-pcm', generation: current.generation, pcm }).catch(() => {});
+  }
+
+  function flush(current: Capture) {
+    sendChunk(current, current.outgoing.splice(0));
+  }
+
+  /** Edi's voice is audible right now (queued audio that is not held). */
+  const edisSpeaking = () => Boolean(player && !player.paused && player.snapshot().pendingNodes);
+
+  function onFrame(current: Capture, frame: Int16Array, rms: number) {
+    if (capture !== current) return;
+    const speaking = edisSpeaking();
+    for (const event of current.activity.frame(rms, FRAME_MS, speaking)) {
+      if (event === 'speech') {
+        if (current.mode === 'conversation') {
+          // Barge-in: silence Edi now, before main has even heard about it.
+          if (speaking) {
+            player?.pause();
+            clearTimeout(bargeTimer);
+            bargeTimer = setTimeout(() => player?.resume(), BARGE_CONFIRM_MS);
+          }
+          report(current.generation, 'speech-detected');
+          if (!current.streaming) {
+            current.streaming = true;
+            sendChunk(current, current.preroll.splice(0));
+          }
+        } else report(current.generation, 'speech-detected');
+      } else if (current.mode === 'conversation') report(current.generation, event);
+    }
+    if (current.streaming) {
+      current.outgoing.push(frame);
+      if (current.outgoing.length >= CHUNK_FRAMES) flush(current);
+    } else {
+      current.preroll.push(frame);
+      if (current.preroll.length > PREROLL_FRAMES) current.preroll.shift();
+    }
+  }
 
   function cancelCapture() {
-    capture?.stopMeter?.();
-    capture?.turn?.cancel();
+    capture?.capture?.stop();
     capture?.abort.abort();
     capture = undefined;
   }
 
-  async function open(generation: number) {
+  async function open(generation: number, mode: VoiceMode) {
     cancelCapture();
-    const current: Capture = { generation, abort: new AbortController() };
+    const current: Capture = {
+      generation,
+      mode,
+      abort: new AbortController(),
+      activity: new SpeechActivity(),
+      // Push-to-talk sends everything from the moment the microphone opens.
+      streaming: mode === 'push-to-talk',
+      preroll: [],
+      outgoing: [],
+    };
     capture = current;
     try {
-      const turn = await openMicrophone(current.abort.signal, {
-        getUserMedia: constraints => navigator.mediaDevices.getUserMedia(constraints),
-        createRecorder: stream => {
-          current.stopMeter = meter(stream, () => report(generation, 'speech-detected'));
-          return new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      const opened = await openPcmCapture(
+        current.abort.signal,
+        (frame, rms) => onFrame(current, frame, rms),
+        () => {
+          if (capture !== current) return;
+          capture = undefined;
+          report(generation, 'failed');
         },
-      });
-      if (capture !== current) return turn.cancel();
-      current.turn = turn;
+      );
+      if (capture !== current) return opened.stop();
+      current.capture = opened;
       report(generation, 'capture-ready');
     } catch {
       if (capture !== current) return;
@@ -104,21 +172,14 @@ export function startVoiceClient(
     }
   }
 
-  async function finish(generation: number) {
+  /** Push-to-talk released: release the microphone, send what is left, then say so. */
+  function finish(generation: number) {
     const current = capture;
-    if (!current || current.generation !== generation || !current.turn) return;
-    current.stopMeter?.();
-    current.turn.finish();
-    try {
-      const recording = await current.turn.result;
-      if (!recording) return;
-      const pcm = await decodeRecording(recording, current.abort.signal);
-      if (capture === current) await bridge.command({ type: 'voice-audio', generation, pcm });
-    } catch {
-      if (capture === current) report(generation, 'failed');
-    } finally {
-      if (capture === current) capture = undefined;
-    }
+    if (!current || current.generation !== generation) return;
+    current.capture?.stop();
+    capture = undefined;
+    flush(current);
+    report(generation, 'captured');
   }
 
   /** Follows the loudness of what is actually playing, so the mouth moves with the words. */
@@ -150,7 +211,7 @@ export function startVoiceClient(
   }
 
   // Main sends one chunk at a time and waits for `voice-played`, so this never overlaps.
-  async function play(generation: number, samples: Float32Array, rate: number) {
+  async function play(generation: number, turn: number, samples: Float32Array, rate: number) {
     if (!player) {
       const context = new AudioContext();
       output = context.createAnalyser();
@@ -159,10 +220,11 @@ export function startVoiceClient(
       // A long queue lets Chatterbox synthesize the next sentence while this one plays.
       player = new PcmPlayer(context, output, SPEECH_QUEUE_SECONDS);
     }
-    if (playback?.generation !== generation) {
-      playback = { generation, token: null };
+    const key = `${generation}:${turn}`;
+    if (playback?.key !== key) {
+      playback = { key, token: null };
       const token = await player.begin();
-      if (playback?.generation !== generation) return;
+      if (playback?.key !== key) return;
       playback.token = token;
     }
     const token = playback.token;
@@ -171,30 +233,51 @@ export function startVoiceClient(
       const result = player.push(token, samples, rate);
       if (result === 'stale') return;
       if (result === 'accepted') {
-        if (pendingCue?.generation === generation) {
+        if (pendingCue?.key === key) {
           performIn(player.timing().untilLastStart, pendingCue.cue);
           pendingCue = undefined;
         }
         followSpeech();
-        await bridge.command({ type: 'voice-played', generation }).catch(() => {});
+        await bridge.command({ type: 'voice-played', generation, turn }).catch(() => {});
         return;
       }
+      // Held while someone talks over Edi: wait as long as that takes.
+      if (player.paused) attempt--;
       await new Promise(resolve => setTimeout(resolve, RETRY_MS));
     }
   }
 
   const unsubscribe = bridge.onVoice(event => {
-    if (event.type === 'open') void open(event.generation);
-    else if (event.type === 'finish') void finish(event.generation);
+    if (event.type === 'open') void open(event.generation, event.mode);
+    else if (event.type === 'finish') finish(event.generation);
     else if (event.type === 'cancel' && capture?.generation === event.generation) cancelCapture();
-    else if (event.type === 'pcm')
-      void play(event.generation, event.samples, event.rate).catch(() => {});
+    else if (event.type === 'converse' && capture?.generation === event.generation) {
+      capture.mode = 'conversation';
+      capture.streaming = false;
+      capture.outgoing = [];
+      capture.activity.reset();
+    } else if (event.type === 'utterance-done' && capture?.generation === event.generation) {
+      capture.streaming = false;
+      capture.outgoing = [];
+      capture.preroll = [];
+      capture.activity.reset();
+    } else if (event.type === 'pcm')
+      void play(event.generation, event.turn, event.samples, event.rate).catch(() => {});
     else if (event.type === 'cue') {
-      if (event.at === 'next') pendingCue = { generation: event.generation, cue: event.cue };
-      else if (player && playback?.generation === event.generation)
+      const key = `${event.generation}:${event.turn}`;
+      if (event.at === 'next') pendingCue = { key, cue: event.cue };
+      else if (player && playback?.key === key)
         // The tag's sound closes the clip: start slightly before the queued audio ends.
         performIn(Math.max(0, player.timing().untilEnd - CUE_END_LEAD[event.cue]), event.cue);
+    } else if (event.type === 'pause-audio') {
+      // Main confirmed the person is talking over a reply: hold until their words are in.
+      clearTimeout(bargeTimer);
+      player?.pause();
+    } else if (event.type === 'resume-audio') {
+      clearTimeout(bargeTimer);
+      player?.resume();
     } else if (event.type === 'stop-audio') {
+      clearTimeout(bargeTimer);
       player?.stop();
       playback = undefined;
       clearCues();
@@ -204,39 +287,10 @@ export function startVoiceClient(
 
   return () => {
     unsubscribe();
+    clearTimeout(bargeTimer);
     clearCues();
     stopFollowing();
     cancelCapture();
     void player?.dispose();
-  };
-}
-
-/**
- * Rough speech detection from the input level, so an empty hold submits nothing.
- * Whisper's own voice-activity model still decides what was actually said.
- */
-function meter(stream: MediaStream, onSpeech: () => void) {
-  const context = new AudioContext();
-  const source = context.createMediaStreamSource(stream);
-  const analyser = context.createAnalyser();
-  analyser.fftSize = 1024;
-  source.connect(analyser);
-  const samples = new Float32Array(analyser.fftSize);
-  let loud = 0;
-  let heard = false;
-  const timer = setInterval(() => {
-    analyser.getFloatTimeDomainData(samples);
-    let sum = 0;
-    for (const value of samples) sum += value * value;
-    loud = Math.sqrt(sum / samples.length) > SPEECH_RMS ? loud + 1 : 0;
-    if (!heard && loud >= SPEECH_FRAMES) {
-      heard = true;
-      onSpeech();
-    }
-  }, METER_MS);
-  return () => {
-    clearInterval(timer);
-    source.disconnect();
-    void context.close();
   };
 }

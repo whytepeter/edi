@@ -120,3 +120,27 @@ test('invalid PCM, suspended device and disposal fail safely', async () => {
   assert.equal(context.state, 'closed');
   await assert.rejects(player.begin());
 });
+
+test('pause holds queued audio and refuses more until resumed; stop clears the hold', async () => {
+  const { player, context } = setup();
+  let suspended = 0;
+  let resumed = 0;
+  Object.assign(context, {
+    suspend: async () => void suspended++,
+    resume: async () => void resumed++,
+  });
+  const token = (await player.begin())!;
+  assert.equal(player.push(token, pcm(), 24000), 'accepted');
+  player.pause();
+  player.pause();
+  assert.equal(suspended, 1);
+  assert.equal(player.paused, true);
+  assert.equal(player.push(token, pcm(), 24000), 'backpressure');
+  player.resume();
+  assert.equal(player.paused, false);
+  assert.equal(player.push(token, pcm(), 24000), 'accepted');
+  player.pause();
+  player.stop();
+  assert.equal(player.paused, false, 'a stopped reply is not left on hold');
+  assert.ok(resumed >= 2);
+});

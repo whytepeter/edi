@@ -233,6 +233,8 @@ export function WorkspaceCard() {
                   voiceModel={settings.voiceModel}
                   voices={settings.voices}
                   speakReplies={settings.speakReplies}
+                  voiceInput={settings.voiceInput}
+                  onVoiceInput={input => void send({ type: 'set-voice-input', input })}
                   onVoiceModel={model => void send({ type: 'set-voice-model', model })}
                   onVoice={selection => void send({ type: 'set-voice', selection })}
                   onPreview={async selection => {

@@ -33,6 +33,12 @@ export function pcmWave(pcm: Uint8Array): Buffer {
   return wav;
 }
 
+/** Words whisper should expect, so names and product terms are spelled the person's way. */
+export function transcriptionPrompt(name = 'Edi') {
+  const vocabulary = name === 'Edi' ? '' : `${name}. `;
+  return `${vocabulary}Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.`;
+}
+
 /** A single offline utterance. Paths belong to native configuration, never renderer input. */
 export async function transcribePcm(
   runtime: TranscriptionRuntime,
@@ -42,7 +48,6 @@ export async function transcribePcm(
   /** The companion's name when it is not Edi, so Whisper spells it as the person does. */
   name = 'Edi',
 ): Promise<string> {
-  const vocabulary = name === 'Edi' ? '' : `${name}. `;
   signal.throwIfAborted();
   const wav = pcmWave(pcm);
   return new Promise((resolve, reject) => {
@@ -59,7 +64,7 @@ export async function transcribePcm(
         '-l',
         'en',
         '--prompt',
-        `${vocabulary}Edi. Fewer Labs. OpenRouter. MCP. OAuth. Lagos. Abuja. Naira.`,
+        transcriptionPrompt(name),
         '-t',
         '4',
         '-ng',

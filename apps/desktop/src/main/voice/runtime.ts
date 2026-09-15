@@ -5,6 +5,8 @@ import type { TranscriptionRuntime } from './transcription-process';
 
 export interface VoiceRuntime {
   transcription: TranscriptionRuntime;
+  /** whisper.cpp's server, which keeps the model loaded between turns; null until built. */
+  transcriptionServer: string | null;
   /** MLX engines; each model folder is null until provisioned. */
   mlx: (MlxRuntime & { kokoro: string | null; chatterbox: string | null }) | null;
 }
@@ -30,8 +32,11 @@ export function resolveVoiceRuntime(appPath: string, packaged: boolean): VoiceRu
         : join(transcription, 'ggml-base.en.bin'),
       vadModel: join(transcription, 'ggml-silero-v6.2.0.bin'),
     },
+    transcriptionServer: null,
     mlx: null,
   };
+  const server = join(transcription, build ?? 'missing', 'build/bin/whisper-server');
+  if (existsSync(server)) runtime.transcriptionServer = server;
   // Provisioned by benchmarks/voice/provision_mlx.py. A model counts only if its weights exist.
   const mlx = {
     python: join(voice, 'mlx-venv/bin/python'),

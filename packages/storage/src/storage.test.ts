@@ -163,6 +163,26 @@ test('recent exchanges are completed turns, oldest first, clipped', () => {
   assert.deepEqual(repos.runs.recentExchanges(10, null), []);
 });
 
+test('an interrupted turn stays in the history, marked as cut off', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'emails', at: 1 });
+  for (const [n, status, text] of [
+    [1, 'stopped', ''],
+    [2, 'stopped', 'Sure, checking.'],
+    [3, 'error', ''],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}`, threadId: 'c1' });
+    repos.runs.finish(uuid(n), { status, text, error: '', at: n });
+  }
+  assert.deepEqual(repos.runs.recentExchanges(10, 'c1'), [
+    { prompt: 'question 1', reply: '[The user interrupted before this was answered.]' },
+    {
+      prompt: 'question 2',
+      reply: 'Sure, checking.\n\n[The user interrupted this reply before it finished.]',
+    },
+  ]);
+});
+
 test('thread includes finished turns for the chat, oldest first', () => {
   const repos = createRepositories(openDatabase(':memory:'));
   repos.conversations.create({ id: 'c1', title: 'question 1', at: 1 });

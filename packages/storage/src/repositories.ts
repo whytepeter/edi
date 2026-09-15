@@ -151,18 +151,29 @@ export class RunRepository {
     maxChars = { prompt: 2000, reply: 4000 },
   ): Exchange[] {
     if (threadId === null) return [];
+    // A stopped turn counts too, marked as cut off: "actually, only from Sarah" right after an
+    // interruption needs the request it changes.
     return this.db
       .prepare(
-        `SELECT prompt, text AS reply FROM runs
-         WHERE status = 'done' AND text != '' AND thread_id = ?
+        `SELECT prompt, text AS reply, status FROM runs
+         WHERE thread_id = ? AND prompt != ''
+           AND ((status = 'done' AND text != '') OR status = 'stopped')
          ORDER BY started_at DESC LIMIT ?`,
       )
       .all(threadId, limit)
-      .map(row => exchangeRow.parse(row))
-      .map(turn => ({
-        prompt: turn.prompt.slice(0, maxChars.prompt),
-        reply: turn.reply.slice(0, maxChars.reply),
-      }))
+      .map(row => exchangeRow.extend({ status: z.string() }).parse(row))
+      .map(turn => {
+        const reply = turn.reply.slice(0, maxChars.reply);
+        return {
+          prompt: turn.prompt.slice(0, maxChars.prompt),
+          reply:
+            turn.status === 'stopped'
+              ? reply.trim()
+                ? `${reply.trim()}\n\n[The user interrupted this reply before it finished.]`
+                : '[The user interrupted before this was answered.]'
+              : reply,
+        };
+      })
       .reverse();
   }
 

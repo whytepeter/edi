@@ -93,8 +93,10 @@ import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
+import { progressLabel } from './agent/step-labels';
 import { resolveVoiceRuntime } from './voice/runtime';
-import { transcribePcm } from './voice/transcription-process';
+import { cartesiaTranscriber, streamCartesiaSpeech } from './voice/cartesia-realtime';
+import { localTranscriber, WhisperServer } from './voice/transcription-server';
 import { speakable, spokenFailure, VoiceController } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
@@ -129,6 +131,8 @@ import {
 
 /** Display tools whose successful calls become artifacts in the conversation. */
 const DISPLAY_CAPABILITIES = ['workspace.show', 'notes.show'] as const;
+/** A shortcut press shorter than this is a tap: it starts (or ends) a hands-free conversation. */
+const TAP_MS = 350;
 /** How long a request waits for an app the person agreed to connect. */
 const WAIT_FOR_APP_MS = 15 * 60_000;
 
@@ -1057,6 +1061,17 @@ async function start() {
   };
   const expressiveReady = () =>
     settings.current.voiceModel === 'chatterbox-turbo' && chatterbox?.status === 'ready';
+  // Whisper stays loaded between turns (and pause checks) instead of starting for each one.
+  const whisper = voiceRuntime
+    ? new WhisperServer(voiceRuntime.transcription, voiceRuntime.transcriptionServer, {
+        name: companion,
+        idleMs: 30 * 60_000,
+      })
+    : null;
+  const transcribeLocally = (pcm: Uint8Array, signal: AbortSignal) => {
+    if (!whisper) return Promise.reject(new Error('Transcription is not installed.'));
+    return whisper.transcribe(pcm, signal);
+  };
   const voice = new VoiceController({
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
@@ -1071,8 +1086,54 @@ async function start() {
       }),
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
-    transcribe: (runtime, pcm, signal) =>
-      transcribePcm(runtime, pcm, signal, undefined, companion()),
+    // Cartesia recognition only with its key; any failure falls back to whisper for the same audio.
+    listen: () =>
+      settings.current.voiceInput === 'cartesia' && voiceKeys.has('cartesia')
+        ? cartesiaTranscriber(voiceKeys.get('cartesia'), transcribeLocally)
+        : localTranscriber(transcribeLocally),
+    // A Cartesia reply is one stream: sentences go in as the model writes them.
+    speechStream: (signal, consume) => {
+      const selected = selectedVoice();
+      if (selected.model !== 'cartesia' || !voiceKeys.has('cartesia')) return null;
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(selected.voice)) return null;
+      const stream = streamCartesiaSpeech(
+        voiceKeys.get('cartesia'),
+        selected.voice,
+        signal,
+        consume,
+      );
+      let recorded = false;
+      // Characters are billed once generated, including a reply that was cut off.
+      const record = () => {
+        if (recorded || !stream.characters) return;
+        recorded = true;
+        try {
+          repositories.usage.add(
+            {
+              kind: 'voice',
+              provider: 'cartesia',
+              model: CARTESIA_MODEL,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedTokens: 0,
+              costUsd: null,
+              characters: stream.characters,
+            },
+            Date.now(),
+          );
+        } catch {
+          // Usage records are best effort; speech never fails because of them.
+        }
+      };
+      signal.addEventListener('abort', record, { once: true });
+      return {
+        say: text => stream.say(text),
+        get failed() {
+          return stream.failed;
+        },
+        end: () => stream.end().finally(record),
+      };
+    },
     speak: async (text, signal, consume) => {
       warmSelected();
       const selected = selectedVoice();
@@ -1095,7 +1156,10 @@ async function start() {
         await speakWith(backup, text, signal, consume);
       }
     },
-    warmSpeech: warmSelected,
+    warmSpeech: () => {
+      warmSelected();
+      whisper?.warm();
+    },
     speakReplies: () => settings.current.speakReplies,
     expressiveVoice: expressiveReady,
   });
@@ -1154,7 +1218,10 @@ async function start() {
   });
 
   // Global hold-to-talk: the same turn as holding the character, and it wakes Edi
-  // from Sleep. Only while voice works, so ⌥ Space is left alone otherwise.
+  // from Sleep. Only while voice works, so ⌥ Space is left alone otherwise. A quick tap
+  // (nothing said) keeps listening hands-free; a tap during that conversation ends it.
+  let pressedAt = 0;
+  let conversingAtPress = false;
   const hotkey = new HoldHotkey(
     voice.available
       ? resolveHotkeyHelper(app.getAppPath(), app.isPackaged, process.resourcesPath)
@@ -1162,10 +1229,14 @@ async function start() {
     optionSpace,
     {
       down: () => {
+        pressedAt = Date.now();
+        conversingAtPress = voice.mode === 'conversation';
         pet.showInactive();
         character.requestListening('push-to-talk');
       },
       up: () => {
+        const tap = Date.now() - pressedAt < TAP_MS;
+        if (tap && !conversingAtPress && voice.converse()) return;
         if (voice.phase !== 'idle') voice.release();
         else character.releaseListening();
       },
@@ -1283,52 +1354,6 @@ async function start() {
   });
   let runWasSpoken = false;
   let previousAgentStatus = agent.state.status;
-  /** Short progress for the bubble, only for real work (a step or a web search); else just dots. */
-  const stepLabels: Record<string, string> = {
-    'workspace.show': 'Putting it together',
-    'workspace.search': 'Looking through your workspace',
-    'workspace.read': 'Reading your workspace',
-    'workspace.update': 'Updating it',
-    'workspace.delete': 'Tidying up',
-    'notes.save': 'Saving your note',
-    'notes.list': 'Checking your notes',
-    'notes.read': 'Reading your note',
-    'notes.edit': 'Editing your note',
-    'notes.delete': 'Removing the note',
-    'notes.show': 'Opening your note',
-    'web.fetch': 'Reading a page',
-    'web.search': 'Searching the web',
-    'tasks.start': 'Starting a background task',
-    'tasks.list': 'Checking your tasks',
-    'schedules.create': 'Scheduling it',
-    'schedules.list': 'Checking your schedules',
-    'schedules.delete': 'Removing the schedule',
-    'files.search': 'Searching your files',
-    'files.list': 'Looking in a folder',
-    'files.read': 'Reading a file',
-    'files.move': 'Moving files',
-    'files.create_folder': 'Making folders',
-    'files.trash': 'Moving to the Trash',
-    'mac.open_app': 'Opening the app',
-    'mac.open_url': 'Opening the link',
-    'mac.open_file': 'Opening the file',
-    'mac.reveal': 'Showing it in Finder',
-    'reminders.list': 'Checking your reminders',
-    'reminders.create': 'Adding reminders',
-    'calendar.events': 'Checking your calendar',
-    'calendar.create': 'Adding the event',
-    'edi.open_page': 'Opening that',
-    'edi.change_preferences': 'Adjusting myself',
-    'edi.inspect_setup': 'Checking my settings',
-  };
-  const progressLabel = (state: typeof agent.state) => {
-    const step = [...state.steps]
-      .reverse()
-      .find(item => item.status === 'running' || item.status === 'awaiting-approval');
-    if (step) return stepLabels[step.capability] ?? step.title.slice(0, 40);
-    if (state.activity === 'searching-web') return 'Searching the web';
-    return undefined;
-  };
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
@@ -1652,6 +1677,7 @@ async function start() {
     tasks.dispose();
     chatterbox?.dispose();
     kokoro?.dispose();
+    whisper?.dispose();
     database.close();
   });
 }

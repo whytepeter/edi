@@ -18,6 +18,14 @@ export function KeyboardSettings({ system }: { system: SystemInfo | null }) {
           }
           value={<kbd>{system?.pushToTalk.label ?? '⌥ Space'}</kbd>}
         />
+        {status !== 'unavailable' && (
+          <GroupedRow
+            icon="mic"
+            title="Talk hands-free"
+            detail="Tap once, then just talk. Speak over replies to interrupt. Tap again to stop."
+            value={<kbd>{system?.pushToTalk.label ?? '⌥ Space'}</kbd>}
+          />
+        )}
       </GroupedList>
     </div>
   );

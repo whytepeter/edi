@@ -6,6 +6,7 @@ import {
   type CloudProviderId,
   type SystemInfo,
   type VoiceChoices,
+  type VoiceInput,
   type VoiceModelId,
   type VoiceSelection,
 } from '@edi/contracts';
@@ -27,7 +28,9 @@ interface VoiceSettingsProps {
   voiceModel: VoiceModelId;
   voices: VoiceChoices;
   speakReplies: boolean;
+  voiceInput: VoiceInput;
   onVoiceModel(model: VoiceModelId): void;
+  onVoiceInput(input: VoiceInput): void;
   onVoice(selection: VoiceSelection): void;
   onPreview(selection: VoiceSelection): Promise<void>;
   onSpeakReplies(enabled: boolean): void;
@@ -61,6 +64,9 @@ const providerInfo: Record<CloudProviderId, { about: string; keyUrl: string; voi
     },
   };
 
+const listeningLabels = ['This Mac', 'Cartesia'] as const;
+type ListeningLabel = (typeof listeningLabels)[number];
+
 type VoiceType = 'Female' | 'Male';
 const voiceTypes: readonly VoiceType[] = ['Female', 'Male'];
 
@@ -81,7 +87,9 @@ export function VoiceSettings({
   voiceModel,
   voices,
   speakReplies,
+  voiceInput,
   onVoiceModel,
+  onVoiceInput,
   onVoice,
   onPreview,
   onSpeakReplies,
@@ -110,6 +118,7 @@ export function VoiceSettings({
   const model = models.find(entry => entry.id === viewing);
   const provider = isCloudVoiceModel(viewing) ? viewing : null;
   const hasKey = Boolean(provider && model?.available);
+  const cartesiaKey = Boolean(models.find(entry => entry.id === 'cartesia')?.available);
 
   useEffect(() => {
     if (!provider || !hasKey || !window.edi) return;
@@ -422,6 +431,29 @@ export function VoiceSettings({
           </div>
         </GroupedList>
       )}
+
+      <GroupedList
+        title="Listening"
+        footer={
+          cartesiaKey
+            ? voiceInput === 'cartesia'
+              ? 'While you talk, your microphone audio goes to Cartesia to be turned into words, billed to your account. If Cartesia can’t be reached, this Mac takes over.'
+              : 'Your voice is turned into words on this Mac and never leaves it.'
+            : 'Your voice is turned into words on this Mac. Add a Cartesia key above to use Cartesia’s faster live transcription instead.'
+        }
+      >
+        <GroupedRow
+          title="Speech recognition"
+          control={
+            <SegmentedControl<ListeningLabel>
+              label="Speech recognition"
+              options={cartesiaKey ? listeningLabels : [listeningLabels[0]]}
+              value={cartesiaKey && voiceInput === 'cartesia' ? 'Cartesia' : 'This Mac'}
+              onChange={label => onVoiceInput(label === 'Cartesia' ? 'cartesia' : 'local')}
+            />
+          }
+        />
+      </GroupedList>
 
       <GroupedList footer="When this is off, answers to spoken questions show up in Conversations instead of being read aloud.">
         <GroupedRow

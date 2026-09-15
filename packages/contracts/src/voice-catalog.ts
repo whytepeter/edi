@@ -6,6 +6,9 @@ import { z } from 'zod';
  * back and forth keeps each choice.
  */
 export const voiceModelSchema = z.enum(['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs']);
+/** Speech recognition: local whisper, or Cartesia's realtime transcription. */
+export const voiceInputSchema = z.enum(['local', 'cartesia']);
+export type VoiceInput = z.infer<typeof voiceInputSchema>;
 export type VoiceModelId = z.infer<typeof voiceModelSchema>;
 
 /**

@@ -14,7 +14,7 @@ import {
   screenLabel,
   screenshotPointToScreen,
   voiceHostEventSchema,
-  maxVoicePcmBytes,
+  maxVoiceChunkBytes,
   parsePresentation,
   resolvePresentation,
   localizeActions,
@@ -480,7 +480,7 @@ test('screenshots are labelled per display and points map back to those displays
 });
 
 test('voice messages carry typed audio and reject anything else', () => {
-  const pcm = { type: 'pcm', generation: 1, rate: 24000 };
+  const pcm = { type: 'pcm', generation: 1, turn: 1, rate: 24000 };
   assert.equal(
     voiceHostEventSchema.safeParse({ ...pcm, samples: new Float32Array(10) }).success,
     true,
@@ -490,13 +490,18 @@ test('voice messages carry typed audio and reject anything else', () => {
     voiceHostEventSchema.safeParse({ ...pcm, samples: new Float32Array(0) }).success,
     false,
   );
-  const audio = { type: 'voice-audio', generation: 1 };
+  // Microphone audio streams in chunks of at most one second of 16 kHz PCM16.
+  const audio = { type: 'voice-pcm', generation: 1 };
   assert.equal(commandSchema.safeParse({ ...audio, pcm: new Uint8Array(3200) }).success, true);
   assert.equal(commandSchema.safeParse({ ...audio, pcm: Buffer.alloc(3200) }).success, true);
   assert.equal(commandSchema.safeParse({ ...audio, pcm: new Uint8Array(3) }).success, false); // odd byte count
   assert.equal(
-    commandSchema.safeParse({ ...audio, pcm: new Uint8Array(maxVoicePcmBytes + 2) }).success,
+    commandSchema.safeParse({ ...audio, pcm: new Uint8Array(maxVoiceChunkBytes + 2) }).success,
     false,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'voice-event', generation: 1, event: 'long-pause' }).success,
+    true,
   );
 });
 

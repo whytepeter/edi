@@ -93,6 +93,8 @@ interface ActiveRun {
   deadline: PausableTimer;
   /** The budget ran out and the model was asked to answer without more actions. */
   wrappingUp: boolean;
+  /** A tool was called since the last text: the next words start a new paragraph. */
+  afterTool?: boolean;
 }
 
 type FinishedStatus = Extract<AgentState['status'], 'done' | 'stopped' | 'error'>;
@@ -477,12 +479,21 @@ export class AgentService {
         this.finish(run, 'error', 'Response reached the display limit. Ask for a shorter answer.');
         return;
       }
-      this.update({ ...this.state, text: this.state.text + message.text, activity: null });
+      // Words before a tool ("Sure, checking.") and the answer after it are separate paragraphs,
+      // not "checking.You have three emails".
+      const gap = run.afterTool && this.state.text.trim() && !/\s$/.test(this.state.text);
+      run.afterTool = false;
+      this.update({
+        ...this.state,
+        text: this.state.text + (gap ? '\n\n' : '') + message.text,
+        activity: null,
+      });
     } else if (message.type === 'web-search') {
       recordWebSearch(this.stepRecorder, run.id, message);
     } else if (message.type === 'activity') {
       this.update({ ...this.state, activity: message.activity });
     } else if (message.type === 'tool-call') {
+      run.afterTool = true;
       void this.invokeTool(run, message.id, message.name, message.input);
     } else if (message.type === 'done') {
       // Tags alone (a mood, a pointer) are not an answer; steps without one leave the person

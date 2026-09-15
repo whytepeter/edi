@@ -212,6 +212,11 @@ const SPOKEN = [
   'Answer in one to three short sentences of plain words: no lists, headings, code or Markdown.',
   'Anything longer or structured belongs in workspace_show; then say only one short sentence.',
   'Never say a URL; name a source briefly instead (“according to the BBC”).',
+  'When you need a tool, first write a very short, natural acknowledgement of a few words',
+  '(“Sure, checking.”, “On it.”, “Let me look.”), varied from turn to turn, then call the tool.',
+  'Do not narrate each step after that. Answer directly when no tool is needed.',
+  'If the conversation shows the user interrupted an earlier reply, their new words may change',
+  'or narrow that request (“actually, only from Sarah”): act on the updated request.',
 ].join(' ');
 
 const EXPRESSIVE = [

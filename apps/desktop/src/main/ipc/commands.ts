@@ -143,11 +143,14 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromPet,
       handle: ({ generation, event }) => voice.clientEvent(generation, event),
     },
-    'voice-audio': {
+    'voice-pcm': {
       from: fromPet,
-      handle: ({ generation, pcm }) => void voice.audio(generation, pcm),
+      handle: ({ generation, pcm }) => voice.pcm(generation, pcm),
     },
-    'voice-played': { from: fromPet, handle: ({ generation }) => voice.played(generation) },
+    'voice-played': {
+      from: fromPet,
+      handle: ({ generation, turn }) => voice.played(generation, turn),
+    },
     'pet-hit-test': {
       from: fromPet,
       handle: ({ interactive }) => {
@@ -192,6 +195,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'set-speak-replies': {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ speakReplies: enabled }),
+    },
+    'set-voice-input': {
+      from: fromWorkspace,
+      handle: ({ input }) => settings.update({ voiceInput: input }),
     },
     'set-share-desktop-context': {
       from: fromWorkspace,

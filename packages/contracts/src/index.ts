@@ -32,6 +32,7 @@ export * from './desktop-context';
 export * from './screen-intent';
 export * from './voice';
 export * from './voice-session';
+export * from './voice-turns';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 import {
   permissionIdSchema,
@@ -188,6 +189,7 @@ export type SkinId = CharacterId;
 import {
   cloudProviderSchema,
   voiceChoicesSchema,
+  voiceInputSchema,
   voiceModelSchema,
   voiceSelectionSchema,
   type CloudProviderId,
@@ -246,6 +248,11 @@ export const settingsSchema = z.preprocess(
     shareDesktopContext: z.boolean().default(true),
     /** Speech engine used for spoken replies. */
     voiceModel: voiceModelSchema.default('kokoro'),
+    /**
+     * Who turns speech into words: whisper on this Mac, or Cartesia with the person's key
+     * (microphone audio is then streamed to Cartesia while they talk).
+     */
+    voiceInput: voiceInputSchema.catch('local').default('local'),
     /** The chosen voice within each speech model. */
     voices: voiceChoicesSchema,
     petScale: petScaleSchema.default(1),
@@ -265,6 +272,7 @@ export const defaultSettings: Settings = {
   taskBudgetUsd: defaultTaskBudgetUsd,
   skillsOff: [],
   voiceModel: 'kokoro',
+  voiceInput: 'local',
   voices: {
     kokoro: 'af_heart',
     'chatterbox-turbo': 'calm',
@@ -514,6 +522,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-speak-replies'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('set-share-desktop-context'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('set-voice-model'), model: voiceModelSchema }).strict(),
+  z.object({ type: z.literal('set-voice-input'), input: voiceInputSchema }).strict(),
   /** Choose a voice within a model; the voice must belong to that model. */
   z.object({ type: z.literal('set-voice'), selection: voiceSelectionSchema }).strict(),
   /** Save a cloud voice key (checked with the provider first) or forget it. */
