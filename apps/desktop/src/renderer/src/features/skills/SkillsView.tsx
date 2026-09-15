@@ -215,7 +215,15 @@ function SkillDetail({
         </GroupedList>
       )}
 
-      <GroupedList title="Details">
+      <GroupedList
+        title="Details"
+        {...(skill.helperScripts
+          ? {
+              footer:
+                'This skill came with helper scripts. Edi follows its instructions but never runs scripts, so steps that need them won’t work.',
+            }
+          : {})}
+      >
         <GroupedRow title="Made by" value={skill.author || '—'} />
         {skill.version && <GroupedRow title="Version" value={skill.version} />}
         {skill.license && <GroupedRow title="License" value={skill.license} />}

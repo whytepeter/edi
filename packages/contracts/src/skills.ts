@@ -221,6 +221,8 @@ export const skillSummarySchema = z
     examples: z.array(z.string().max(120)).max(5),
     /** The instructions Edi follows, shown on the skill's page. */
     instructions: z.string().max(30_000),
+    /** Its folder has helper scripts; Edi follows the instructions only and never runs them. */
+    helperScripts: z.boolean().optional(),
     /** Connected apps that help, and whether each is connected now. */
     apps: z
       .array(

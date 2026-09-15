@@ -1654,6 +1654,7 @@ async function start() {
         icon: skill.icon,
         examples: skill.examples,
         instructions: skill.body,
+        ...(skill.helperScripts ? { helperScripts: true } : {}),
         apps: skill.apps.flatMap(id => {
           const entry = connectorCatalog.find(item => item.id === id);
           return entry ? [{ id, name: entry.name, connected: connected.has(id) }] : [];

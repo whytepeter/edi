@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Dirent } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -12,6 +13,24 @@ import {
 export interface AvailableSkill extends SkillDefinition {
   trust: SkillTrust;
   enabled: boolean;
+  /** Its folder has helper scripts; Edi follows the instructions only and never runs them. */
+  helperScripts?: boolean;
+}
+
+const SCRIPT = /\.(sh|bash|zsh|command|py|js|mjs|cjs|ts|rb|pl|php|applescript|scpt)$/i;
+
+/** Agent Skills may bundle scripts (usually in `scripts/`), which Edi never runs. */
+async function hasHelperScripts(folder: string) {
+  try {
+    const entries = await readdir(folder, { withFileTypes: true });
+    return entries.some(
+      entry =>
+        (entry.isDirectory() && entry.name === 'scripts') ||
+        (entry.isFile() && SCRIPT.test(entry.name)),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** A skill folder the person added that couldn't be read, and why. */
@@ -44,33 +63,45 @@ export class SkillLibrary {
     },
   ) {}
 
+  /** Names of the person's skills whose folders have helper scripts. */
+  private scripted = new Set<string>();
+
   /** Reads the person's skills folder again. */
   async refresh() {
     const yours: SkillDefinition[] = [];
     const issues: SkillIssue[] = [];
-    let names: string[] = [];
+    const scripted = new Set<string>();
+    let entries: Dirent[] = [];
     try {
-      names = await readdir(this.options.folder());
+      entries = await readdir(this.options.folder(), { withFileTypes: true });
     } catch {
       // No folder yet: nothing of theirs.
     }
     const builtIn = new Set(this.options.builtIn.map(skill => skill.name));
-    for (const folder of names.sort()) {
-      if (folder.startsWith('.')) continue;
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const folder = entry.name;
+      if (folder.startsWith('.') || !(entry.isDirectory() || entry.isSymbolicLink())) continue;
+      const path = join(this.options.folder(), folder);
       let text: string;
       try {
-        text = await readFile(join(this.options.folder(), folder, 'SKILL.md'), 'utf8');
+        text = await readFile(join(path, 'SKILL.md'), 'utf8');
       } catch {
-        continue; // Not a skill folder.
+        // Still being copied, or not a skill: say so instead of leaving it unexplained.
+        issues.push({ folder, message: 'There’s no SKILL.md in this folder yet.' });
+        continue;
       }
       const { skill, problems } = parseSkill(text, { folderName: folder });
       if (!skill) issues.push({ folder, message: problems[0]?.message ?? 'Unreadable.' });
       else if (builtIn.has(skill.name))
         issues.push({ folder, message: 'A skill by Fewerlabs already has this name.' });
-      else yours.push(skill);
+      else {
+        yours.push(skill);
+        if (await hasHelperScripts(path)) scripted.add(skill.name);
+      }
     }
     this.yours = yours;
     this.issues = issues;
+    this.scripted = scripted;
     this.publish();
   }
 
@@ -78,7 +109,11 @@ export class SkillLibrary {
     const off = new Set(this.options.off());
     return [
       ...this.options.builtIn.map(skill => ({ ...skill, trust: 'fewerlabs' as const })),
-      ...this.yours.map(skill => ({ ...skill, trust: 'local' as const })),
+      ...this.yours.map(skill => ({
+        ...skill,
+        trust: 'local' as const,
+        ...(this.scripted.has(skill.name) ? { helperScripts: true } : {}),
+      })),
     ].map(skill => ({ ...skill, enabled: !off.has(skill.name) }));
   }
 

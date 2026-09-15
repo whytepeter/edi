@@ -221,6 +221,28 @@ test('a server’s tools become reviewed Edi actions whose results are marked as
   }
 });
 
+test('two connected apps with the same name keep their tools apart', async () => {
+  const first = await fakeServer({ auth: false });
+  const second = await fakeServer({ auth: false });
+  const { connectors, settled } = manager();
+  try {
+    connectors.add({ url: first.url, name: 'Team Notes' });
+    connectors.add({ url: second.url, name: 'Team Notes' });
+    await settled(list => list.length === 2 && list.every(entry => entry.status === 'connected'));
+    const ids = connectors.capabilities().map(tool => tool.id);
+    assert.equal(new Set(ids).size, 4);
+    // Each app keeps one prefix of its own, so the model can tell whose tool it is.
+    const prefixes = [...new Set(ids.map(id => id.split('.')[0]!))].sort();
+    assert.equal(prefixes.length, 2);
+    assert.equal(prefixes[0], 'mcp_team_notes');
+    assert.match(prefixes[1]!, /^mcp_team_notes[0-9a-z-]{4}$/);
+  } finally {
+    await connectors.dispose();
+    await first.close();
+    await second.close();
+  }
+});
+
 test('signing in registers Edi, verifies PKCE, keeps tokens encrypted-at-rest, and remove forgets them', async () => {
   const server = await fakeServer({ auth: true });
   const { connectors, secrets, opened, settled } = manager();

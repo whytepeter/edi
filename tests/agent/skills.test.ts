@@ -143,6 +143,8 @@ test('the person’s own skills come from their folder, checked, never replacing
   await put('broken', '---\nname: broken\n---\nno description');
   await put('daily-brief', '---\nname: daily-brief\ndescription: Mine. Use when.\n---\nMine.');
   await mkdir(join(folder, 'not-a-skill'), { recursive: true });
+  // A shared skill can bring helper scripts; Edi says so and never runs them.
+  await mkdir(join(folder, 'weekly-update', 'scripts'), { recursive: true });
   await skills.refresh();
 
   assert.deepEqual(
@@ -153,10 +155,17 @@ test('the person’s own skills come from their folder, checked, never replacing
     ],
   );
   assert.equal(skills.get('daily-brief')?.body, 'Plan it.');
+  // A folder still being copied, or without a SKILL.md, is explained rather than skipped.
   assert.deepEqual(
-    skills.problems().map(problem => problem.folder),
-    ['broken', 'daily-brief'],
+    skills.problems().map(problem => [problem.folder, problem.message]),
+    [
+      ['broken', 'Add a description of what it does and when to use it.'],
+      ['daily-brief', 'A skill by Fewerlabs already has this name.'],
+      ['not-a-skill', 'There’s no SKILL.md in this folder yet.'],
+    ],
   );
+  assert.equal(skills.get('weekly-update')?.helperScripts, true);
+  assert.equal(skills.get('daily-brief')?.helperScripts, undefined);
 
   await skills.setEnabled('daily-brief', false);
   assert.deepEqual(off(), ['daily-brief']);

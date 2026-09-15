@@ -498,7 +498,8 @@ export class ConnectorManager {
       if (!record.enabled || this.status.get(record.id)?.status !== 'connected') continue;
       if (record.provider === 'mcp' && !this.live.has(record.id)) continue;
       let app = `mcp_${slug(record.name, 12)}`;
-      if ([...used].some(name => name.startsWith(`${app}_`)))
+      // Another app with the same short name already has this prefix: this one gets its own.
+      if ([...used].some(name => name.startsWith(`${app}.`)))
         app = `${app}${record.id.slice(0, 4)}`;
       for (const tool of record.tools) {
         if (!tool.enabled || capabilities.length >= MAX_CONNECTED_TOOLS) continue;
