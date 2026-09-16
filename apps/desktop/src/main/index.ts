@@ -8,6 +8,7 @@ import {
   dialog,
   globalShortcut,
   Menu,
+  nativeImage,
   screen,
   safeStorage,
   shell,
@@ -2247,6 +2248,12 @@ async function start() {
 }
 
 if (process.platform === 'darwin') app.setName('Edi');
+// Packaged builds carry the icon in the .app bundle; in dev, Electron's own icon shows
+// unless we set the dock icon ourselves.
+if (process.platform === 'darwin' && !app.isPackaged) {
+  const devIcon = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon.png'));
+  if (!devIcon.isEmpty()) app.dock?.setIcon(devIcon);
+}
 registerArtifactScheme();
 if (process.env.EDI_VOICE !== 'off' && !app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {

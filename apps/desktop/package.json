@@ -54,6 +54,7 @@
     ],
     "afterPack": "./scripts/after-pack.cjs",
     "mac": {
+      "icon": "build/icon.png",
       "category": "public.app-category.productivity",
       "identity": null,
       "entitlements": "signing/entitlements.mac.plist",
