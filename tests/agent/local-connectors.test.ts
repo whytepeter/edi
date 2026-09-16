@@ -128,7 +128,9 @@ test('a server that cannot start repeats back what it said', async () => {
 });
 
 test('removing a local server stops it and leaves nothing waiting to start again', async () => {
-  const { connectors, repositories, settled } = manager({ EDI_TEST_EXIT_AFTER_MS: '60' });
+  // Long enough to connect first: this is about removing a server that is running with a
+  // restart pending, not about racing its startup.
+  const { connectors, repositories, settled } = manager({ EDI_TEST_EXIT_AFTER_MS: '250' });
   try {
     const id = connectors.add({ local: notes, name: 'Team Notes' });
     await settled(list => list[0]?.status === 'connected');

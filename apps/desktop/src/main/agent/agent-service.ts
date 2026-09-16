@@ -20,7 +20,6 @@ import {
   type ChatMessage,
   type ConversationSummary,
   type DesktopContext,
-  type LocalModelUse,
   type ToolStep,
 } from '@edi/contracts';
 import type { Repositories, ThreadTurn } from '@edi/storage';
@@ -53,9 +52,6 @@ const CONTEXT_WAIT_MS = 2_000;
 /** A conversation Edi picked up by itself is continued only within this long of its last turn. */
 const FRESH_MS = 2 * 60 * 60 * 1000;
 
-/** A model on this Mac, ready to answer: the worker's `local` input and its runtime's name. */
-export type LocalRun = NonNullable<WorkerInput['local']> & { runtime: string };
-
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
@@ -86,12 +82,6 @@ interface AgentServiceOptions {
   rules?: ApprovalRules;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
   threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
-  /** The model on this Mac the person chose (`local/<runtime>/<name>`) and how to use it. */
-  localChoice?: () => { id: string; use: LocalModelUse } | null;
-  /** That model, if its runtime serves it now: where to reach it and what it can do. */
-  localModel?: (id: string) => Promise<LocalRun | null>;
-  /** False when this Mac has no network connection, so OpenRouter can't be reached. */
-  online?: () => boolean;
 }
 
 export type PointTarget = NonNullable<ReturnType<typeof resolvePresentation>>;
@@ -110,10 +100,8 @@ interface ActiveRun {
   wrappingUp: boolean;
   /** A tool was called since the last text: the next words start a new paragraph. */
   afterTool?: boolean;
-  /** What the worker was started with, so the same turn can go to a model on this Mac. */
+  /** What the worker was started with. */
   input: WorkerInput;
-  /** Answering on this Mac: its runtime's name, for messages. */
-  local?: string;
 }
 
 type FinishedStatus = Extract<AgentState['status'], 'done' | 'stopped' | 'error'>;
@@ -204,14 +192,9 @@ export class AgentService {
     this.update({ ...this.state, model });
   }
 
-  /** Edi can answer: with the OpenRouter key, or with a model on this Mac chosen in Settings. */
+  /** Edi can answer once OpenRouter is connected in Settings → AI. */
   private get canAnswer() {
-    return this.options.credentials.configured || Boolean(this.options.localChoice?.());
-  }
-
-  /** The model on this Mac was chosen, changed or cleared in Settings → AI. */
-  localModelChanged() {
-    this.update({ ...this.state, configured: this.canAnswer });
+    return this.options.credentials.configured;
   }
 
   async disconnect() {
@@ -244,8 +227,7 @@ export class AgentService {
     } = {},
   ): Promise<string | undefined> {
     const { credentials, repositories } = this.options;
-    if (this.configuring || (!credentials.configured && !this.options.localChoice?.()))
-      throw new Error('Set up OpenRouter first.');
+    if (this.configuring || !credentials.configured) throw new Error('Set up OpenRouter first.');
     if (this.run || this.starting) throw new Error('A response is already running.');
 
     const starting = {};
@@ -263,42 +245,21 @@ export class AgentService {
       artifacts: [],
       approval: null,
     });
-    // A model on this Mac answers every turn when it is the main model, and in OpenRouter's place
-    // when there is no key or no network. Its runtime is asked while screens are taken.
-    const choice = this.options.localChoice?.() ?? null;
-    const wantLocal =
-      choice !== null &&
-      (choice.use === 'main' || !credentials.configured || this.options.online?.() === false);
-    const localReady: Promise<LocalRun | null> =
-      wantLocal && choice && this.options.localModel
-        ? this.options.localModel(choice.id).catch(() => null)
-        : Promise.resolve(null);
     // Desktop context is gathered alongside screens and never holds a question up for long.
     const context = Promise.race([
       (this.options.desktopContext?.() ?? Promise.resolve(null)).catch(() => null),
       new Promise<null>(resolve => setTimeout(() => resolve(null), CONTEXT_WAIT_MS)),
     ]);
-    const [{ screenshots, access, pointer }, desktopContext, local] = await Promise.all([
+    const [{ screenshots, access, pointer }, desktopContext] = await Promise.all([
       (options.screens
         ? Promise.resolve(options.screens)
         : this.options.captureScreens(prompt)
       ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' })),
       context,
-      localReady,
     ]);
     if (this.starting !== starting) return undefined; // stopped while capturing
     this.starting = undefined;
-    if (wantLocal && !local && !credentials.configured) {
-      this.update({
-        ...this.state,
-        status: 'error',
-        runId: null,
-        error:
-          'The model on this Mac isn’t available. Open Ollama or LM Studio, or connect OpenRouter in Settings → AI.',
-      });
-      return undefined;
-    }
-    const model = local && choice ? choice.id : credentials.model;
+    const model = credentials.model;
     if (access !== null && access !== 'granted') {
       this.options.screenPermissionRequired?.();
       this.update({
@@ -322,22 +283,19 @@ export class AgentService {
       note: options.note ?? null,
     });
     repositories.conversations.touch(conversationId, Date.now());
-    const readerModel = local
-      ? undefined
-      : modelIdSchema.safeParse(this.options.readerModel?.()).data;
-    const reasoningEffort =
-      options.spoken && !local ? this.options.spokenEffort?.(credentials.model) : undefined;
+    const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
+    const reasoningEffort = options.spoken
+      ? this.options.spokenEffort?.(credentials.model)
+      : undefined;
     const workerData: WorkerInput = {
-      apiKey: local ? '' : credentials.apiKey,
+      apiKey: credentials.apiKey,
       model,
       name: this.options.assistantName?.() ?? 'Edi',
       prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS, conversationId),
-      // A model on this Mac that can’t see images gets no screens, nor the pointer’s close-up.
-      screenshots:
-        local && !local.vision ? [] : screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
+      screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
       // Where their own mouse was: “this” and “here” have a subject.
-      pointer: local && !local.vision ? null : (pointer ?? null),
+      pointer: pointer ?? null,
       spoken: options.spoken ?? false,
       mode: 'chat',
       maxSteps: 10,
@@ -347,17 +305,7 @@ export class AgentService {
       desktopContext,
       ...(readerModel ? { readerModel } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
-      tools: local && !local.tools ? [] : this.broker.manifest(),
-      ...(local
-        ? {
-            local: {
-              baseURL: local.baseURL,
-              name: local.name,
-              vision: local.vision,
-              tools: local.tools,
-            },
-          }
-        : {}),
+      tools: this.broker.manifest(),
     };
     const run: ActiveRun = {
       id,
@@ -366,7 +314,6 @@ export class AgentService {
       screenshots,
       worker: this.spawn(workerData),
       input: workerData,
-      ...(local ? { local: local.runtime } : {}),
       abort: new AbortController(),
       deadline: new PausableTimer(RUN_BUDGET_MS, () => {
         if (run.wrappingUp)
@@ -399,49 +346,6 @@ export class AgentService {
   /** Nothing has been said or done yet in this run, so it can start over elsewhere. */
   private untouched() {
     return !this.state.text.trim() && this.state.steps.length === 0;
-  }
-
-  /**
-   * OpenRouter failed before saying or doing anything: the same turn goes, once, to the model on
-   * this Mac the person chose as a backup. Resolves false when that model isn't available.
-   */
-  private async answerOnThisMac(run: ActiveRun) {
-    const choice = this.options.localChoice?.();
-    if (run.local || !choice || !this.untouched()) return false;
-    const local = await this.options.localModel?.(choice.id).catch(() => null);
-    if (!local || this.run !== run || !this.untouched()) return false;
-    void run.worker.terminate();
-    const input: WorkerInput = {
-      ...run.input,
-      apiKey: '',
-      model: choice.id,
-      screenshots: local.vision ? run.input.screenshots : [],
-      pointer: local.vision ? run.input.pointer : null,
-      tools: local.tools ? run.input.tools : [],
-      local: { baseURL: local.baseURL, name: local.name, vision: local.vision, tools: local.tools },
-    };
-    delete input.readerModel;
-    delete input.reasoningEffort;
-    run.input = input;
-    run.local = local.runtime;
-    // Shown as a step, so it's clear who answered and why.
-    const stepId = randomUUID();
-    this.stepRecorder.created({
-      id: stepId,
-      runId: run.id,
-      capability: 'model.local',
-      title: 'Answer on this Mac',
-      effect: 'read',
-      input: { model: local.name },
-      status: 'running',
-    });
-    this.stepRecorder.finished(stepId, {
-      status: 'succeeded',
-      summary: `OpenRouter couldn’t answer, so ${local.name} in ${local.runtime} is answering on this Mac.`,
-    });
-    run.worker = this.spawn(input);
-    this.listen(run);
-    return true;
   }
 
   /** Resolves with the final state of `runId`, or rejects if `signal` aborts first. */
@@ -667,18 +571,7 @@ export class AgentService {
         unknown:
           'OpenRouter could not complete this response after retrying. Check Settings → AI and your connection.',
       } as const;
-      const reason = run.local
-        ? `${run.local} couldn’t answer with that model. Check that it’s running, then try again.`
-        : errors[message.kind];
-      // OpenRouter failed before saying or doing anything: a local backup gets the turn.
-      if (!run.local && this.options.localChoice?.() && this.untouched()) {
-        run.worker.removeAllListeners();
-        void this.answerOnThisMac(run).then(started => {
-          if (!started) this.finish(run, 'error', reason);
-        });
-        return;
-      }
-      this.finish(run, 'error', reason);
+      this.finish(run, 'error', errors[message.kind]);
     }
   }
 

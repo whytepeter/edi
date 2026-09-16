@@ -7,7 +7,10 @@ import { z } from 'zod';
  */
 export const usageKindSchema = z.enum(['answer', 'page-reader', 'voice']);
 export type UsageKind = z.infer<typeof usageKindSchema>;
-/** `local`: a model on this Mac (Ollama or LM Studio); tokens only, never a cost. */
+/**
+ * `local`: kept so usage already recorded still reads back. Edi no longer runs models itself;
+ * nothing writes this any more.
+ */
 export const usageProviderSchema = z.enum(['openrouter', 'local', 'cartesia', 'elevenlabs']);
 export type UsageProvider = z.infer<typeof usageProviderSchema>;
 

@@ -29,7 +29,6 @@ export * from './presentation';
 export * from './screen-grounding';
 export * from './permissions';
 export * from './desktop-context';
-export * from './local-models';
 export * from './screen-intent';
 export * from './library-groups';
 export * from './voice';
@@ -54,12 +53,6 @@ import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
 import { connectorUrlSchema, localServerSchema, type Connector } from './connectors';
 import { skillNameSchema, type SkillsState } from './skills';
-import {
-  localModelIdSchema,
-  localModelUseSchema,
-  localPackIdSchema,
-  type LocalModelsState,
-} from './local-models';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -312,10 +305,6 @@ export const settingsSchema = z.preprocess(
     name: assistantNameSchema.nullable().catch(null).default(null),
     /** Skills the person switched off; every other available skill is on. */
     skillsOff: z.array(skillNameSchema).max(200).catch([]).default([]),
-    /** A model on this Mac (`local/<runtime>/<name>`), or null for none. */
-    localModel: localModelIdSchema.nullable().catch(null).default(null),
-    /** Use it only when OpenRouter can't answer (offline, out of credits), or for every turn. */
-    localModelUse: localModelUseSchema.catch('backup').default('backup'),
   }),
 );
 export type Settings = z.infer<typeof settingsSchema>;
@@ -333,8 +322,6 @@ export const defaultSettings: Settings = {
   privateApps: [],
   taskBudgetUsd: defaultTaskBudgetUsd,
   skillsOff: [],
-  localModel: null,
-  localModelUse: 'backup',
   voiceModel: 'kokoro',
   voiceInput: 'local',
   voiceWords: [],
@@ -500,22 +487,6 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('disconnect-agent') }).strict(),
-  /** Download (or resume), pause, or remove a model Edi runs itself. */
-  z
-    .object({
-      type: z.literal('local-pack'),
-      action: z.enum(['download', 'pause', 'remove']),
-      id: localPackIdSchema,
-    })
-    .strict(),
-  /** Choose a model on this Mac (null for none) and whether it answers every turn. */
-  z
-    .object({
-      type: z.literal('set-local-model'),
-      model: localModelIdSchema.nullable(),
-      use: localModelUseSchema,
-    })
-    .strict(),
   z.object({ type: z.literal('ask-agent'), prompt: z.string().trim().min(1).max(8000) }).strict(),
   z.object({ type: z.literal('stop-agent') }).strict(),
   z.object({ type: z.literal('new-conversation') }).strict(),
@@ -819,8 +790,6 @@ export interface DesktopBridge {
   system(): Promise<SystemInfo>;
   /** Models compatible with Edi, from OpenRouter's public catalog. Needs no key. */
   models(): Promise<ModelOption[]>;
-  /** Models Ollama and LM Studio serve on this Mac; `fresh` asks the runtimes again. */
-  localModels(fresh?: boolean): Promise<LocalModelsState>;
   /** Background tasks, active first then most recent. */
   tasks(): Promise<Task[]>;
   onTasks(callback: (tasks: Task[]) => void): () => void;

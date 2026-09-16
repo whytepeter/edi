@@ -2,8 +2,6 @@ import { useState } from 'react';
 import type { Command } from '@edi/contracts';
 import { Button, GroupedList, GroupedRow, TextField } from '../../components/ui';
 import { useAgentState } from '../../hooks/useAgentState';
-import { useSettings } from '../../hooks/useSettings';
-import { LocalModelSettings } from './LocalModelSettings';
 import { ModelPicker } from './ModelPicker';
 import './settings.css';
 
@@ -13,7 +11,6 @@ import './settings.css';
  */
 export function AiSettings() {
   const { state, loading } = useAgentState();
-  const { settings } = useSettings();
   const [replacingKey, setReplacingKey] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [apiKey, setApiKey] = useState('');
@@ -149,16 +146,6 @@ export function AiSettings() {
           if (id !== state.model)
             void command({ type: 'configure-agent', model: id }, 'Model saved.');
         }}
-      />
-
-      <LocalModelSettings
-        model={settings.localModel}
-        use={settings.localModelUse}
-        onChange={(model, use) =>
-          void window.edi
-            ?.command({ type: 'set-local-model', model, use })
-            .catch(() => setError('Couldn’t save that choice. Try again.'))
-        }
       />
 
       {!state.configured && (

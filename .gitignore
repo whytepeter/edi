@@ -26,5 +26,3 @@ apps/desktop/build/.edi-host-version
 apps/desktop/build/*.dylib
 native/whisper/build/
 native/espeak/build/
-native/llama/build/
-benchmarks/models/cache/

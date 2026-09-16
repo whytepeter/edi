@@ -2,7 +2,6 @@ import type { BrowserWindow } from 'electron';
 import type {
   ArtifactRef,
   CloudProviderId,
-  LocalPackId,
   Settings,
   VoicePackId,
   VoiceSelection,
@@ -78,8 +77,6 @@ interface CommandDependencies {
   removePersonalVoice(id: string): Promise<void>;
   /** Settings → Voice: download (or resume), pause or remove an on-device voice pack. */
   voicePack(action: 'download' | 'pause' | 'remove', id: VoicePackId): Promise<void> | void;
-  /** Settings → AI: download (or resume), pause or remove a model Edi runs itself. */
-  localPack(action: 'download' | 'pause' | 'remove', id: LocalPackId): Promise<void> | void;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
   /** Library Rename, Pin and Regenerate; the person's click is the consent. */
@@ -131,7 +128,6 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     previewVoice,
     removePersonalVoice,
     voicePack,
-    localPack,
     setVoiceKey,
     deleteLibraryItem,
     renameLibraryItem,
@@ -262,18 +258,6 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'set-share-desktop-context': {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ shareDesktopContext: enabled }),
-    },
-    'local-pack': {
-      from: fromWorkspace,
-      handle: ({ action, id }) => localPack(action, id),
-    },
-    'set-local-model': {
-      from: fromWorkspace,
-      // Home and the conversation card follow at once: a model on this Mac can answer.
-      handle: async ({ model, use }) => {
-        await settings.update({ localModel: model, localModelUse: use });
-        agent.localModelChanged();
-      },
     },
     'set-privacy': {
       from: fromWorkspace,
