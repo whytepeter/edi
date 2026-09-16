@@ -149,6 +149,7 @@ const tiers: Record<string, NonNullable<ModelOption['recommended']>> = {
   best: 'best',
   smartest: 'best',
   strongest: 'best',
+  free: 'free',
 };
 
 /**
@@ -352,8 +353,9 @@ export function ediSetupCapabilities(deps: {
     description:
       'Switch the AI model Edi answers with when the user asks (“use Claude Sonnet”, “switch to ' +
       'something faster”). Pass a model id (e.g. anthropic/claude-sonnet-5) or what the user ' +
-      'said; “fast”, “balanced” and “best” pick Edi’s recommended models. If several match, the ' +
-      'error lists them: ask the user which one. The new model answers from the next message.',
+      'said; “fast”, “balanced”, “best” and “free” pick Edi’s recommended models. If several ' +
+      'match, the error lists them: ask the user which one. The new model answers from the next ' +
+      'message.',
     effect: 'write',
     timeoutMs: 15_000,
     input: z
@@ -363,7 +365,7 @@ export function ediSetupCapabilities(deps: {
           .trim()
           .min(2)
           .max(160)
-          .describe('A model id, a model name, or fast / balanced / best'),
+          .describe('A model id, a model name, or fast / balanced / best / free'),
       })
       .strict(),
     async prepare({ model }) {

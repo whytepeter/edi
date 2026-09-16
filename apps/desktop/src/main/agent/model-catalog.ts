@@ -89,6 +89,8 @@ const picks: { role: NonNullable<ModelOption['recommended']>; pattern: RegExp }[
   { role: 'fast', pattern: /^google\/gemini-[\d.]+-flash$/ },
   { role: 'balanced', pattern: /^anthropic\/claude-sonnet-[\d.]+$/ },
   { role: 'best', pattern: /^anthropic\/claude-opus-[\d.]+$/ },
+  // OpenRouter's own free router: costs nothing, still sees images and calls tools.
+  { role: 'free', pattern: /^openrouter\/free$/ },
 ];
 
 function recommend(models: ModelOption[], created: Map<string, number>) {

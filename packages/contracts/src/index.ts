@@ -398,7 +398,7 @@ export const modelOptionSchema = z
     /** US dollars per million input tokens; null when the catalog doesn't say. */
     inputPrice: z.number().nonnegative().nullable(),
     /** Edi's pick for a kind of use; null for everything else. */
-    recommended: z.enum(['fast', 'balanced', 'best']).nullable(),
+    recommended: z.enum(['fast', 'balanced', 'best', 'free']).nullable(),
   })
   .strict();
 export const modelCatalogSchema = z.array(modelOptionSchema).max(1000);
