@@ -389,6 +389,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'stop-task': { from: fromWorkspace, handle: ({ id }) => tasks.stop(id) },
     'delete-task': { from: fromWorkspace, handle: ({ id }) => tasks.remove(id) },
+    'retry-task': { from: fromWorkspace, handle: ({ id }) => void tasks.retry(id) },
     'raise-task-budget': {
       from: fromWorkspace,
       handle: ({ id, addUsd }) => tasks.raiseBudget(id, addUsd),

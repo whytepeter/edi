@@ -481,6 +481,13 @@ function TaskCard({
       />
 
       <footer className="task-card-foot">
+        {/* Work that stopped before it was done: asking again starts afresh, repeating nothing. */}
+        {!active && !confirming && (task.status === 'interrupted' || task.status === 'failed') ? (
+          <Button size="small" onClick={() => void send({ type: 'retry-task', id: task.id })}>
+            <Icon name="clock" size={12} />
+            Ask again
+          </Button>
+        ) : null}
         {active && task.status !== 'limited' ? (
           <Button size="small" onClick={() => void send({ type: 'stop-task', id: task.id })}>
             <Icon name="stop" size={12} />

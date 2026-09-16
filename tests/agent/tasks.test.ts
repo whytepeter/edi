@@ -65,6 +65,26 @@ function harness(capabilities: Capability[] = []) {
   return { repositories, workers, finished, tasks };
 }
 
+test('a task cut off by a quit can be asked again, and starts afresh', () => {
+  const { tasks, repositories } = harness();
+  const first = tasks.start({
+    prompt: 'Check the shipping status',
+    budgetUsd: 0.5,
+    conversationId: null,
+  });
+  // Edi quit while it was working, and started again.
+  repositories.tasks.recover(50);
+  assert.equal(tasks.task(first.id)?.status, 'interrupted');
+
+  const again = tasks.retry(first.id);
+  assert.notEqual(again.id, first.id);
+  assert.equal(again.prompt, 'Check the shipping status');
+  // The old one keeps its own history; nothing it did is repeated.
+  assert.equal(tasks.task(first.id)?.status, 'interrupted');
+  assert.equal(tasks.list().length, 2);
+  assert.throws(() => tasks.retry(uuid(999)), /no longer exists/);
+});
+
 test('two tasks run at once, the next waits its turn, and a result is kept', async () => {
   const { tasks, workers, finished } = harness();
   const first = tasks.start({

@@ -117,6 +117,12 @@ test('startup recovery never replays: runs interrupt, approvals cancel, in-fligh
     recovered.steps.map(s => s.status),
     ['cancelled', 'unknown', 'succeeded'],
   );
+  // What stopped part-way, to tell the person: this startup's turns only, and re-run by nothing.
+  assert.deepEqual(
+    repos.runs.interruptedAt(50, 3).map(turn => turn.prompt),
+    ['Save my list'],
+  );
+  assert.deepEqual(repos.runs.interruptedAt(49, 3), []);
   assert.deepEqual(repos.recoverInterrupted(60), { runs: 0, approvals: 0, uncertain: 0 });
 });
 

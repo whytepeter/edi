@@ -448,6 +448,23 @@ export const systemInfoSchema = z
     pushToTalk: z
       .object({ status: z.enum(['starting', 'ready', 'unavailable']), label: z.string().max(20) })
       .strict(),
+    /**
+     * What was cut off when Edi last closed, so the person is told rather than left wondering.
+     * Nothing here was re-run: it is a record of what stopped part-way.
+     */
+    recovered: z
+      .object({
+        /** Questions that never got their answer. */
+        runs: z.number().int().nonnegative(),
+        /** Tasks that were still working. */
+        tasks: z.number().int().nonnegative(),
+        /** Actions caught mid-step: their effect may exist, so they are worth checking. */
+        uncertain: z.number().int().nonnegative(),
+        /** What was being asked, newest first, to name it back to them. */
+        prompts: z.array(z.string().max(200)).max(3),
+      })
+      .strict()
+      .default({ runs: 0, tasks: 0, uncertain: 0, prompts: [] }),
     /** Documents › Edi: notes, generated content and everything the Library lists. */
     workspaceFolder: z.string().max(1024),
   })
@@ -511,6 +528,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('stop-task'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('delete-task'), id: z.string().uuid() }).strict(),
+  /** Ask for the same thing again, as a new task. Nothing the old one did is repeated. */
+  z.object({ type: z.literal('retry-task'), id: z.string().uuid() }).strict(),
   z
     .object({
       type: z.literal('raise-task-budget'),

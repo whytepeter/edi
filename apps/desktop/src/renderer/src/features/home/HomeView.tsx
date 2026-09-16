@@ -190,6 +190,23 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
           },
         ]
       : []),
+    // Work that stopped when Edi last closed. Nothing was repeated, so this only says what
+    // happened; asking again is the person's choice.
+    ...(system && system.recovered.runs + system.recovered.tasks > 0
+      ? [
+          {
+            id: 'recovered',
+            icon: 'clock' as const,
+            title: `${assistant} closed before it finished`,
+            detail: system.recovered.uncertain
+              ? 'Something was part-way through. Worth checking before you ask again.'
+              : system.recovered.prompts[0]
+                ? `“${clip(system.recovered.prompts[0], 60)}” never got its answer.`
+                : 'Nothing was changed, and nothing was repeated.',
+            open: () => onOpen('settings.activity'),
+          },
+        ]
+      : []),
     ...packs
       .filter(pack => pack.state === 'failed' || pack.state === 'paused')
       .map(pack => ({
