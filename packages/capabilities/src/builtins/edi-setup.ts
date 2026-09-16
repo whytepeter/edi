@@ -219,6 +219,7 @@ const pageNames: Record<z.infer<typeof workspaceViewSchema>, string> = {
   'settings.keyboard': 'Settings → Keyboard',
   'settings.privacy': 'Settings → Privacy & Permissions',
   'settings.memory': 'Settings → Memory',
+  'settings.behavior': 'Settings → Behavior',
   'settings.activity': 'Settings → Activity',
   'settings.about': 'Settings → About',
 };

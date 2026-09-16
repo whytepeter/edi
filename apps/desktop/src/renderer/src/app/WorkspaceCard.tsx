@@ -25,6 +25,7 @@ import { TasksView } from '../features/tasks/TasksView';
 import { KeyboardSettings } from '../features/settings/KeyboardSettings';
 import { PrivacySettings } from '../features/settings/PrivacySettings';
 import { MemorySettings } from '../features/settings/MemorySettings';
+import { BehaviorSettings } from '../features/settings/BehaviorSettings';
 import { AboutSettings } from '../features/settings/AboutSettings';
 import { useSystemInfo } from '../features/settings/useSystemInfo';
 import {
@@ -275,6 +276,12 @@ export function WorkspaceCard() {
                 <MemorySettings
                   remember={settings.remember}
                   onRemember={enabled => void send({ type: 'set-remember', enabled })}
+                />
+              )}
+              {view === 'settings.behavior' && (
+                <BehaviorSettings
+                  suggestions={settings.suggestions}
+                  onSuggestions={level => void send({ type: 'set-suggestions', level })}
                 />
               )}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}

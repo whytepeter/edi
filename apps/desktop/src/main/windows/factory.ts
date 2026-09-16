@@ -47,6 +47,8 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
   // A notification-style card: source, question and detail; Always allow; Deny and the action.
   approval: withTail(320, 194),
   artifact: withTail(292, 108),
+  // One line from what's in front, with its action and Not now.
+  suggestion: withTail(300, 104),
 };
 export const characterMenuSize = { width: 184, height: 134 } as const;
 
@@ -215,7 +217,7 @@ export function createStatusBubbleWindow({
     // The bubble mask supplies the corners; system rounding would clip the tail's tip.
     roundedCorners: false,
     skipTaskbar: true,
-    focusable: state === 'approval' || state === 'artifact',
+    focusable: state === 'approval' || state === 'artifact' || state === 'suggestion',
     // The preload exposes only approval response and content-reveal actions.
     webPreferences: { ...isolated, preload: join(__dirname, '../preload/bubble.js') },
   });

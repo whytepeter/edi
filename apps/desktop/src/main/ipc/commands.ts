@@ -40,6 +40,8 @@ interface CommandDependencies {
   addSkill(): Promise<void>;
   /** Settings → Privacy: choose an app Edi never looks at. */
   addPrivateApp(): Promise<void>;
+  /** A quiet suggestion beside the character: taken up, or waved away. */
+  suggestions: { accept(): void; dismiss(): void };
   /** Settings → Memory: the person's own edits to what Edi remembers. */
   memory: {
     edit(id: string, text: string): void;
@@ -111,6 +113,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     addSkill,
     addPrivateApp,
     memory,
+    suggestions,
     revealSkill,
     placement,
     petDrag,
@@ -411,6 +414,12 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
     'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
+    'set-suggestions': {
+      from: fromWorkspace,
+      handle: ({ level }) => settings.update({ suggestions: level }),
+    },
+    'suggestion-accept': { from: ['bubble'], handle: () => suggestions.accept() },
+    'suggestion-dismiss': { from: ['bubble'], handle: () => suggestions.dismiss() },
     'set-remember': { from: fromWorkspace, handle: ({ enabled }) => settings.update({ remember: enabled }) },
     'edit-memory': { from: fromWorkspace, handle: ({ id, text }) => memory.edit(id, text) },
     'remove-memory': { from: fromWorkspace, handle: ({ id }) => memory.remove(id) },

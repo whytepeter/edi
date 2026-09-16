@@ -50,6 +50,7 @@ export function SettingsView({ agent, system, permissions, onOpen }: SettingsVie
           title="Memory"
           onOpen={() => onOpen('settings.memory')}
         />
+        <GroupedRow icon="face" title="Behavior" onOpen={() => onOpen('settings.behavior')} />
         <GroupedRow icon="info" title="About Edi" onOpen={() => onOpen('settings.about')} />
       </GroupedList>
     </div>

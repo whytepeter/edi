@@ -56,6 +56,28 @@
   padding: 2px 2px 7px;
 }
 
+/* A quiet offer: one line, then Not now and the action it names. */
+.status-bubble-surface[data-state='suggestion'] .ds-bubble {
+  box-sizing: border-box;
+  width: 100%;
+  align-items: stretch;
+}
+.bubble-suggestion {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+.bubble-suggestion p {
+  margin: 0;
+  font: var(--text-callout);
+  color: var(--label);
+}
+.bubble-suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .status-bubble-surface[data-state='notice'] .ds-bubble {
   display: flex;
   align-items: flex-start;

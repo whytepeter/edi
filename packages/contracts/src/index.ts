@@ -37,6 +37,8 @@ export * from './voice-turns';
 export * from './privacy';
 export * from './memory';
 import { type Memory } from './memory';
+export * from './suggestions';
+import { suggestionLevelSchema } from './suggestions';
 import { privateAppSchema, type PrivacyState } from './privacy';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 import {
@@ -238,6 +240,8 @@ export const statusBubbleStateSchema = z.enum([
   'notice',
   'approval',
   'artifact',
+  /** A quiet offer from what's in front: one line, one action, and Not now. */
+  'suggestion',
 ]);
 export type StatusBubbleState = z.infer<typeof statusBubbleStateSchema>;
 export const bubbleSideSchema = z.enum(['left', 'right']);
@@ -279,6 +283,10 @@ export const settingsSchema = z.preprocess(
     shareDesktopContext: z.boolean().default(true),
     /** Edi may keep what it learns about the person (Settings → Memory); it still asks first. */
     remember: z.boolean().catch(true).default(true),
+    /** Quiet suggestions from what's in front, decided on this Mac. Silent until turned on. */
+    suggestions: suggestionLevelSchema.catch('off').default('off'),
+    /** When each suggestion was last made, so the same one doesn't come back for a week. */
+    suggestionsShown: z.record(z.string(), z.number()).catch({}).default({}),
     /** Privacy mode: Edi doesn't look at the screen or at what's in front until turned off. */
     privacyPaused: z.boolean().catch(false).default(false),
     /** Pause looking while a call app shares the screen, and keep Edi out of the share. */
@@ -317,6 +325,8 @@ export const defaultSettings: Settings = {
   speakReplies: true,
   shareDesktopContext: true,
   remember: true,
+  suggestions: 'off',
+  suggestionsShown: {},
   privacyPaused: false,
   pauseWhenSharing: true,
   privateApps: [],
@@ -363,6 +373,7 @@ export const settingsPages = [
   'settings.keyboard',
   'settings.privacy',
   'settings.memory',
+  'settings.behavior',
   'settings.activity',
   'settings.about',
 ] as const;
@@ -533,6 +544,10 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('remove-approval-rule'), id: z.string().uuid() }).strict(),
+  /** Settings → Behavior: how much Edi says on its own, and answering what it suggests. */
+  z.object({ type: z.literal('set-suggestions'), level: suggestionLevelSchema }).strict(),
+  z.object({ type: z.literal('suggestion-accept') }).strict(),
+  z.object({ type: z.literal('suggestion-dismiss') }).strict(),
   /** Settings → Memory: keep new things or stop, and edit, remove or clear what Edi remembers. */
   z.object({ type: z.literal('set-remember'), enabled: z.boolean() }).strict(),
   z

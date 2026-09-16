@@ -20,6 +20,7 @@ import {
   type ApprovalRule,
   type PrivacyState,
   type Memory,
+  type Suggestion,
   type Connector,
   type SkillsState,
   type UsageSummary,
@@ -68,6 +69,8 @@ interface IpcDependencies {
   approvalRules(): ApprovalRule[];
   privacy(): PrivacyState;
   memories(): Memory[];
+  /** The quiet offer the bubble is showing, if any. */
+  openSuggestion(): Suggestion | null;
   connectors(): Connector[];
   skills(): Promise<SkillsState>;
   composioConfigured(): boolean;
@@ -104,6 +107,7 @@ export function registerIpc({
   approvalRules,
   privacy,
   memories,
+  openSuggestion,
   connectors,
   skills,
   composioConfigured,
@@ -229,6 +233,10 @@ export function registerIpc({
   ipcMain.handle('edi:bubble-approval:get', event => {
     authorize(callerOf(event), ['bubble']);
     return agentState().approval;
+  });
+  ipcMain.handle('edi:bubble-suggestion:get', event => {
+    authorize(callerOf(event), ['bubble']);
+    return openSuggestion();
   });
   ipcMain.handle('edi:characters:get', event => {
     authorize(callerOf(event), ['workspace', 'pet', 'artifact']);

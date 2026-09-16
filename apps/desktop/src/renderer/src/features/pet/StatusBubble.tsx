@@ -7,12 +7,18 @@ import {
 } from '@edi/contracts';
 import { ArtifactPreview } from '../../components/artifacts/Artifact';
 import { ApprovalCard, type ApprovalDecision } from '../../components/approval/ApprovalCard';
-import { ListeningBars, SpeakingBars, SpeechBubble, ThinkingDots } from '../../components/ui';
+import {
+  Button,
+  ListeningBars,
+  SpeakingBars,
+  SpeechBubble,
+  ThinkingDots,
+} from '../../components/ui';
 import './pet.css';
 
 const announcement = (
   name: string,
-): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>, string> => ({
+): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact' | 'suggestion'>, string> => ({
   unavailable: 'Set up voice in Settings',
   thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.
@@ -20,8 +26,17 @@ const announcement = (
   speaking: `${name} is speaking`,
 });
 
+/** One quiet offer: its line and the word on its button. */
+interface BubbleSuggestion {
+  text: string;
+  label: string;
+}
+
 interface ApprovalBubbleBridge {
   approval(): Promise<ApprovalRequest | null>;
+  suggestion(): Promise<BubbleSuggestion | null>;
+  subscribeSuggestion(callback: (suggestion: BubbleSuggestion) => void): () => void;
+  respondSuggestion(accept: boolean): Promise<void>;
   subscribeApproval(callback: (approval: ApprovalRequest) => void): () => void;
   respond(callId: string, decision: 'approve' | 'approve-always' | 'deny'): Promise<void>;
   showContent(): Promise<void>;
@@ -49,6 +64,21 @@ export function StatusBubble({
   artifact: ArtifactSummary | null;
 }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [offer, setOffer] = useState<BubbleSuggestion | null>(null);
+  useEffect(() => {
+    if (state !== 'suggestion') return;
+    const bridge = approvalBridge();
+    let alive = true;
+    void bridge
+      ?.suggestion()
+      .then(value => alive && setOffer(value))
+      .catch(() => {});
+    const stop = bridge?.subscribeSuggestion(setOffer);
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, [state]);
   // Thinking starts with any progress from the URL; updates arrive in place.
   const [progress, setProgress] = useState(state === 'thinking' ? notice : '');
   useEffect(() => {
@@ -119,7 +149,11 @@ export function StatusBubble({
       </div>
     );
   const staticText =
-    state === 'notice' ? notice : state === 'approval' ? '' : announcement(name)[state];
+    state === 'notice'
+      ? notice
+      : state === 'approval' || state === 'suggestion'
+        ? ''
+        : announcement(name)[state];
   return (
     <div
       className="status-bubble-surface"
@@ -138,7 +172,30 @@ export function StatusBubble({
         )}
         {state === 'listening' && <ListeningBars />}
         {state === 'speaking' && <SpeakingBars />}
-        {state === 'approval' ? (
+        {state === 'suggestion' ? (
+          offer ? (
+            <div className="bubble-suggestion">
+              <p role="status">{offer.text}</p>
+              <div className="bubble-suggestion-actions">
+                <Button
+                  size="small"
+                  onClick={() => void approvalBridge()?.respondSuggestion(false)}
+                >
+                  Not now
+                </Button>
+                <Button
+                  size="small"
+                  variant="prominent"
+                  onClick={() => void approvalBridge()?.respondSuggestion(true)}
+                >
+                  {offer.label}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <ThinkingDots />
+          )
+        ) : state === 'approval' ? (
           approval ? (
             <ApprovalCard
               approval={approval}

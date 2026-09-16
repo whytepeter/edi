@@ -88,6 +88,9 @@ import {
   voiceWordsSchema,
   privacyReason,
   memoriesForPrompt,
+  suggestNow,
+  suggestionQuietStartMs,
+  type Suggestion,
   type VoiceSelection,
   defaultCharacterId,
   replyMood,
@@ -1787,6 +1790,54 @@ async function start() {
   scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
   approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
   privacy.onChange(state => broadcast([workspace], 'edi:privacy', state));
+
+  // Subtle suggestions. Everything here is decided on this Mac from the app in front: no
+  // screenshot, nothing sent anywhere, no model asked. Silent until the person turns it on.
+  let shownSuggestion: Suggestion | null = null;
+  const startedAt = Date.now();
+  const considerSuggestion = async () => {
+    const level = settings.current.suggestions;
+    if (level === 'off' || shownSuggestion) return;
+    // Not while Edi is busy, not over the card, and never while it isn't looking anyway.
+    if (Date.now() - startedAt < suggestionQuietStartMs) return;
+    if (privacy.state.paused || agent.state.status === 'running' || voice.phase !== 'idle') return;
+    if (cardOpen() || !settings.current.shareDesktopContext) return;
+    const context = await captureDesktopContext().catch(() => null);
+    if (!context) return;
+    const host = (() => {
+      try {
+        return context.url ? new URL(context.url).host : null;
+      } catch {
+        return null;
+      }
+    })();
+    const suggestion = suggestNow(level, {
+      app: { bundleId: context.bundleId, name: context.app },
+      host,
+      connectable: appsToConnect(),
+      skills: skills
+        .enabled()
+        .map(skill => ({ name: skill.name, title: skill.title, apps: skill.apps })),
+      shownAt: new Map(Object.entries(settings.current.suggestionsShown)),
+      now: Date.now(),
+    });
+    if (!suggestion) return;
+    shownSuggestion = suggestion;
+    character.showSuggestion(suggestion);
+    // Remembered whether or not it is taken up, so the same line doesn't come back for a week.
+    await settings.update({
+      suggestionsShown: { ...settings.current.suggestionsShown, [suggestion.key]: Date.now() },
+    });
+  };
+  const closeSuggestion = () => {
+    const suggestion = shownSuggestion;
+    shownSuggestion = null;
+    character.showSuggestion(null);
+    return suggestion;
+  };
+  const suggestionTimer = setInterval(() => void considerSuggestion(), 25_000);
+  suggestionTimer.unref?.();
+  app.once('before-quit', () => clearInterval(suggestionTimer));
   connectors.onChange(list => broadcast([workspace], 'edi:connectors', list));
   // A skill's apps show whether each is connected, so connector changes update Skills too.
   const skillSummaries = (): SkillsState => {
@@ -1963,6 +2014,15 @@ async function start() {
         const others = settings.current.privateApps.filter(app => app.bundleId !== chosen.bundleId);
         await settings.update({ privateApps: [...others, chosen].slice(-50) });
       },
+      suggestions: {
+        accept: () => {
+          const suggestion = closeSuggestion();
+          if (!suggestion) return;
+          // Taking one up opens the page that does it; connecting and skills stay reviewed there.
+          openSetup(suggestion.kind === 'connect-app' ? 'connectors' : 'skills');
+        },
+        dismiss: () => void closeSuggestion(),
+      },
       memory: {
         edit: (id, text) => {
           repositories.memories.update(id, { text, at: Date.now() });
@@ -2120,6 +2180,7 @@ async function start() {
     approvalRules: () => approvalRules.list(),
     privacy: () => privacy.state,
     memories: () => repositories.memories.list(),
+    openSuggestion: () => character.openSuggestion,
     connectors: () => connectors.list(),
     skills: async () => {
       await skills.refresh();
