@@ -666,6 +666,8 @@ async function start() {
     server: resolveLlamaServer(voicePaths),
     packs: modelPacks,
   });
+  // A model Edi used to offer is gigabytes nothing can use any more: clear it out.
+  void modelPacks.prune();
   // Web pages are read by the newest Gemini Flash Lite in OpenRouter's catalog (cached an hour).
   let readerModel: string | null = null;
   const refreshReaderModel = () =>
@@ -1101,7 +1103,13 @@ async function start() {
         const pack = modelPacks.installedPacks().find(entry => entry.id === where.name);
         const base = pack ? await localRunner.serve(pack.id) : null;
         return base && pack
-          ? { baseURL: `${base}/v1`, name: pack.id, vision: true, tools: true, runtime: 'Edi' }
+          ? {
+              baseURL: `${base}/v1`,
+              name: pack.id,
+              vision: pack.vision,
+              tools: pack.tools,
+              runtime: 'Edi',
+            }
           : null;
       }
       const found = where ? await localModels.find(id) : undefined;
@@ -2055,8 +2063,8 @@ async function start() {
         runtime: 'edi' as const,
         name: pack.name,
         contextLength: pack.contextLength,
-        vision: true,
-        tools: true,
+        vision: pack.vision,
+        tools: pack.tools,
       }));
       return { ...state, models: [...downloaded, ...state.models], packs: modelPacks.status() };
     },

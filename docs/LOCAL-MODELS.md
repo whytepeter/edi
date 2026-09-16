@@ -14,17 +14,23 @@ Three runtimes, in the order someone meets them:
 
 ## Downloading a model
 
-Two packs, both Qwen2.5-VL (Apache-2.0) as GGUF, each the model plus its vision projector:
+Two packs, each a GGUF and its vision projector (both Apache-2.0):
 
-| Pack | Size | Context |
-| --- | --- | --- |
-| Small model (3B) | about 2.8 GB | 8k |
-| Standard model (7B) | about 5.5 GB | 16k |
+| Pack | Model | Size | Context | Can it act? |
+| --- | --- | --- | --- | --- |
+| Small model (2B) | Qwen3-VL 2B | about 2.3 GB | 8k | Yes: reads the screen and calls tools |
+| Bigger model (7B) | Qwen2.5-VL 7B | about 5.5 GB | 16k | No: reads the screen, answers in words |
+
+**What a model can do here depends on its chat template, not its size.** Qwen3-VL declares tools
+and parses tool calls while keeping its vision markers; Qwen2.5-VL has no tool support in its
+template at all, so Edi lists it as limited rather than pretending it can act. Check a new
+model template before pinning it, and set the pack's `vision` and `tools` from what it really does.
 
 Every file is pinned to one Hugging Face revision by address, byte size and SHA-256, downloaded
 into Application Support › Edi › models, and renamed into place only once both match. A download
 resumes where it stopped (HTTP Range) after Pause, a dropped connection or a restart, and Edi
-keeps 200 MB of disk free. This is the same downloader as the voice models (`main/packs.ts`).
+keeps 200 MB of disk free. A model Edi no longer offers is gigabytes nothing can use, so it is
+removed from the models folder at startup. This is the same downloader as the voice models (`main/packs.ts`).
 
 ## Running it
 
