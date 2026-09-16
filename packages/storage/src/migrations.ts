@@ -335,6 +335,12 @@ export const migrations: readonly { version: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS memories_created ON memories (created_at);
     `,
   },
+  {
+    // Servers that run on this Mac over stdio: the declared runtime, the pinned package and
+    // version, and its arguments. NULL for apps Edi reaches over the network.
+    version: 18,
+    sql: `ALTER TABLE connectors ADD COLUMN local_json TEXT;`,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

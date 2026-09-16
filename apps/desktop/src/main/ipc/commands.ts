@@ -420,14 +420,17 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'suggestion-accept': { from: ['bubble'], handle: () => suggestions.accept() },
     'suggestion-dismiss': { from: ['bubble'], handle: () => suggestions.dismiss() },
-    'set-remember': { from: fromWorkspace, handle: ({ enabled }) => settings.update({ remember: enabled }) },
+    'set-remember': {
+      from: fromWorkspace,
+      handle: ({ enabled }) => settings.update({ remember: enabled }),
+    },
     'edit-memory': { from: fromWorkspace, handle: ({ id, text }) => memory.edit(id, text) },
     'remove-memory': { from: fromWorkspace, handle: ({ id }) => memory.remove(id) },
     'forget-everything': { from: fromWorkspace, handle: () => memory.clear() },
     'add-connector': {
       from: fromWorkspace,
-      handle: ({ catalogId, url, name }) => {
-        connectors.add({ catalogId, url, name });
+      handle: ({ catalogId, url, local, name }) => {
+        connectors.add({ catalogId, url, local, name });
       },
     },
     // Signing in waits on the browser; progress arrives through the connector list.

@@ -52,7 +52,7 @@ import { petScaleSchema } from './skin-geometry';
 import type { UsagePeriod, UsageSummary } from './usage';
 import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
-import { connectorUrlSchema, type Connector } from './connectors';
+import { connectorUrlSchema, localServerSchema, type Connector } from './connectors';
 import { skillNameSchema, type SkillsState } from './skills';
 import {
   localModelIdSchema,
@@ -560,18 +560,19 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('remove-memory'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('forget-everything') }).strict(),
-  /** From Edi's short list by id, or any server by its address. */
+  /** From Edi's short list by id, any server by its address, or a package that runs here. */
   z
     .object({
       type: z.literal('add-connector'),
       catalogId: z.string().min(1).max(40).optional(),
       url: connectorUrlSchema.optional(),
+      local: localServerSchema.optional(),
       name: z.string().trim().min(1).max(60).optional(),
     })
     .strict()
     .refine(
-      value => Boolean(value.catalogId) !== Boolean(value.url),
-      'Choose an app or an address.',
+      value => [value.catalogId, value.url, value.local].filter(Boolean).length === 1,
+      'Choose an app, an address, or a package to run here.',
     ),
   /** Signs in when needed, or reconnects. */
   z.object({ type: z.literal('connect-connector'), id: z.string().uuid() }).strict(),

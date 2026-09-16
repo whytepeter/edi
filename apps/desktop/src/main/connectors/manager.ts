@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {
+  StdioClientTransport,
+  type StdioServerParameters,
+} from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 import { defineCapability, type Capability } from '@edi/capabilities';
@@ -11,10 +15,12 @@ import {
   type Connector,
   type ConnectorStatus,
   type ConnectorTool,
+  type LocalServer,
 } from '@edi/contracts';
 import type { ConnectorRecord, Repositories } from '@edi/storage';
 import { ComposioAdapter, ComposioError } from './composio';
 import type { ComposioCredentials } from './composio-credentials';
+import { describeServer, launcherMissing, resolveLauncher, serverParameters } from './local-server';
 import { ConnectorAuth, LoopbackCallback } from './oauth';
 import type { SecretStore } from './secrets';
 
@@ -27,12 +33,28 @@ const MAX_TOOLS = 200;
  */
 export const MAX_CONNECTED_TOOLS = 300;
 const MAX_OUTPUT_CHARS = 40_000;
+/**
+ * A local server that keeps dying is left alone after this many tries, so a crash loop can't
+ * spawn processes forever. A connection that lasts clears the count.
+ */
+const MAX_RESTARTS = 3;
+const RESTART_MS = 1_000;
+/**
+ * How long a local server has to stay up before its crashes are forgiven. Counting from the
+ * moment it connects instead would never reach the limit: a server that starts cleanly and
+ * dies a moment later would be restarted for ever.
+ */
+const STABLE_MS = 60_000;
+/** Enough of a failing server's stderr to explain itself, and no more. */
+const MAX_STDERR_CHARS = 2_000;
 
 interface Live {
   client: Client;
-  transport: StreamableHTTPClientTransport;
+  transport: StreamableHTTPClientTransport | StdioClientTransport;
   /** Tool input schemas as the server gave them, by tool name. */
   schemas: Map<string, Record<string, unknown>>;
+  /** What a local server wrote to stderr, kept to explain a failure to start. */
+  stderr?: string;
 }
 
 export interface ConnectorManagerOptions {
@@ -44,7 +66,16 @@ export interface ConnectorManagerOptions {
   fetch?: FetchLike;
   now?: () => number;
   signInTimeoutMs?: number;
+  /** How long before the first restart of a local server that stopped; doubles after that. */
+  restartMs?: number;
+  /** How long a local server must stay up before its earlier crashes stop counting. */
+  stableMs?: number;
   version?: string;
+  /**
+   * How a local server is started, so tests can run a fixture instead of fetching a package.
+   * Returns null when this Mac hasn't got the runtime's launcher.
+   */
+  startWith?: (local: LocalServer) => StdioServerParameters | null;
 }
 
 /** `Notion` → `notion`; tool names become `mcp_notion_search`, within the 64-character limit. */
@@ -64,6 +95,12 @@ function toolSchema(schema: unknown): Record<string, unknown> {
   return JSON.stringify(rest).length > 16_000 ? fallback : rest;
 }
 
+/** What Edi really runs: the runtime's launcher, with the package pinned and hooks refused. */
+function defaultStart(local: LocalServer): StdioServerParameters | null {
+  const command = resolveLauncher(local.runtime);
+  return command ? serverParameters(local, command) : null;
+}
+
 function shown(value: unknown) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return (text ?? '').slice(0, 600);
@@ -79,6 +116,11 @@ export class ConnectorManager {
   private readonly live = new Map<string, Live>();
   private readonly status = new Map<string, { status: ConnectorStatus; error: string }>();
   private readonly signIns = new Map<string, AbortController>();
+  /** Unexpected exits since a local server last stayed up, and the restart waiting to happen. */
+  private readonly crashes = new Map<string, number>();
+  private readonly restarts = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Running servers waiting to be called stable, which forgives what went wrong before. */
+  private readonly settling = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly listeners = new Set<(connectors: Connector[]) => void>();
   private cachedTools: Capability[] = [];
   private readonly now: () => number;
@@ -136,8 +178,9 @@ export class ConnectorManager {
     return this.cachedTools;
   }
 
-  /** Adds an app from the short list or by address, then starts signing in. */
-  add(input: { catalogId?: string; url?: string; name?: string }) {
+  /** Adds an app from the short list, by address, or a package that runs on this Mac. */
+  add(input: { catalogId?: string; url?: string; local?: LocalServer; name?: string }) {
+    if (input.local) return this.addLocal(input.local, input.name);
     const entry = input.catalogId
       ? connectorCatalog.find(item => item.id === input.catalogId)
       : undefined;
@@ -161,6 +204,38 @@ export class ConnectorManager {
       catalogId: entry?.id ?? null,
       provider: isComposio ? 'composio' : 'mcp',
       composioConnectionId: null,
+      local: null,
+      enabled: true,
+      tools: [],
+      addedAt: this.now(),
+    };
+    this.options.repositories.connectors.add(record);
+    void this.connect(record.id, true);
+    return record.id;
+  }
+
+  /**
+   * A server that runs here, pinned to one version. The same package at the same version is
+   * already added, so adding it twice just reconnects the one that exists.
+   */
+  private addLocal(local: LocalServer, name?: string) {
+    const existing = this.options.repositories.connectors
+      .list()
+      .find(
+        record => record.local?.package === local.package && record.local.runtime === local.runtime,
+      );
+    if (existing) {
+      void this.connect(existing.id, true);
+      return existing.id;
+    }
+    const record: ConnectorRecord = {
+      id: randomUUID(),
+      name: (name ?? local.package).slice(0, 60),
+      url: '',
+      catalogId: null,
+      provider: 'local',
+      composioConnectionId: null,
+      local,
       enabled: true,
       tools: [],
       addedAt: this.now(),
@@ -180,7 +255,113 @@ export class ConnectorManager {
     const record = this.options.repositories.connectors.get(id);
     if (!record) throw new Error('That app is no longer connected.');
     if (record.provider === 'composio') return this.connectComposio(record, interactive);
+    if (record.provider === 'local') {
+      // Asking for it by hand clears a crash loop, so "Try Again" always tries again.
+      if (interactive) this.crashes.delete(record.id);
+      return this.connectLocal(record);
+    }
     return this.connectMcp(record, interactive);
+  }
+
+  /**
+   * Starts a server that runs on this Mac and talks over its own input and output. There is no
+   * signing in: the pinned package either starts and lists its tools, or it doesn't.
+   */
+  private async connectLocal(record: ConnectorRecord) {
+    const id = record.id;
+    clearTimeout(this.restarts.get(id));
+    this.restarts.delete(id);
+    await this.close(id);
+    const local = record.local;
+    if (!local) {
+      this.setStatus(id, 'error', `${record.name} has no program to run. Add it again.`);
+      return;
+    }
+    const start = this.options.startWith ?? defaultStart;
+    const parameters = start(local);
+    if (!parameters) {
+      this.setStatus(id, 'error', launcherMissing(local.runtime));
+      return;
+    }
+    this.setStatus(id, 'connecting');
+    // Held here rather than only on the live entry, so a server that dies while starting can
+    // still say why: by then its entry is gone.
+    let said = '';
+    try {
+      const transport = new StdioClientTransport(parameters);
+      const client = new Client({ name: 'Edi', version: this.options.version ?? '0.1.0' });
+      const entry: Live = { client, transport, schemas: new Map(), stderr: '' };
+      this.live.set(id, entry);
+      // Attached before starting, so the first thing a broken server says isn't lost.
+      transport.stderr?.on('data', (chunk: Buffer | string) => {
+        said = `${said}${String(chunk)}`.slice(-MAX_STDERR_CHARS);
+        entry.stderr = said;
+      });
+      await client.connect(transport);
+      await this.refreshToolsMcp(id);
+      // Only a server that actually came up is worth starting again when it stops. Arming this
+      // earlier would treat a package that never runs as a crash, and retry it forever.
+      transport.onclose = () => this.exited(id);
+      // Starting is not the same as working: only once it has stayed up for a while do its
+      // earlier crashes stop counting, so a server that dies right after connecting still
+      // reaches the limit instead of being restarted for ever.
+      this.forget(id);
+      const settle = setTimeout(() => {
+        this.settling.delete(id);
+        this.crashes.delete(id);
+      }, this.options.stableMs ?? STABLE_MS);
+      settle.unref?.();
+      this.settling.set(id, settle);
+      this.setStatus(id, 'connected');
+    } catch {
+      await this.close(id);
+      // The process writes its complaint and exits; that can land just after the connection
+      // fails, so give it a moment before repeating it back.
+      if (!said) await new Promise(resolve => setTimeout(resolve, 50));
+      const line = said.trim().split('\n').filter(Boolean).at(-1);
+      this.setStatus(
+        id,
+        'error',
+        line
+          ? `${record.name} couldn’t start: ${line.slice(0, 200)}`
+          : `Couldn’t start ${describeServer(local)}.`,
+      );
+    }
+  }
+
+  /**
+   * A local server's process ended. One Edi closed on purpose is already out of `live`, so
+   * anything still there stopped on its own: restart it a few times, then leave it alone and
+   * say so rather than spawning forever.
+   */
+  private exited(id: string) {
+    if (!this.live.has(id)) return;
+    this.live.delete(id);
+    // It stopped before it was ever called stable, so this crash still counts.
+    this.forget(id);
+    const record = this.options.repositories.connectors.get(id);
+    if (!record?.enabled || record.provider !== 'local') return;
+    const count = (this.crashes.get(id) ?? 0) + 1;
+    this.crashes.set(id, count);
+    if (count > MAX_RESTARTS) {
+      this.setStatus(
+        id,
+        'error',
+        `${record.name} keeps stopping. Try Again to start it once more.`,
+      );
+      return;
+    }
+    this.setStatus(id, 'connecting', `${record.name} stopped. Starting it again…`);
+    const timer = setTimeout(
+      () => {
+        this.restarts.delete(id);
+        const latest = this.options.repositories.connectors.get(id);
+        if (latest?.enabled) void this.connectLocal(latest);
+      },
+      (this.options.restartMs ?? RESTART_MS) * 2 ** (count - 1),
+    );
+    timer.unref?.();
+    this.restarts.set(id, timer);
   }
 
   private async connectMcp(record: ConnectorRecord, interactive: boolean) {
@@ -217,7 +398,11 @@ export class ConnectorManager {
           abort.signal,
         );
         const pending = this.live.get(id);
-        const transport = pending?.transport ?? this.transportFor(record, provider);
+        // Only an HTTP transport signs in; a local server never reaches this path.
+        const transport =
+          pending?.transport instanceof StreamableHTTPClientTransport
+            ? pending.transport
+            : this.transportFor(record, provider);
         await transport.finishAuth(code);
         await this.close(id);
         provider = auth();
@@ -304,9 +489,15 @@ export class ConnectorManager {
 
   async setEnabled(id: string, enabled: boolean) {
     this.options.repositories.connectors.update(id, { enabled });
-    if (enabled) await this.connect(id, false);
-    else {
+    if (enabled) {
+      // Switching it back on is a fresh start, not a continuation of an old crash loop.
+      this.crashes.delete(id);
+      await this.connect(id, false);
+    } else {
       this.signIns.get(id)?.abort();
+      clearTimeout(this.restarts.get(id));
+      this.restarts.delete(id);
+      this.forget(id);
       await this.close(id);
       this.status.delete(id);
       this.publish();
@@ -342,6 +533,11 @@ export class ConnectorManager {
   async remove(id: string) {
     const record = this.options.repositories.connectors.get(id);
     this.signIns.get(id)?.abort();
+    // Before closing: a restart already waiting would otherwise start a server Edi just removed.
+    clearTimeout(this.restarts.get(id));
+    this.restarts.delete(id);
+    this.crashes.delete(id);
+    this.forget(id);
     await this.close(id);
 
     if (record?.provider === 'composio' && record.composioConnectionId) {
@@ -357,6 +553,10 @@ export class ConnectorManager {
 
   async dispose() {
     for (const abort of this.signIns.values()) abort.abort();
+    for (const timer of this.restarts.values()) clearTimeout(timer);
+    this.restarts.clear();
+    for (const timer of this.settling.values()) clearTimeout(timer);
+    this.settling.clear();
     await Promise.all([...this.live.keys()].map(id => this.close(id)));
   }
 
@@ -373,6 +573,12 @@ export class ConnectorManager {
     this.live.set(record.id, { client, transport, schemas: new Map() });
     await client.connect(transport);
     if (provider.needsSignIn) throw new UnauthorizedError('Sign in again.');
+  }
+
+  /** Drops a server's wait to be called stable, so it can't forgive one that has since stopped. */
+  private forget(id: string) {
+    clearTimeout(this.settling.get(id));
+    this.settling.delete(id);
   }
 
   private async close(id: string) {
@@ -460,7 +666,11 @@ export class ConnectorManager {
     if (!record.enabled) throw new Error(`Switch ${record.name} on first.`);
     if (record.provider === 'composio') return this.connectComposio(record, false);
     const live = this.live.get(id);
-    if (!live) return this.connectMcp(record, false);
+    // A local server has no sign-in to renew: starting it again is the whole check.
+    if (!live)
+      return record.provider === 'local'
+        ? this.connectLocal(record)
+        : this.connectMcp(record, false);
     try {
       await this.refreshToolsMcp(id);
       this.setStatus(id, 'connected');
@@ -496,7 +706,8 @@ export class ConnectorManager {
     const used = new Set<string>();
     for (const record of this.options.repositories.connectors.list()) {
       if (!record.enabled || this.status.get(record.id)?.status !== 'connected') continue;
-      if (record.provider === 'mcp' && !this.live.has(record.id)) continue;
+      // Everything but Composio holds an open connection; without one there is nothing to call.
+      if (record.provider !== 'composio' && !this.live.has(record.id)) continue;
       let app = `mcp_${slug(record.name, 12)}`;
       // Another app with the same short name already has this prefix: this one gets its own.
       if ([...used].some(name => name.startsWith(`${app}.`)))
@@ -557,7 +768,11 @@ export class ConnectorManager {
           execute: async signal => {
             const live = this.live.get(record.id);
             if (!live)
-              throw new Error(`${record.name} isn't connected. Reconnect it in Connectors.`);
+              throw new Error(
+                record.provider === 'local'
+                  ? `${record.name} isn't running. Start it again in Connectors.`
+                  : `${record.name} isn't connected. Reconnect it in Connectors.`,
+              );
             let result;
             try {
               result = await live.client.callTool(

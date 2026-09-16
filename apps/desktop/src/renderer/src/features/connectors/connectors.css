@@ -30,7 +30,6 @@
   border-radius: 4px;
 }
 
-
 .connector-header-text {
   flex: 1;
   min-width: 0;
@@ -56,10 +55,18 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
-.connector-dot-ok { background: #34c759; }
-.connector-dot-busy { background: #ff9f0a; }
-.connector-dot-warn { background: #ff9f0a; }
-.connector-dot-error { background: #ff3b30; }
+.connector-dot-ok {
+  background: #34c759;
+}
+.connector-dot-busy {
+  background: #ff9f0a;
+}
+.connector-dot-warn {
+  background: #ff9f0a;
+}
+.connector-dot-error {
+  background: #ff3b30;
+}
 
 /* ── Expanded panel ── */
 .connector-expanded {
@@ -283,6 +290,53 @@
   font: var(--text-caption);
   color: #ff3b30;
   margin: 0;
+}
+
+/* Where a new server runs: on the web, or here. Two plain choices, not a switch. */
+.connector-where {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.connector-where-choice {
+  flex: 1;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  cursor: pointer;
+}
+.connector-where-choice[aria-pressed='true'] {
+  background: var(--glass-thick-fill);
+  color: var(--label);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+.connector-where-choice:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+}
+
+/* A plain labelled control, for the one field a TextField can't be. */
+.connector-field {
+  display: grid;
+  gap: var(--space-1);
+}
+.connector-field-label {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.connector-select {
+  padding: 6px 8px;
+  border: 0.5px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--fill);
+  font: var(--text-body);
+  color: var(--label);
 }
 
 .connector-form {
