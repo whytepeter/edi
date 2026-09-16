@@ -177,7 +177,7 @@ Use the character bubble for silent, rate-limited task results and reminders wit
 Do not use continuous screenshots. Quiet/Balanced/Expressive settings govern interruption, and voice is reserved for
 important or explicitly spoken alerts.
 
-Add sandboxed MCP Apps or other interactive extensions only after scoped messaging tests. Add curated publishing metadata and verified updates. Consider user-editable memory when repeated context becomes a real need.
+Add sandboxed MCP Apps or other interactive extensions only after scoped messaging tests. Add curated publishing metadata and verified updates. User-editable memory arrived early (2026-09-16): Settings → Memory, written only through a reviewed action.
 
 **Exit:** the flagship demo passes: “find suitable frontend jobs while I work”, the user returns to their editor, and
 a later bubble opens the saved Library report. More generally, the user delegates work, returns to another app, can inspect/cancel it, and later receives one useful,
@@ -226,7 +226,10 @@ a rule every milestone follows rather than a feature with its own gate.
 | Semantic artifact types, with HTML only sandboxed | 2 | Four structured types plus `html`, isolated from Edi (CSP sandbox, private scheme, isolated session) |
 | Diagrams as first-class, updatable artifacts | 2–3 | Done (2026-09-15): `diagram` kind in Mermaid, drawn offline in strict mode, saved as .mmd, updated in place by workspace_update, copied as a mermaid fence, downloaded as SVG |
 | Reports and exports (save ≠ export) | 3 | Done (2026-09-15): Export menu and `workspace.export` write new files to Documents › Edi › Exports |
-| Workspace is not memory | Principle | Held: nothing shown or saved is used as memory |
+| What Edi remembers about you | 7, brought forward | Done (2026-09-16): short lines kept only through a reviewed `edi_remember`, used in every turn, listed in Settings → Memory with Edit, Remove, Forget everything and a switch; secrets refused |
+| Privacy mode: pause looking, pause while sharing, private apps | 4, brought forward | Done (2026-09-16): a screen share is noticed from the window list, Edi stays out of it, and a private app in front means no screenshot |
+| A schedule that runs on its own | 7, brought forward | Done (2026-09-16): its runs add reminders, events and notes without a review, so nobody has to be there; everything else still waits |
+| Workspace is not memory | Principle | Held: nothing shown or saved is used as memory; what Edi remembers is its own reviewed list |
 | Ambient companion, background tasks, task lifecycle, watches | 7 | Planned |
 | Schedule and calendar awareness from real calendar state | 7 (after a calendar connector in 3) | Planned |
 | Bubble as ambient channel, explicit proactivity sources, levels, voice vs silent, companion tone | 7 | Bubble foundation done (voice states, approvals, artifact previews) |
