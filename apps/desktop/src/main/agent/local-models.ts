@@ -13,7 +13,12 @@ import {
  * `vision` and `tools`, LM Studio marks vision models `vlm` and lists `tool_use`. Only
  * loopback addresses are contacted, and nothing about the person is sent.
  */
-export const localRuntimes: Record<LocalRuntime, { base: string; openai: string }> = {
+// The two apps someone may already run. A model Edi downloaded is served by its own runner,
+// on a port chosen when it starts.
+export const localRuntimes: Record<
+  Exclude<LocalRuntime, 'edi'>,
+  { base: string; openai: string }
+> = {
   ollama: { base: 'http://127.0.0.1:11434', openai: 'http://127.0.0.1:11434/v1' },
   lmstudio: { base: 'http://127.0.0.1:1234', openai: 'http://127.0.0.1:1234/v1' },
 };
@@ -161,6 +166,8 @@ export class LocalModels {
         { id: 'lmstudio', running: lmstudio !== null },
       ],
       models: [...(ollama ?? []), ...(lmstudio ?? [])].sort(order).slice(0, 200),
+      // Models Edi downloaded itself are added by main, which owns the packs.
+      packs: [],
     };
     this.cached = { at: Date.now(), state };
     return state;

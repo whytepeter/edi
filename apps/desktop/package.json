@@ -9,7 +9,7 @@
     "dev": "node scripts/prepare-electron.mjs && sh ../../native/screen-capture/build.sh && ELECTRON_EXEC_PATH=\"$PWD/scripts/electron-open.mjs\" electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "natives": "sh ../../native/hotkey/build.sh && sh ../../native/whisper/build.sh && sh ../../native/espeak/build.sh && sh ../../native/screen-capture/build.sh",
+    "natives": "sh ../../native/hotkey/build.sh && sh ../../native/whisper/build.sh && sh ../../native/llama/build.sh && sh ../../native/espeak/build.sh && sh ../../native/screen-capture/build.sh",
     "package": "pnpm run natives && electron-vite build && electron-builder --dir --config.electronDist=node_modules/electron/dist",
     "release": "node scripts/release.mjs --check && pnpm run natives && electron-vite build && node scripts/release.mjs"
   },
@@ -83,6 +83,13 @@
       {
         "from": "voice/silero_vad.onnx",
         "to": "silero_vad.onnx"
+      },
+      {
+        "from": "../../native/llama/build",
+        "to": "llama",
+        "filter": [
+          "llama-server"
+        ]
       },
       {
         "from": "../../native/whisper/build",

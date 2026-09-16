@@ -4,8 +4,9 @@ import {
   type LocalModelOption,
   type LocalModelsState,
   type LocalModelUse,
+  type LocalPackStatus,
 } from '@edi/contracts';
-import { GroupedList, GroupedRow, Switch } from '../../components/ui';
+import { Button, GroupedList, GroupedRow, Switch } from '../../components/ui';
 
 /** What the model can do for Edi, in the words the row shows. */
 function abilities(model: LocalModelOption) {
@@ -16,9 +17,22 @@ function abilities(model: LocalModelOption) {
   return `Limited: ${missing}`;
 }
 
+const size = (bytes: number) => `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+
+/** Where a download has got to, in the words the row shows. */
+function packDetail(pack: LocalPackStatus) {
+  if (pack.state === 'installed') return 'On this Mac';
+  if (pack.state === 'downloading')
+    return `${size(pack.received)} of ${size(pack.bytes)} · Downloading`;
+  if (pack.state === 'paused') return `${size(pack.received)} of ${size(pack.bytes)} · Paused`;
+  if (pack.state === 'failed') return pack.error ?? 'The download stopped.';
+  return `${size(pack.bytes)} to download`;
+}
+
 /**
- * Settings → AI › On this Mac: models Ollama or LM Studio serve locally. One can be the backup
- * when OpenRouter can't answer (offline, out of credits, no key), or answer every question.
+ * Settings → AI › On this Mac. Edi can download a model and run it itself, with nothing else to
+ * install; models Ollama or LM Studio already serve are offered too. The chosen one backs
+ * OpenRouter up when it can't answer, or answers every question.
  */
 export function LocalModelSettings({
   model,
@@ -38,7 +52,7 @@ export function LocalModelSettings({
     try {
       setState(await window.edi.localModels(fresh));
     } catch {
-      setState({ runtimes: [], models: [] });
+      setState({ runtimes: [], models: [], packs: [] });
     } finally {
       setChecking(false);
     }
@@ -49,12 +63,33 @@ export function LocalModelSettings({
     let alive = true;
     window.edi.localModels(false).then(
       next => alive && setState(next),
-      () => alive && setState({ runtimes: [], models: [] }),
+      () => alive && setState({ runtimes: [], models: [], packs: [] }),
     );
     return () => {
       alive = false;
     };
   }, []);
+
+  // While something is downloading, the rows follow it.
+  const downloading = state?.packs.some(pack => pack.state === 'downloading') ?? false;
+  useEffect(() => {
+    if (!downloading || !window.edi) return;
+    let alive = true;
+    const timer = setInterval(() => {
+      void window.edi?.localModels().then(next => alive && setState(next));
+    }, 1000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [downloading]);
+
+  const send = (action: 'download' | 'pause' | 'remove', id: LocalPackStatus['id']) => {
+    void window.edi?.command({ type: 'local-pack', action, id }).then(
+      () => void look(false),
+      () => {},
+    );
+  };
 
   const running = (state?.runtimes ?? [])
     .filter(runtime => runtime.running)
@@ -68,19 +103,7 @@ export function LocalModelSettings({
         footer="Free, and works offline. Edi needs a model that sees images and uses tools; a limited one answers in words only."
       >
         {state === null ? (
-          <GroupedRow title="Looking for Ollama and LM Studio…" />
-        ) : state.models.length === 0 ? (
-          <GroupedRow
-            icon="info"
-            title={
-              running.length ? `${running.join(' and ')} has no models yet` : 'No models found'
-            }
-            detail={
-              running.length
-                ? 'Download a model that sees images and uses tools, such as qwen2.5vl in Ollama.'
-                : 'Install Ollama or LM Studio and download a model, then check again.'
-            }
-          />
+          <GroupedRow title="Looking for models on this Mac…" />
         ) : (
           state.models.map(option => (
             <GroupedRow
@@ -92,15 +115,56 @@ export function LocalModelSettings({
             />
           ))
         )}
+        {state !== null && state.models.length === 0 && (
+          <GroupedRow
+            icon="info"
+            title="No model on this Mac yet"
+            detail={
+              running.length
+                ? `Download one below, or add a model in ${running.join(' or ')}.`
+                : 'Download one below.'
+            }
+          />
+        )}
         {chosenMissing && (
           <GroupedRow
             icon="info"
             title="Your chosen model isn’t available right now"
-            detail="Open Ollama or LM Studio, or choose another model."
+            detail="Download it again, or choose another."
           />
         )}
         <GroupedRow title={checking ? 'Checking…' : 'Check again'} onOpen={() => void look(true)} />
       </GroupedList>
+
+      {state !== null && state.packs.length > 0 && (
+        <GroupedList
+          title="Download a model"
+          footer="Edi runs these itself, with nothing else to install. They stay on this Mac, and nothing you ask them goes online."
+        >
+          {state.packs.map(pack => (
+            <GroupedRow
+              key={pack.id}
+              title={pack.name}
+              detail={packDetail(pack)}
+              control={
+                pack.state === 'downloading' ? (
+                  <Button size="small" onClick={() => send('pause', pack.id)}>
+                    Pause
+                  </Button>
+                ) : pack.state === 'installed' ? (
+                  <Button size="small" onClick={() => send('remove', pack.id)}>
+                    Remove
+                  </Button>
+                ) : (
+                  <Button size="small" onClick={() => send('download', pack.id)}>
+                    {pack.state === 'paused' ? 'Resume' : 'Download'}
+                  </Button>
+                )
+              }
+            />
+          ))}
+        </GroupedList>
+      )}
 
       {model && (
         <GroupedList

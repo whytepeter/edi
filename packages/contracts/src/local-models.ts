@@ -12,10 +12,12 @@ const modelIdSchema = z
  * Models served on this Mac by Ollama or LM Studio. Their ids are `local/<runtime>/<name>`, so
  * they never collide with OpenRouter's `<vendor>/<model>` ids and main knows where to send them.
  */
-export const localRuntimeSchema = z.enum(['ollama', 'lmstudio']);
+/** `edi`: a model Edi downloaded and runs itself; the others are apps already on the Mac. */
+export const localRuntimeSchema = z.enum(['edi', 'ollama', 'lmstudio']);
 export type LocalRuntime = z.infer<typeof localRuntimeSchema>;
 
 export const localRuntimeNames: Record<LocalRuntime, string> = {
+  edi: 'Edi',
   ollama: 'Ollama',
   lmstudio: 'LM Studio',
 };
@@ -53,11 +55,35 @@ export const localModelOptionSchema = z
   .strict();
 export type LocalModelOption = z.infer<typeof localModelOptionSchema>;
 
+/**
+ * A model Edi can download and run itself, with no other app installed: the pack ids Settings
+ * offers, and how far each has got. The runner ships with Edi; the model files do not.
+ */
+export const localPackIdSchema = z.enum(['language-small', 'language-standard']);
+export type LocalPackId = z.infer<typeof localPackIdSchema>;
+
+export const localPackStatusSchema = z
+  .object({
+    id: localPackIdSchema,
+    name: z.string().max(60),
+    /** What the model can do once it is installed, so Settings can say before downloading. */
+    vision: z.boolean(),
+    tools: z.boolean(),
+    bytes: z.number().int().nonnegative(),
+    received: z.number().int().nonnegative(),
+    state: z.enum(['missing', 'downloading', 'paused', 'installed', 'failed', 'development']),
+    error: z.string().max(200).optional(),
+  })
+  .strict();
+export type LocalPackStatus = z.infer<typeof localPackStatusSchema>;
+
 export const localModelsStateSchema = z
   .object({
     /** Which runtimes answered on this Mac just now. */
-    runtimes: z.array(z.object({ id: localRuntimeSchema, running: z.boolean() }).strict()).max(2),
+    runtimes: z.array(z.object({ id: localRuntimeSchema, running: z.boolean() }).strict()).max(3),
     models: z.array(localModelOptionSchema).max(200),
+    /** Models Edi can download and run itself. */
+    packs: z.array(localPackStatusSchema).max(4),
   })
   .strict();
 export type LocalModelsState = z.infer<typeof localModelsStateSchema>;

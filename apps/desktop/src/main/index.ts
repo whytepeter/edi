@@ -136,6 +136,8 @@ import {
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { LocalModels, localRuntimes } from './agent/local-models';
+import { LocalRunner, resolveLlamaServer } from './agent/local-runner';
+import { ModelPacks, packModelId } from './agent/model-packs';
 import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
 import { Scheduler } from './agent/scheduler';
@@ -650,6 +652,12 @@ async function start() {
       : new ModelCatalog();
   // Models Ollama and LM Studio serve on this Mac, for offline and free turns.
   const localModels = new LocalModels();
+  // Models Edi downloads and runs itself, so nothing else has to be installed first.
+  const modelPacks = new ModelPacks({ dir: voicePaths.modelsDir });
+  const localRunner = new LocalRunner({
+    server: resolveLlamaServer(voicePaths),
+    packs: modelPacks,
+  });
   // Web pages are read by the newest Gemini Flash Lite in OpenRouter's catalog (cached an hour).
   let readerModel: string | null = null;
   const refreshReaderModel = () =>
@@ -1073,6 +1081,14 @@ async function start() {
         : null,
     localModel: async id => {
       const where = parseLocalModelId(id);
+      // A model Edi downloaded: its own runner loads it and serves it on a loopback port.
+      if (where?.runtime === 'edi') {
+        const pack = modelPacks.installedPacks().find(entry => entry.id === where.name);
+        const base = pack ? await localRunner.serve(pack.id) : null;
+        return base && pack
+          ? { baseURL: `${base}/v1`, name: pack.id, vision: true, tools: true, runtime: 'Edi' }
+          : null;
+      }
       const found = where ? await localModels.find(id) : undefined;
       if (!where || !found) return null;
       return {
@@ -1907,6 +1923,13 @@ async function start() {
       previewVoice,
       removePersonalVoice: id => personalVoices.remove(id),
       // A download runs in the background; Settings follows it through `system()`.
+      // Settings → AI: download, pause or remove a model Edi runs itself.
+      localPack: (action, id) =>
+        action === 'download'
+          ? void modelPacks.download(id)
+          : action === 'pause'
+            ? modelPacks.pause(id)
+            : modelPacks.remove(id),
       voicePack: (action, id) =>
         action === 'download'
           ? void voicePacks.download(id)
@@ -2009,7 +2032,19 @@ async function start() {
       };
     },
     models: () => modelCatalog.list(),
-    localModels: fresh => localModels.list(fresh),
+    localModels: async fresh => {
+      const state = await localModels.list(fresh);
+      // A downloaded model is chosen the same way as one from another app.
+      const downloaded = modelPacks.installedPacks().map(pack => ({
+        id: packModelId(pack),
+        runtime: 'edi' as const,
+        name: pack.name,
+        contextLength: pack.contextLength,
+        vision: true,
+        tools: true,
+      }));
+      return { ...state, models: [...downloaded, ...state.models], packs: modelPacks.status() };
+    },
     conversations: query => agent.conversations(query),
     tasks: () => tasks.list(),
     schedules: () => scheduler.list(),
@@ -2126,6 +2161,7 @@ async function start() {
     kokoroMlx?.dispose();
     void kokoroEngine?.engine.dispose();
     whisper?.server.dispose();
+    localRunner.stop();
     database.close();
   });
 }

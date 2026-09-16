@@ -49,7 +49,12 @@ import { defaultTaskBudgetUsd, taskBudgetSchema, type Task } from './tasks';
 import { scheduleNotifySchema, scheduleWhenSchema, type Schedule } from './schedules';
 import { connectorUrlSchema, type Connector } from './connectors';
 import { skillNameSchema, type SkillsState } from './skills';
-import { localModelIdSchema, localModelUseSchema, type LocalModelsState } from './local-models';
+import {
+  localModelIdSchema,
+  localModelUseSchema,
+  localPackIdSchema,
+  type LocalModelsState,
+} from './local-models';
 import {
   artifactKindSchema,
   artifactRefSchema,
@@ -460,6 +465,14 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('disconnect-agent') }).strict(),
+  /** Download (or resume), pause, or remove a model Edi runs itself. */
+  z
+    .object({
+      type: z.literal('local-pack'),
+      action: z.enum(['download', 'pause', 'remove']),
+      id: localPackIdSchema,
+    })
+    .strict(),
   /** Choose a model on this Mac (null for none) and whether it answers every turn. */
   z
     .object({
