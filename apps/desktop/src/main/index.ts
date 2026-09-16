@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  net,
   app,
   BrowserWindow,
   clipboard,
@@ -96,6 +97,8 @@ import {
   type SystemInfo,
   type WorkspaceView,
   type SkillsState,
+  localRuntimeNames,
+  parseLocalModelId,
 } from '@edi/contracts';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
@@ -132,6 +135,7 @@ import {
 } from './voice/voice-controller';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
+import { LocalModels, localRuntimes } from './agent/local-models';
 import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
 import { Scheduler } from './agent/scheduler';
@@ -591,7 +595,13 @@ async function start() {
         taskBudgetUsd: settings.current.taskBudgetUsd,
         voiceInput: settings.current.voiceInput,
         voiceWords: settings.current.voiceWords,
-        ai: { connected: agent?.state.configured ?? false, model: agent?.state.model || null },
+        ai: {
+          connected: agent?.state.configured ?? false,
+          model: agent?.state.model || null,
+          // A model on this Mac (Ollama or LM Studio): the backup, or answering every turn.
+          localModel: settings.current.localModel,
+          localModelUse: settings.current.localModel ? settings.current.localModelUse : null,
+        },
         privacy: {
           lookingAtScreen: !privacy.state.paused,
           reason: privacyReason(privacy.state),
@@ -638,6 +648,8 @@ async function start() {
           quickEffort: () => undefined,
         }
       : new ModelCatalog();
+  // Models Ollama and LM Studio serve on this Mac, for offline and free turns.
+  const localModels = new LocalModels();
   // Web pages are read by the newest Gemini Flash Lite in OpenRouter's catalog (cached an hour).
   let readerModel: string | null = null;
   const refreshReaderModel = () =>
@@ -1054,6 +1066,24 @@ async function start() {
       return readerModel;
     },
     spokenEffort: model => modelCatalog.quickEffort(model),
+    // A model on this Mac, when the person chose one in Settings → AI.
+    localChoice: () =>
+      settings.current.localModel
+        ? { id: settings.current.localModel, use: settings.current.localModelUse }
+        : null,
+    localModel: async id => {
+      const where = parseLocalModelId(id);
+      const found = where ? await localModels.find(id) : undefined;
+      if (!where || !found) return null;
+      return {
+        baseURL: localRuntimes[where.runtime].openai,
+        name: where.name,
+        vision: found.vision,
+        tools: found.tools,
+        runtime: localRuntimeNames[where.runtime],
+      };
+    },
+    online: () => net.isOnline(),
     desktopContext: () => lookInFront(),
     credentials: openRouter,
     repositories,
@@ -1979,6 +2009,7 @@ async function start() {
       };
     },
     models: () => modelCatalog.list(),
+    localModels: fresh => localModels.list(fresh),
     conversations: query => agent.conversations(query),
     tasks: () => tasks.list(),
     schedules: () => scheduler.list(),

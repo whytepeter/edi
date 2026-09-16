@@ -35,6 +35,12 @@ function launch(mode, tools = [], context = {}) {
       usage: { prompt_tokens: 1200, completion_tokens: 30, total_tokens: 1230, cost: 0.0042,
         prompt_tokens_details: { cached_tokens: 1000 } } });
     global.fetch = async (url, options) => {
+      // A model on this Mac: its runtime's OpenAI-style server on a loopback address.
+      if (testMode === 'local') {
+        if (!String(url).startsWith('http://127.0.0.1:11434/v1/')) throw Error('Unexpected endpoint');
+        parentPort.postMessage({ type: 'debug-request', body: { ...JSON.parse(options.body), url: String(url) } });
+        return sse([chunk({ content: 'Offline hello.' }), end('stop')]);
+      }
       if (!String(url).startsWith('https://openrouter.ai/api/')) throw Error('Unexpected endpoint');
       const body = JSON.parse(options.body);
       // The page reader: one non-streaming request to the reader model, without tools.
@@ -121,6 +127,7 @@ function launch(mode, tools = [], context = {}) {
         spoken: context.spoken ?? false,
         ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),
         ...(context.selfContext ? { selfContext: context.selfContext } : {}),
+        ...(context.local ? { local: context.local, model: context.localModel } : {}),
         tools,
         mode,
       },
@@ -196,19 +203,59 @@ test('real SDK worker streams mocked OpenRouter text', async () => {
 test('what changes each turn goes last, so the system prompt stays the same for the cache', async () => {
   const typed = await collect(launch('success', [], { selfContext: '{"location":"card"}' }));
   const spoken = await collect(
-    launch('success', [], { spoken: true, reasoningEffort: 'low', selfContext: '{"location":"pet"}' }),
+    launch('success', [], {
+      spoken: true,
+      reasoningEffort: 'low',
+      selfContext: '{"location":"pet"}',
+    }),
   );
   const system = run => JSON.stringify(run.requests[0].messages[0]);
   // Spoken or typed, whatever the setup and the time: one system prompt.
   assert.equal(system(spoken), system(typed));
   assert.doesNotMatch(system(typed), /It is now|"location"|spoken aloud/);
   const note = run => run.requests[0].messages.at(-1).content.at(-1).text;
-  assert.match(note(typed), /^<turn>\nIt is now .+\nCurrent Edi setup \(trusted runtime data\): \{"location":"card"\}\n<\/turn>$/);
+  assert.match(
+    note(typed),
+    /^<turn>\nIt is now .+\nCurrent Edi setup \(trusted runtime data\): \{"location":"card"\}\n<\/turn>$/,
+  );
   assert.doesNotMatch(note(typed), /spoken aloud/);
   assert.match(note(spoken), /This question was spoken aloud/);
   // Only a spoken turn lowers reasoning, to the level main chose.
   assert.deepEqual(spoken.requests[0].reasoning, { effort: 'low' });
   assert.equal(typed.requests[0].reasoning, undefined);
+});
+
+test('a model on this Mac answers without web search, and without tools it can’t call', async () => {
+  const local = {
+    baseURL: 'http://127.0.0.1:11434/v1',
+    name: 'test-vl',
+    vision: true,
+    tools: false,
+  };
+  const tools = [
+    {
+      name: 'notes_save',
+      description: 'Save a note.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+  ];
+  const { messages, requests } = await collect(
+    launch('local', tools, { local, localModel: 'local/ollama/test-vl' }),
+  );
+  assert.equal(text(messages), 'Offline hello.');
+  assert.equal(requests[0].url, 'http://127.0.0.1:11434/v1/chat/completions');
+  assert.equal(requests[0].model, 'test-vl');
+  // No tools at all (not even OpenRouter's search), and none of OpenRouter's request extras.
+  assert.equal(requests[0].tools, undefined);
+  assert.equal(requests[0].usage, undefined);
+  assert.equal(requests[0].reasoning, undefined);
+  // Tokens are recorded as local, never with a cost.
+  assert.deepEqual(
+    messages
+      .filter(m => m.type === 'usage')
+      .map(m => [m.entry.provider, m.entry.model, m.entry.costUsd]),
+    [['local', 'local/ollama/test-vl', null]],
+  );
 });
 
 test('provider errors do not expose request metadata', async () => {
@@ -486,7 +533,9 @@ test('many connected-app tools are found by search, then used; skills reach the 
     appTool('mcp_gmail_gmail_fetch_emails', 'Fetch emails.'),
     { ...appTool('mcp_linear_list_issues', 'List issues.'), app: 'Linear' },
   ];
-  const skills = [{ name: 'daily-brief', description: 'Plans the day. Use when asked about today.' }];
+  const skills = [
+    { name: 'daily-brief', description: 'Plans the day. Use when asked about today.' },
+  ];
   const { messages, requests } = await collect(launch('find', tools, { skills }), call => {
     assert.equal(call.name, 'mcp_gmail_gmail_send_email');
     return { status: 'succeeded', summary: 'Sent.' };

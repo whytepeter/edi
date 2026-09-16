@@ -1205,7 +1205,7 @@ export class UsageRepository {
     const voice = new Map<'cartesia' | 'elevenlabs', { replies: number; characters: number }>();
     for (const row of rows) {
       if (row.kind === 'voice') {
-        if (row.provider === 'openrouter') continue;
+        if (row.provider !== 'cartesia' && row.provider !== 'elevenlabs') continue;
         const entry = voice.get(row.provider) ?? { replies: 0, characters: 0 };
         entry.replies += 1;
         entry.characters += row.characters;

@@ -35,7 +35,13 @@ export interface EdiSetupSnapshot {
     taskBudgetUsd: number;
     voiceInput: string;
     voiceWords: string[];
-    ai: { connected: boolean; model: string | null };
+    ai: {
+      connected: boolean;
+      model: string | null;
+      /** A model on this Mac, and whether it answers every turn or only backs OpenRouter up. */
+      localModel: string | null;
+      localModelUse: 'backup' | 'main' | null;
+    };
     /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
     privacy: { lookingAtScreen: boolean; reason: string | null };
     pushToTalk: { status: string; shortcut: string };

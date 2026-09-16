@@ -249,6 +249,14 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ shareDesktopContext: enabled }),
     },
+    'set-local-model': {
+      from: fromWorkspace,
+      // Home and the conversation card follow at once: a model on this Mac can answer.
+      handle: async ({ model, use }) => {
+        await settings.update({ localModel: model, localModelUse: use });
+        agent.localModelChanged();
+      },
+    },
     'set-privacy': {
       from: fromWorkspace,
       handle: ({ paused, pauseWhenSharing }) =>

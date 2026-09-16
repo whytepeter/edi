@@ -25,6 +25,7 @@ import {
   type AgentState,
   type Command,
   type LibraryItem,
+  type LocalModelsState,
   type ModelOption,
   type Settings,
   type SystemInfo,
@@ -38,14 +39,7 @@ import {
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
-export type Caller =
-  | 'workspace'
-  | 'pet'
-  | 'menu'
-  | 'bubble'
-  | 'artifact'
-  | 'export'
-  | 'annotate';
+export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact' | 'export' | 'annotate';
 
 type CommandOf<T extends Command['type']> = Extract<Command, { type: T }>;
 interface Route<T extends Command['type']> {
@@ -64,6 +58,7 @@ interface IpcDependencies {
   library(): LibraryItem[];
   system(): SystemInfo;
   models(): Promise<ModelOption[]>;
+  localModels(fresh: boolean): Promise<LocalModelsState>;
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   usage(days: UsagePeriod): Promise<UsageSummary>;
   conversations(query: string): ConversationSummary[];
@@ -98,6 +93,7 @@ export function registerIpc({
   library,
   system,
   models,
+  localModels,
   cloudVoices,
   usage,
   conversations,
@@ -166,6 +162,10 @@ export function registerIpc({
   ipcMain.handle('edi:models:get', event => {
     authorize(callerOf(event), ['workspace']);
     return models();
+  });
+  ipcMain.handle('edi:local-models:get', (event, fresh: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return localModels(fresh === true);
   });
   ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
     authorize(callerOf(event), ['workspace']);

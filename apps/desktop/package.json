@@ -14,6 +14,7 @@
     "release": "node scripts/release.mjs --check && pnpm run natives && electron-vite build && node scripts/release.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.47",
     "@edi/capabilities": "workspace:*",
     "@edi/characters": "workspace:*",
     "@edi/contracts": "workspace:*",

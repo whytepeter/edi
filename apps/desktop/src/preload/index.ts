@@ -13,6 +13,7 @@ import {
   characterMoodSchema,
   commandSchema,
   librarySchema,
+  localModelsStateSchema,
   modelCatalogSchema,
   settingsSchema,
   systemInfoSchema,
@@ -144,6 +145,9 @@ const bridge: DesktopBridge = {
   library: async () => librarySchema.parse(await ipcRenderer.invoke('edi:library:get')),
   system: async () => systemInfoSchema.parse(await ipcRenderer.invoke('edi:system:get')),
   models: async () => modelCatalogSchema.parse(await ipcRenderer.invoke('edi:models:get')),
+  /** Models Ollama and LM Studio serve on this Mac; `fresh` asks the runtimes again. */
+  localModels: async (fresh = false) =>
+    localModelsStateSchema.parse(await ipcRenderer.invoke('edi:local-models:get', fresh === true)),
   cloudVoices: async provider =>
     cloudVoiceListSchema.parse(
       await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),

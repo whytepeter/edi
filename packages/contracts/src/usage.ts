@@ -7,7 +7,8 @@ import { z } from 'zod';
  */
 export const usageKindSchema = z.enum(['answer', 'page-reader', 'voice']);
 export type UsageKind = z.infer<typeof usageKindSchema>;
-export const usageProviderSchema = z.enum(['openrouter', 'cartesia', 'elevenlabs']);
+/** `local`: a model on this Mac (Ollama or LM Studio); tokens only, never a cost. */
+export const usageProviderSchema = z.enum(['openrouter', 'local', 'cartesia', 'elevenlabs']);
 export type UsageProvider = z.infer<typeof usageProviderSchema>;
 
 const count = z.number().int().nonnegative().max(1_000_000_000);
