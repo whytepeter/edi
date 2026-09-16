@@ -61,7 +61,8 @@ export interface EventStore {
     location: string;
     notes: string;
     calendar?: string;
-  }): Promise<{ calendar: string }>;
+    /** The event's own id, so Edi can undo adding it. */
+  }): Promise<{ calendar: string; eventId?: string }>;
   updateEvent(event: {
     eventId: string;
     title?: string;
@@ -497,7 +498,11 @@ export function macCapabilities(deps: MacDependencies) {
         },
         async execute() {
           const saved = await (await store('events')).createEvent(event);
-          return { summary: `Added “${input.title}” to ${saved.calendar}.` };
+          return {
+            summary: `Added “${input.title}” to ${saved.calendar}.`,
+            // The id lets edi_undo remove it again.
+            ...(saved.eventId ? { output: { eventId: saved.eventId } } : {}),
+          };
         },
       };
     },

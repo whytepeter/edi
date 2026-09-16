@@ -73,7 +73,7 @@ export function createEventStore(): EventStore | undefined {
     listEvents: async options =>
       (await kit.run({ op: 'events.list', ...options })) as CalendarEvent[],
     createEvent: async event =>
-      (await kit.run({ op: 'events.create', ...event })) as { calendar: string },
+      (await kit.run({ op: 'events.create', ...event })) as { calendar: string; eventId?: string },
     updateEvent: async event =>
       (await kit.run({ op: 'events.update', ...event })) as { calendar: string },
     deleteEvent: async eventId =>

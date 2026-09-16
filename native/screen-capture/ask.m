@@ -451,7 +451,11 @@ static id edi_eventkit_do(NSDictionary *request) {
     NSError *error = nil;
     if (!event.calendar || ![store saveEvent:event span:EKSpanThisEvent commit:YES error:&error])
       return @{@"error" : error.localizedDescription ?: @"Could not save the event."};
-    return @{@"calendar" : edi_string(event.calendar.title, 200)};
+    // The identifier comes back so Edi can undo an event it added.
+    return @{
+      @"calendar" : edi_string(event.calendar.title, 200),
+      @"eventId" : edi_string(event.eventIdentifier, 200)
+    };
   }
 
   if ([op isEqualToString:@"events.update"]) {

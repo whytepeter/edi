@@ -55,6 +55,15 @@ const statusLabel: Record<PermissionStatus, string> = {
   unknown: 'Checking…',
 };
 
+/** “Desktop, Documents and Downloads”. */
+const folderNames = (folders: readonly { name: string }[]) =>
+  folders.length <= 1
+    ? (folders[0]?.name ?? '')
+    : `${folders
+        .slice(0, -1)
+        .map(folder => folder.name)
+        .join(', ')} and ${folders.at(-1)!.name}`;
+
 const folderStatus: Record<FolderAccessStatus, string> = {
   allowed: 'Allowed',
   off: 'Off',
@@ -152,6 +161,17 @@ export function PrivacySettings({
       setError('Couldn’t reach System Settings. Try again.');
     }
   }
+
+  // The folders Edi ships with need no button: macOS asks the first time Edi reads one. Only a
+  // folder macOS has blocked, and folders the person added themselves, have anything to do.
+  const folders = files?.folders ?? [];
+  const standardFolders = folders.filter(
+    folder => folder.kind !== 'added' && folder.status !== 'off' && folder.status !== 'missing',
+  );
+  const blockedFolders = folders.filter(
+    folder => folder.kind !== 'added' && (folder.status === 'off' || folder.status === 'missing'),
+  );
+  const addedFolders = folders.filter(folder => folder.kind === 'added');
 
   return (
     <div className="settings-page">
@@ -267,42 +287,50 @@ export function PrivacySettings({
       {files && (
         <GroupedList
           title="Files & Folders"
-          footer="Edi searches and reads files only in these folders. Renaming, moving, new folders and moving to the Trash always ask first. Full Disk Access lets Edi use everything in your home folder."
+          footer="Edi reads files only in these folders, and never opens one without being asked to. Renaming, moving, new folders and moving to the Trash always ask you first."
         >
-          {files.folders.map(folder => (
+          {/* The folders Edi comes with are one line: macOS asks the first time Edi reads one. */}
+          {standardFolders.length > 0 && (
+            <GroupedRow
+              icon="folder"
+              title={folderNames(standardFolders)}
+              detail="macOS asks the first time Edi reads one"
+              value={standardFolders.some(folder => folder.status === 'allowed') ? 'Ready' : undefined}
+            />
+          )}
+          {blockedFolders.map(folder => (
             <GroupedRow
               key={folder.id}
               icon="folder"
               title={folder.name}
-              detail={folder.path}
-              value={
-                folder.status === 'allowed' || folder.status === 'missing'
-                  ? folderStatus[folder.status]
-                  : undefined
-              }
+              detail={folder.status === 'off' ? 'Turned off for Edi in System Settings' : 'Not found'}
+              value={folder.status === 'missing' ? folderStatus.missing : undefined}
               control={
-                folder.kind === 'added' ? (
-                  <Button
-                    size="small"
-                    onClick={() => void fileAction({ type: 'remove', id: folder.id })}
-                  >
-                    Remove
-                  </Button>
-                ) : folder.status === 'not-checked' ? (
-                  <Button
-                    size="small"
-                    onClick={() => void fileAction({ type: 'check', id: folder.id })}
-                  >
-                    Allow
-                  </Button>
-                ) : folder.status === 'off' ? (
+                folder.status === 'off' && (
                   <Button
                     size="small"
                     onClick={() => void fileAction({ type: 'open-settings', pane: 'files' })}
                   >
                     Open Settings
                   </Button>
-                ) : undefined
+                )
+              }
+            />
+          ))}
+          {addedFolders.map(folder => (
+            <GroupedRow
+              key={folder.id}
+              icon="folder"
+              title={folder.name}
+              detail={folder.path}
+              value={folder.status === 'off' ? folderStatus.off : undefined}
+              control={
+                <Button
+                  size="small"
+                  onClick={() => void fileAction({ type: 'remove', id: folder.id })}
+                >
+                  Remove
+                </Button>
               }
             />
           ))}
@@ -310,17 +338,8 @@ export function PrivacySettings({
             icon="shield"
             title="Full Disk Access"
             detail="Everything in your home folder, including other apps’ files"
-            value={files.fullDiskAccess ? 'On' : undefined}
-            control={
-              !files.fullDiskAccess && (
-                <Button
-                  size="small"
-                  onClick={() => void fileAction({ type: 'open-settings', pane: 'full-disk' })}
-                >
-                  Open Settings
-                </Button>
-              )
-            }
+            value={files.fullDiskAccess ? 'On' : 'Off'}
+            onOpen={() => void fileAction({ type: 'open-settings', pane: 'full-disk' })}
           />
           <GroupedRow
             icon="folder"

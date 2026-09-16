@@ -654,6 +654,8 @@ export function fileCapabilities(deps: FileDependencies) {
             : {}),
         },
         async execute() {
+          /** Where each item really was and went, so an undo puts it back under its own name. */
+          const moves: { from: string; to: string }[] = [];
           const { done, failed } = await each(
             planned,
             async ({ source, destination }) => {
@@ -676,13 +678,14 @@ export function fileCapabilities(deps: FileDependencies) {
                   });
                 throw error;
               }
+              moves.push({ from: home(source.path), to: home(destination.path) });
               return home(destination.path);
             },
             ({ source }) => basename(source.path),
           );
           return {
             summary: outcome(renaming ? 'Renamed' : 'Moved', done, failed),
-            output: { moved: done, ...(failed.length ? { failed } : {}) },
+            output: { moved: done, moves, ...(failed.length ? { failed } : {}) },
           };
         },
       };

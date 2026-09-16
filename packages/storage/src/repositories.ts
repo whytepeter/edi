@@ -633,6 +633,19 @@ export class ScheduleRepository {
   }
 }
 
+const recordedRow = z.object({
+  id: z.string(),
+  runId: z.string(),
+  capability: z.string(),
+  title: z.string(),
+  effect: z.string(),
+  status: z.string(),
+  summary: z.string().nullable(),
+  input: z.string().nullable(),
+  output: z.string().nullable(),
+  createdAt: z.number(),
+});
+
 const trailRow = z.object({
   id: z.string(),
   runId: z.string(),
@@ -722,6 +735,24 @@ export class ToolCallRepository {
       byRun.set(row.runId, steps);
     }
     return byRun;
+  }
+
+  /** Recent calls, newest first, with what was asked and what came back (activity and undo). */
+  recent(limit: number) {
+    return this.db
+      .prepare(
+        `SELECT id, run_id AS runId, capability, title, effect, status, summary,
+                input_json AS input, output_json AS output, created_at AS createdAt
+         FROM tool_calls ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(500, limit)))
+      .map(row => recordedRow.parse(row))
+      .map(row => ({
+        ...row,
+        summary: row.summary ?? '',
+        input: parseJson(row.input),
+        output: parseJson(row.output),
+      }));
   }
 
   create(call: {

@@ -37,6 +37,7 @@ import {
   defineCapability,
   deleteWorkspaceItem,
   renameWorkspaceItem,
+  activityCapabilities,
   ediSetupCapabilities,
   fileCapabilities,
   macCapabilities,
@@ -545,6 +546,10 @@ async function start() {
           asksFirst: false,
         },
         { name: 'Switch the AI model it answers with', asksFirst: true },
+        {
+          name: 'Tell you what it did, and undo its own moves, renames, new folders and added events',
+          asksFirst: true,
+        },
         { name: 'Close its card or go to sleep', asksFirst: false },
         {
           name: 'Run longer work as background tasks with a spending cap, and report how they are going',
@@ -688,6 +693,12 @@ async function start() {
       window: action => windowAction(action),
       models: () => modelCatalog.list(),
       chooseModel: id => agent.chooseModel(id),
+    }),
+    // What Edi did, and undoing its own reversible actions through the same reviewed tools.
+    ...activityCapabilities({
+      recent: limit => repositories.toolCalls.recent(limit),
+      tool: id => toolCapabilities.find(capability => capability.id === id),
+      home: app.getPath('home'),
     }),
   ];
   const taskTools = [

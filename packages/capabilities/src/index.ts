@@ -56,6 +56,12 @@ export {
   type FileRoot,
 } from './builtins/files';
 export {
+  activityCapabilities,
+  reversal,
+  type RecordedAction,
+  type Reversal,
+} from './builtins/undo';
+export {
   macCapabilities,
   parseLocalTime,
   type CalendarEvent,
