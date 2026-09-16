@@ -230,6 +230,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | What Edi remembers about you | 7, brought forward | Done (2026-09-16): short lines kept only through a reviewed `edi_remember`, used in every turn, listed in Settings → Memory with Edit, Remove, Forget everything and a switch; secrets refused |
 | Privacy mode: pause looking, pause while sharing, private apps | 4, brought forward | Done (2026-09-16): a screen share is noticed from the window list, Edi stays out of it, and a private app in front means no screenshot |
 | A schedule that runs on its own | 7, brought forward | Done (2026-09-16): its runs add reminders, events and notes without a review, so nobody has to be there; everything else still waits |
+| Work that was cut off when Edi closed | 4 | Done (2026-09-16): a quit or a crash repeats nothing — the question is marked interrupted, a review nobody answered is cancelled, and an action caught mid-step says its effect may exist and is worth checking first; Home names what stopped and clears once you ask again, and Tasks offers Ask again, which starts the request afresh |
 | Workspace is not memory | Principle | Held: nothing shown or saved is used as memory; what Edi remembers is its own reviewed list |
 | Ambient companion, background tasks, task lifecycle, watches | 7 | Planned |
 | Schedule and calendar awareness from real calendar state | 7 (after a calendar connector in 3) | Planned |
