@@ -38,9 +38,6 @@ export interface EdiSetupSnapshot {
     ai: {
       connected: boolean;
       model: string | null;
-      /** A model on this Mac, and whether it answers every turn or only backs OpenRouter up. */
-      localModel: string | null;
-      localModelUse: 'backup' | 'main' | null;
     };
     /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
     privacy: { lookingAtScreen: boolean; reason: string | null };
@@ -372,7 +369,9 @@ export function ediSetupCapabilities(deps: {
     async prepare({ model }) {
       const chosen = pickModel(await deps.models(), model);
       const price =
-        chosen.inputPrice === null ? null : `$${chosen.inputPrice.toFixed(2)} per million tokens in`;
+        chosen.inputPrice === null
+          ? null
+          : `$${chosen.inputPrice.toFixed(2)} per million tokens in`;
       return {
         preview: {
           title: 'Switch the AI model',

@@ -28,23 +28,9 @@ const toolManifestEntrySchema = z
 /** Passed once at startup. The worker never receives OS handles or other secrets. */
 export const workerInputSchema = z
   .object({
-    /** The OpenRouter key; empty when a model on this Mac answers without one. */
+    /** The OpenRouter key. */
     apiKey: z.string().max(4_096),
     model: modelIdSchema,
-    /**
-     * Set when the model runs on this Mac (Ollama or LM Studio): where its OpenAI-style server
-     * listens (loopback only), the name it knows the model by, and what the runtime said the
-     * model can do. Main leaves out screens and tools the model can't take.
-     */
-    local: z
-      .object({
-        baseURL: z.string().regex(/^http:\/\/127\.0\.0\.1:\d{2,5}\/v1$/),
-        name: z.string().min(1).max(160),
-        vision: z.boolean(),
-        tools: z.boolean(),
-      })
-      .strict()
-      .optional(),
     /** What the person calls their companion. */
     name: assistantNameSchema.default('Edi'),
     /** A fast model that reads fetched pages and answers Edi's question; defaults to `model`. */

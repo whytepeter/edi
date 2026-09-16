@@ -35,12 +35,6 @@ function launch(mode, tools = [], context = {}) {
       usage: { prompt_tokens: 1200, completion_tokens: 30, total_tokens: 1230, cost: 0.0042,
         prompt_tokens_details: { cached_tokens: 1000 } } });
     global.fetch = async (url, options) => {
-      // A model on this Mac: its runtime's OpenAI-style server on a loopback address.
-      if (testMode === 'local') {
-        if (!String(url).startsWith('http://127.0.0.1:11434/v1/')) throw Error('Unexpected endpoint');
-        parentPort.postMessage({ type: 'debug-request', body: { ...JSON.parse(options.body), url: String(url) } });
-        return sse([chunk({ content: 'Offline hello.' }), end('stop')]);
-      }
       if (!String(url).startsWith('https://openrouter.ai/api/')) throw Error('Unexpected endpoint');
       const body = JSON.parse(options.body);
       // The page reader: one non-streaming request to the reader model, without tools.
@@ -127,7 +121,6 @@ function launch(mode, tools = [], context = {}) {
         spoken: context.spoken ?? false,
         ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),
         ...(context.selfContext ? { selfContext: context.selfContext } : {}),
-        ...(context.local ? { local: context.local, model: context.localModel } : {}),
         tools,
         mode,
       },
@@ -223,39 +216,6 @@ test('what changes each turn goes last, so the system prompt stays the same for 
   // Only a spoken turn lowers reasoning, to the level main chose.
   assert.deepEqual(spoken.requests[0].reasoning, { effort: 'low' });
   assert.equal(typed.requests[0].reasoning, undefined);
-});
-
-test('a model on this Mac answers without web search, and without tools it can’t call', async () => {
-  const local = {
-    baseURL: 'http://127.0.0.1:11434/v1',
-    name: 'test-vl',
-    vision: true,
-    tools: false,
-  };
-  const tools = [
-    {
-      name: 'notes_save',
-      description: 'Save a note.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-  ];
-  const { messages, requests } = await collect(
-    launch('local', tools, { local, localModel: 'local/ollama/test-vl' }),
-  );
-  assert.equal(text(messages), 'Offline hello.');
-  assert.equal(requests[0].url, 'http://127.0.0.1:11434/v1/chat/completions');
-  assert.equal(requests[0].model, 'test-vl');
-  // No tools at all (not even OpenRouter's search), and none of OpenRouter's request extras.
-  assert.equal(requests[0].tools, undefined);
-  assert.equal(requests[0].usage, undefined);
-  assert.equal(requests[0].reasoning, undefined);
-  // Tokens are recorded as local, never with a cost.
-  assert.deepEqual(
-    messages
-      .filter(m => m.type === 'usage')
-      .map(m => [m.entry.provider, m.entry.model, m.entry.costUsd]),
-    [['local', 'local/ollama/test-vl', null]],
-  );
 });
 
 test('provider errors do not expose request metadata', async () => {

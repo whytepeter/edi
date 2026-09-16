@@ -27,7 +27,6 @@ import {
   type AgentState,
   type Command,
   type LibraryItem,
-  type LocalModelsState,
   type ModelOption,
   type Settings,
   type SystemInfo,
@@ -60,7 +59,6 @@ interface IpcDependencies {
   library(): LibraryItem[];
   system(): SystemInfo;
   models(): Promise<ModelOption[]>;
-  localModels(fresh: boolean): Promise<LocalModelsState>;
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   usage(days: UsagePeriod): Promise<UsageSummary>;
   conversations(query: string): ConversationSummary[];
@@ -98,7 +96,6 @@ export function registerIpc({
   library,
   system,
   models,
-  localModels,
   cloudVoices,
   usage,
   conversations,
@@ -169,10 +166,6 @@ export function registerIpc({
   ipcMain.handle('edi:models:get', event => {
     authorize(callerOf(event), ['workspace']);
     return models();
-  });
-  ipcMain.handle('edi:local-models:get', (event, fresh: unknown) => {
-    authorize(callerOf(event), ['workspace']);
-    return localModels(fresh === true);
   });
   ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
     authorize(callerOf(event), ['workspace']);
