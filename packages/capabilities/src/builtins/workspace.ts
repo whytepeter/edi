@@ -79,9 +79,9 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
       : input.kind === 'checklist'
         ? { kind: input.kind, title: input.title, items: input.items }
         : input.kind === 'html'
-          ? { kind: input.kind, title: input.title, html: input.html }
+          ? { kind: input.kind, title: input.title, html: input.html ?? input.markdown }
           : input.kind === 'diagram'
-            ? { kind: input.kind, title: input.title, mermaid: input.mermaid }
+            ? { kind: input.kind, title: input.title, mermaid: input.mermaid ?? input.markdown }
             : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
   const parsed = artifactContentSchema.safeParse(candidate);
   if (!parsed.success)
@@ -91,11 +91,23 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
         : input.kind === 'checklist'
           ? 'A checklist needs at least one item.'
           : input.kind === 'html'
-            ? 'An interactive page needs its HTML.'
+            ? 'An interactive page needs the whole page, in `html`.'
             : input.kind === 'diagram'
-              ? 'A diagram needs its Mermaid source.'
+              ? 'A diagram needs its Mermaid source, in `mermaid`.'
               : 'A table needs columns and at least one row.',
     );
+  if (parsed.data.kind === 'html') {
+    const external =
+      /<(?:script|link|iframe|img|source|audio|video)\b[^>]*\s(?:src|href)\s*=\s*["']?https?:|@import\s+(?:url\()?["']?https?:|\bimport\s[^;]*["']https?:|\bfetch\(\s*["']https?:/i.exec(
+        parsed.data.html,
+      );
+    if (external)
+      throw new Error(
+        `Interactive pages have no network, so ${external[0].slice(0, 40)}… never loads and the ` +
+          'page comes up empty. Write the code inline instead: no CDN libraries (Three.js, React, ' +
+          'D3), no web fonts, no fetch.',
+      );
+  }
   return parsed.data;
 }
 
