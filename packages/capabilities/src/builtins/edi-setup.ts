@@ -44,6 +44,8 @@ export interface EdiSetupSnapshot {
     };
     /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
     privacy: { lookingAtScreen: boolean; reason: string | null };
+    /** What Edi remembers about the person, and whether it may keep more (Settings → Memory). */
+    memory: { remembering: boolean; items: string[] };
     pushToTalk: { status: string; shortcut: string };
   };
   workspace: {
@@ -216,6 +218,7 @@ const pageNames: Record<z.infer<typeof workspaceViewSchema>, string> = {
   'settings.usage': 'Settings → Usage',
   'settings.keyboard': 'Settings → Keyboard',
   'settings.privacy': 'Settings → Privacy & Permissions',
+  'settings.memory': 'Settings → Memory',
   'settings.activity': 'Settings → Activity',
   'settings.about': 'Settings → About',
 };

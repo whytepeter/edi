@@ -35,6 +35,8 @@ export * from './voice';
 export * from './voice-session';
 export * from './voice-turns';
 export * from './privacy';
+export * from './memory';
+import { type Memory } from './memory';
 import { privateAppSchema, type PrivacyState } from './privacy';
 import { voiceCommandSchemas, type VoiceHostEvent } from './voice';
 import {
@@ -275,6 +277,8 @@ export const settingsSchema = z.preprocess(
     taskBudgetUsd: taskBudgetSchema.catch(defaultTaskBudgetUsd).default(defaultTaskBudgetUsd),
     /** Send the app, window, page and selection in front with each question. */
     shareDesktopContext: z.boolean().default(true),
+    /** Edi may keep what it learns about the person (Settings → Memory); it still asks first. */
+    remember: z.boolean().catch(true).default(true),
     /** Privacy mode: Edi doesn't look at the screen or at what's in front until turned off. */
     privacyPaused: z.boolean().catch(false).default(false),
     /** Pause looking while a call app shares the screen, and keep Edi out of the share. */
@@ -312,6 +316,7 @@ export const defaultSettings: Settings = {
   petPosition: null,
   speakReplies: true,
   shareDesktopContext: true,
+  remember: true,
   privacyPaused: false,
   pauseWhenSharing: true,
   privateApps: [],
@@ -357,6 +362,7 @@ export const settingsPages = [
   'settings.usage',
   'settings.keyboard',
   'settings.privacy',
+  'settings.memory',
   'settings.activity',
   'settings.about',
 ] as const;
@@ -527,6 +533,17 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('remove-approval-rule'), id: z.string().uuid() }).strict(),
+  /** Settings → Memory: keep new things or stop, and edit, remove or clear what Edi remembers. */
+  z.object({ type: z.literal('set-remember'), enabled: z.boolean() }).strict(),
+  z
+    .object({
+      type: z.literal('edit-memory'),
+      id: z.string().uuid(),
+      text: z.string().trim().min(1).max(400),
+    })
+    .strict(),
+  z.object({ type: z.literal('remove-memory'), id: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('forget-everything') }).strict(),
   /** From Edi's short list by id, or any server by its address. */
   z
     .object({
@@ -780,6 +797,9 @@ export interface DesktopBridge {
   /** Privacy mode now: whether Edi is looking, and the app sharing the screen. */
   privacy(): Promise<PrivacyState>;
   onPrivacy(callback: (state: PrivacyState) => void): () => void;
+  /** What Edi remembers about the person, oldest first. */
+  memories(): Promise<Memory[]>;
+  onMemories(callback: (memories: Memory[]) => void): () => void;
   /** Connected apps and their tools. */
   connectors(): Promise<Connector[]>;
   /** Every skill, re-reading Documents › Edi › Skills first. */

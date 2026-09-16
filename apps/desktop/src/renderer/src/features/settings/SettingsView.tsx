@@ -45,6 +45,11 @@ export function SettingsView({ agent, system, permissions, onOpen }: SettingsVie
           value={needsAccess > 0 ? `${needsAccess} off` : ''}
           onOpen={() => onOpen('settings.privacy')}
         />
+        <GroupedRow
+          icon="sparkles"
+          title="Memory"
+          onOpen={() => onOpen('settings.memory')}
+        />
         <GroupedRow icon="info" title="About Edi" onOpen={() => onOpen('settings.about')} />
       </GroupedList>
     </div>

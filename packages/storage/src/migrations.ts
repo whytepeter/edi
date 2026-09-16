@@ -319,6 +319,22 @@ export const migrations: readonly { version: number; sql: string }[] = [
     version: 16,
     sql: `ALTER TABLE schedules ADD COLUMN unattended INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    // What Edi remembers about the person: written only through a reviewed action, and listed,
+    // edited and removed in Settings → Memory.
+    version: 17,
+    sql: `
+      CREATE TABLE IF NOT EXISTS memories (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT    NOT NULL
+                   CHECK (kind IN ('preference', 'fact', 'person', 'project')),
+        text       TEXT    NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS memories_created ON memories (created_at);
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

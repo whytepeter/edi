@@ -40,6 +40,12 @@ interface CommandDependencies {
   addSkill(): Promise<void>;
   /** Settings → Privacy: choose an app Edi never looks at. */
   addPrivateApp(): Promise<void>;
+  /** Settings → Memory: the person's own edits to what Edi remembers. */
+  memory: {
+    edit(id: string, text: string): void;
+    remove(id: string): void;
+    clear(): void;
+  };
   /** One of the person's skills, selected in Finder. */
   revealSkill(name: string): void;
   placement: WindowPlacement;
@@ -104,6 +110,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     openSkillsFolder,
     addSkill,
     addPrivateApp,
+    memory,
     revealSkill,
     placement,
     petDrag,
@@ -404,6 +411,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
     'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
+    'set-remember': { from: fromWorkspace, handle: ({ enabled }) => settings.update({ remember: enabled }) },
+    'edit-memory': { from: fromWorkspace, handle: ({ id, text }) => memory.edit(id, text) },
+    'remove-memory': { from: fromWorkspace, handle: ({ id }) => memory.remove(id) },
+    'forget-everything': { from: fromWorkspace, handle: () => memory.clear() },
     'add-connector': {
       from: fromWorkspace,
       handle: ({ catalogId, url, name }) => {

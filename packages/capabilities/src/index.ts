@@ -55,6 +55,7 @@ export {
   type FileDependencies,
   type FileRoot,
 } from './builtins/files';
+export { memoryCapabilities } from './builtins/memory';
 export {
   activityCapabilities,
   reversal,

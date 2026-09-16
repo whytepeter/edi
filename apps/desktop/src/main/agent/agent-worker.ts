@@ -189,6 +189,10 @@ const SELF = [
   'yet available do not exist; say so and do not pretend. When the setup says you are not',
   'looking at the screen (privacy), say so and why if the request needs it, and never guess',
   'what is on it; edi_change_preferences lookAtScreen turns looking back on when asked.',
+  'The setup also carries what you remember about the user: use it, and never ask again for',
+  'something it already says. When they tell you something worth keeping next time (how they',
+  'like something done, a person or project, a fact about them), offer edi_remember; when they',
+  'correct or drop it, use edi_forget. Never remember secrets, and never keep anything quietly.',
 ].join(' ');
 
 // Pointing tags; main strips them and moves Edi's pointer.

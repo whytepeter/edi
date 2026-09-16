@@ -586,6 +586,34 @@ test('tasks: queue order, spending from their runs, recovery and deletion with t
   assert.throws(() => repos.tasks.remove(uuid(103)), /no longer exists/);
 });
 
+test('memories: kept oldest first, edited in place, removed one by one or all at once', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const memory = (n: number, text: string) => ({
+    id: uuid(300 + n),
+    kind: 'preference' as const,
+    text,
+    createdAt: n,
+    updatedAt: n,
+  });
+  repos.memories.add(memory(1, 'Prefers short answers'));
+  repos.memories.add(memory(2, 'Calls the app Nlockd'));
+  assert.deepEqual(
+    repos.memories.list().map(entry => entry.text),
+    ['Prefers short answers', 'Calls the app Nlockd'],
+  );
+  assert.equal(repos.memories.count(), 2);
+
+  repos.memories.update(uuid(301), { text: 'Prefers short answers, no preamble', at: 9 });
+  assert.equal(repos.memories.list()[0]?.text, 'Prefers short answers, no preamble');
+  assert.equal(repos.memories.list()[0]?.updatedAt, 9);
+  assert.throws(() => repos.memories.update(uuid(999), { text: 'x', at: 9 }), /doesn’t remember/);
+
+  assert.equal(repos.memories.remove(uuid(301)), true);
+  assert.equal(repos.memories.remove(uuid(301)), false);
+  assert.equal(repos.memories.clear(), 1);
+  assert.deepEqual(repos.memories.list(), []);
+});
+
 test('schedules: due ones earliest first, disabled and broken rules never due, removal', () => {
   const db = openDatabase(':memory:');
   const repos = createRepositories(db);

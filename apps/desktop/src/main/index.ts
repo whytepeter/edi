@@ -39,6 +39,7 @@ import {
   deleteWorkspaceItem,
   renameWorkspaceItem,
   activityCapabilities,
+  memoryCapabilities,
   ediSetupCapabilities,
   fileCapabilities,
   macCapabilities,
@@ -85,6 +86,7 @@ import {
   voiceSelectionSchema,
   voiceWordsSchema,
   privacyReason,
+  memoriesForPrompt,
   type VoiceSelection,
   defaultCharacterId,
   replyMood,
@@ -142,6 +144,7 @@ import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
+import { randomUUID } from 'node:crypto';
 import { PrivacyGuard, readPrivateApp } from './privacy/privacy-guard';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
@@ -616,6 +619,10 @@ async function start() {
           lookingAtScreen: !privacy.state.paused,
           reason: privacyReason(privacy.state),
         },
+        memory: {
+          remembering: settings.current.remember,
+          items: memoriesForPrompt(repositories.memories.list()),
+        },
         pushToTalk: pushToTalk(),
       },
       // Built-in abilities are listed above; skills are add-ons, and none exist yet.
@@ -715,6 +722,8 @@ async function start() {
       },
     }),
   ];
+  /** Settings → Memory follows along as Edi remembers or forgets. */
+  const publishMemories = () => broadcast([workspace], 'edi:memories', repositories.memories.list());
   const ediTools = [
     ...ediSetupCapabilities({
       snapshot: setupSnapshot,
@@ -723,6 +732,24 @@ async function start() {
       window: action => windowAction(action),
       models: () => modelCatalog.list(),
       chooseModel: id => agent.chooseModel(id),
+    }),
+    // What Edi keeps about the person between conversations; every line is reviewed, and shown
+    // in Settings → Memory.
+    ...memoryCapabilities({
+      list: () => repositories.memories.list(),
+      add: ({ kind, text }) => {
+        const at = Date.now();
+        const memory = { id: randomUUID(), kind, text, createdAt: at, updatedAt: at };
+        repositories.memories.add(memory);
+        publishMemories();
+        return memory;
+      },
+      remove: id => {
+        const gone = repositories.memories.remove(id);
+        publishMemories();
+        return gone;
+      },
+      enabled: () => settings.current.remember,
     }),
     // What Edi did, and undoing its own reversible actions through the same reviewed tools.
     ...activityCapabilities({
@@ -1931,6 +1958,20 @@ async function start() {
         const others = settings.current.privateApps.filter(app => app.bundleId !== chosen.bundleId);
         await settings.update({ privateApps: [...others, chosen].slice(-50) });
       },
+      memory: {
+        edit: (id, text) => {
+          repositories.memories.update(id, { text, at: Date.now() });
+          publishMemories();
+        },
+        remove: id => {
+          repositories.memories.remove(id);
+          publishMemories();
+        },
+        clear: () => {
+          repositories.memories.clear();
+          publishMemories();
+        },
+      },
       placement,
       petDrag,
       character,
@@ -2073,6 +2114,7 @@ async function start() {
     schedules: () => scheduler.list(),
     approvalRules: () => approvalRules.list(),
     privacy: () => privacy.state,
+    memories: () => repositories.memories.list(),
     connectors: () => connectors.list(),
     skills: async () => {
       await skills.refresh();

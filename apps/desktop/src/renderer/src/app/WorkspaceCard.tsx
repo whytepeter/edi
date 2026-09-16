@@ -24,6 +24,7 @@ import { UsageSettings } from '../features/settings/UsageSettings';
 import { TasksView } from '../features/tasks/TasksView';
 import { KeyboardSettings } from '../features/settings/KeyboardSettings';
 import { PrivacySettings } from '../features/settings/PrivacySettings';
+import { MemorySettings } from '../features/settings/MemorySettings';
 import { AboutSettings } from '../features/settings/AboutSettings';
 import { useSystemInfo } from '../features/settings/useSystemInfo';
 import {
@@ -268,6 +269,12 @@ export function WorkspaceCard() {
                   refreshKey={refreshKey}
                   taskBudgetUsd={settings.taskBudgetUsd}
                   onTaskBudget={budgetUsd => void send({ type: 'set-task-budget', budgetUsd })}
+                />
+              )}
+              {view === 'settings.memory' && (
+                <MemorySettings
+                  remember={settings.remember}
+                  onRemember={enabled => void send({ type: 'set-remember', enabled })}
                 />
               )}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}

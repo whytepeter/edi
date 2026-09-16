@@ -21,6 +21,9 @@ import {
   type RunStatus,
   type ToolCallStatus,
   type Schedule,
+  maxMemories,
+  memorySchema,
+  type Memory,
   type ToolStep,
 } from '@edi/contracts';
 import { transaction, type Database } from './database';
@@ -495,6 +498,55 @@ const scheduleColumns = `id, title, prompt, when_json AS "when", notify, budget_
   last_result AS lastResult`;
 
 /** Schedules and watches. A row whose rule no longer parses is skipped, never run. */
+/** What Edi remembers about the person, oldest first: the order it reads them back in. */
+export class MemoryRepository {
+  constructor(private readonly db: Database) {}
+
+  list(limit = maxMemories): Memory[] {
+    return this.db
+      .prepare(
+        `SELECT id, kind, text, created_at AS createdAt, updated_at AS updatedAt
+         FROM memories ORDER BY created_at, rowid LIMIT ?`,
+      )
+      .all(limit)
+      .flatMap(row => {
+        const parsed = memorySchema.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      });
+  }
+
+  count() {
+    return z.number().parse(
+      (this.db.prepare(`SELECT count(*) AS n FROM memories`).get() as { n: unknown }).n,
+    );
+  }
+
+  add(memory: Memory) {
+    const valid = memorySchema.parse(memory);
+    this.db
+      .prepare(
+        `INSERT INTO memories (id, kind, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(valid.id, valid.kind, valid.text, valid.createdAt, valid.updatedAt);
+  }
+
+  update(id: string, change: { text: string; at: number }) {
+    const text = memorySchema.shape.text.parse(change.text);
+    const result = this.db
+      .prepare(`UPDATE memories SET text = ?, updated_at = ? WHERE id = ?`)
+      .run(text, change.at, id);
+    if (result.changes === 0) throw new Error('Edi doesn’t remember that any more.');
+  }
+
+  remove(id: string) {
+    return this.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id).changes > 0;
+  }
+
+  clear() {
+    return Number(this.db.prepare(`DELETE FROM memories`).run().changes);
+  }
+}
+
 /** Saved "Always allow" choices, newest first. */
 export class ApprovalRuleRepository {
   constructor(private readonly db: Database) {}
@@ -1255,6 +1307,7 @@ export interface Repositories {
   tasks: TaskRepository;
   schedules: ScheduleRepository;
   approvalRules: ApprovalRuleRepository;
+  memories: MemoryRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -1278,6 +1331,7 @@ export function createRepositories(db: Database): Repositories {
     tasks: new TaskRepository(db),
     schedules: new ScheduleRepository(db),
     approvalRules: new ApprovalRuleRepository(db),
+    memories: new MemoryRepository(db),
 
     activity(limit) {
       const runs = db

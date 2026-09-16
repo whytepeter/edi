@@ -26,6 +26,7 @@ import {
   scheduleListSchema,
   approvalRulesSchema,
   privacyStateSchema,
+  memoryListSchema,
   connectorListSchema,
   skillsStateSchema,
   usageSummarySchema,
@@ -98,6 +99,15 @@ const bridge: DesktopBridge = {
     };
     ipcRenderer.on('edi:connectors', listener);
     return () => ipcRenderer.removeListener('edi:connectors', listener);
+  },
+  memories: async () => memoryListSchema.parse(await ipcRenderer.invoke('edi:memories:get')),
+  onMemories: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = memoryListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:memories', listener);
+    return () => ipcRenderer.removeListener('edi:memories', listener);
   },
   privacy: async () => privacyStateSchema.parse(await ipcRenderer.invoke('edi:privacy:get')),
   onPrivacy: callback => {

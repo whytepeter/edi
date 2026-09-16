@@ -29,6 +29,7 @@ const pageTitles: Record<Exclude<WorkspaceView, WorkspaceSection>, string> = {
   'settings.usage': 'Usage',
   'settings.keyboard': 'Keyboard',
   'settings.privacy': 'Privacy & Permissions',
+  'settings.memory': 'Memory',
   'settings.activity': 'Activity',
   'settings.about': 'About Edi',
 };

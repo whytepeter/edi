@@ -19,6 +19,7 @@ import {
   type Schedule,
   type ApprovalRule,
   type PrivacyState,
+  type Memory,
   type Connector,
   type SkillsState,
   type UsageSummary,
@@ -66,6 +67,7 @@ interface IpcDependencies {
   schedules(): Schedule[];
   approvalRules(): ApprovalRule[];
   privacy(): PrivacyState;
+  memories(): Memory[];
   connectors(): Connector[];
   skills(): Promise<SkillsState>;
   composioConfigured(): boolean;
@@ -101,6 +103,7 @@ export function registerIpc({
   schedules,
   approvalRules,
   privacy,
+  memories,
   connectors,
   skills,
   composioConfigured,
@@ -190,6 +193,10 @@ export function registerIpc({
   ipcMain.handle('edi:privacy:get', event => {
     authorize(callerOf(event), ['workspace']);
     return privacy();
+  });
+  ipcMain.handle('edi:memories:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return memories();
   });
   ipcMain.handle('edi:schedules:get', event => {
     authorize(callerOf(event), ['workspace']);
