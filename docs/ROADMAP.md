@@ -226,6 +226,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Semantic artifact types, with HTML only sandboxed | 2 | Four structured types plus `html`, isolated from Edi (CSP sandbox, private scheme, isolated session) |
 | Diagrams as first-class, updatable artifacts | 2–3 | Done (2026-09-15): `diagram` kind in Mermaid, drawn offline in strict mode, saved as .mmd, updated in place by workspace_update, copied as a mermaid fence, downloaded as SVG |
 | Reports and exports (save ≠ export) | 3 | Done (2026-09-15): Export menu and `workspace.export` write new files to Documents › Edi › Exports |
+| Run the shortcuts the person made themselves | 8, brought forward | Done (2026-09-16): `shortcuts_list` names them, `shortcuts_run` starts one by exact name with a review each time; "Always allow" is scoped to that one shortcut, and a schedule running on its own can't start one |
 | What Edi remembers about you | 7, brought forward | Done (2026-09-16): short lines kept only through a reviewed `edi_remember`, used in every turn, listed in Settings → Memory with Edit, Remove, Forget everything and a switch; secrets refused |
 | Privacy mode: pause looking, pause while sharing, private apps | 4, brought forward | Done (2026-09-16): a screen share is noticed from the window list, Edi stays out of it, and a private app in front means no screenshot |
 | A schedule that runs on its own | 7, brought forward | Done (2026-09-16): its runs add reminders, events and notes without a review, so nobody has to be there; everything else still waits |
