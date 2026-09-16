@@ -67,6 +67,7 @@ test('recommendations pick the newest model of each suited family, never a batch
       entry('google/gemini-3.5-flash-lite', 5),
       entry('anthropic/claude-sonnet-5', 1),
       entry('anthropic/claude-opus-5', 1),
+      entry('openrouter/free', 1),
       entry('vendor/other', 9),
     ],
   });
@@ -77,6 +78,7 @@ test('recommendations pick the newest model of each suited family, never a batch
     fast: 'google/gemini-3.8-flash',
     balanced: 'anthropic/claude-sonnet-5',
     best: 'anthropic/claude-opus-5',
+    free: 'openrouter/free',
   });
 });
 
