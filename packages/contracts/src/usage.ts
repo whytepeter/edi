@@ -7,7 +7,11 @@ import { z } from 'zod';
  */
 export const usageKindSchema = z.enum(['answer', 'page-reader', 'voice']);
 export type UsageKind = z.infer<typeof usageKindSchema>;
-export const usageProviderSchema = z.enum(['openrouter', 'cartesia', 'elevenlabs']);
+/**
+ * `local`: kept so usage already recorded still reads back. Edi no longer runs models itself;
+ * nothing writes this any more.
+ */
+export const usageProviderSchema = z.enum(['openrouter', 'local', 'cartesia', 'elevenlabs']);
 export type UsageProvider = z.infer<typeof usageProviderSchema>;
 
 const count = z.number().int().nonnegative().max(1_000_000_000);
@@ -80,3 +84,20 @@ export const usageSummarySchema = z
   })
   .strict();
 export type UsageSummary = z.infer<typeof usageSummarySchema>;
+
+/**
+ * Why a model call failed, kept on this Mac so failures can be explained: the HTTP status, the
+ * provider OpenRouter used, its error code and a short message with links, addresses, quoted
+ * text and long numbers removed. Never the request, the reply or the key.
+ */
+export const providerFailureSchema = z
+  .object({
+    status: z.number().int().min(0).max(999).optional(),
+    provider: z.string().max(80).optional(),
+    code: z.string().max(80).optional(),
+    message: z.string().max(240).optional(),
+    /** How many model steps had finished before it failed. */
+    step: z.number().int().min(0).max(100),
+  })
+  .strict();
+export type ProviderFailure = z.infer<typeof providerFailureSchema>;

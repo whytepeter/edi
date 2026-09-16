@@ -7,6 +7,62 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Connectors. Connect Notion, Linear or Asana, or any remote MCP server by its https address, from Connectors. Signing
+  in opens the app's own page in your browser and returns to Edi on a one-time 127.0.0.1 address (OAuth with dynamic
+  client registration and PKCE through the official MCP SDK); sign-ins are encrypted on this Mac with a keychain-held
+  key, renewed when possible, and never used to open a browser on launch. Each app's tools can be switched on or off,
+  become Edi actions that are always reviewed ("Always allow" per tool per app), and return information marked as
+  coming from another service. Background tasks can use them too. Up to 80 connected tools are offered at once.
+
+- Mac actions. Edi can open apps, open links in your browser, open files in allowed folders (with their usual app or
+  one you name; never apps, scripts, installers or shortcuts) and show files in Finder. It can check and add
+  Reminders (a due time also alerts) and check and add Calendar events through EventKit, with Reminders and Calendar
+  rows in Settings → Privacy & Permissions. The model is now told the current date, time and time zone.
+- "Always allow" that lasts. For an action that applies somewhere, the choice is saved for that place: moving,
+  creating or trashing files in a folder, opening links on a site, opening an app, or adding reminders and events.
+  It survives restarts, covers waiting reviews it applies to, and is listed under Settings → Privacy & Permissions →
+  Always allowed, where it can be removed. Other actions can still be allowed for one conversation or task.
+
+- Edi reads PDFs, including scanned pages, and text in pictures of documents (scans, photos, screenshots) with
+  macOS PDFKit and Vision, on this Mac. The native helper is replaced by rename when rebuilt, so a running Edi is
+  not killed by the build.
+
+- Schedules and watches. Tasks can run later or on repeat (every day or weekday at a time, every few hours, once at
+  a date) from the Tasks composer or by asking Edi ("every weekday at 9 summarize my tech news", "tell me when the
+  MacBook Air price changes"). A watch compares each check with the last and only notifies when something changed;
+  results go to Notification Center and the bubble. The scheduler checks every 30 seconds and on wake, runs a
+  missed schedule once (never in a burst), and skips a turn while the previous run is still going. Each run uses the
+  schedule's spending cap. Schedules can be paused or removed from Tasks, and Edi can list and remove them.
+- Background tasks. Hand Edi longer work from Tasks or by asking in a conversation ("do this in the background");
+  it keeps running while you do other things, up to two at a time with the rest queued. Each task has its own
+  steps, reviews (with "Always allow" for that task), result text and anything it saved to Library, and a quiet
+  bubble says when one finishes. Every task has a spending cap: the default is set in Settings → Usage ($0.25–$5),
+  each task can have its own when started, and a task that reaches its cap pauses before its next step until you
+  allow more or stop it. Tasks run for up to 25 steps and 15 minutes of work, and a restart marks unfinished tasks
+  as interrupted instead of re-running them.
+- Search across conversations. Every question and answer is in a full-text index (SQLite FTS5, accent- and
+  prefix-insensitive, kept in step by triggers, so deleted conversations drop out). Edi's workspace search now also
+  returns matching conversations with an excerpt and takes date ranges ("last week"), and All conversations has a
+  search field that shows what matched.
+- Approvals that don't nag. File changes come as one batch (move, create folders or move to the Trash for up to
+  50 items) reviewed once with the full list, and every review offers "Always allow … in this chat". The bubble
+  review is now Claude-like: the question, one detail line, Deny and the action, with Always allow and Details
+  below; it appears only while the card is closed, so a review never shows twice. The card's review is denser
+  and never lets the conversation read through.
+- Conversations show what Edi did as one quiet line ("Move files — waiting for you", "4 actions") that expands to
+  each action, instead of a column of steps. A failed reply shows once, with Try again. When a model can't write
+  out many actions at once, Edi says so instead of blaming OpenRouter.
+- Multiple conversations. Conversations has a toolbar with the current conversation's title, All conversations and
+  New conversation; the list shows each conversation's title (its first question), when it was last used and how
+  many questions it has, and conversations can be opened or deleted (their turns go; anything saved stays in
+  Library). Each conversation keeps its own history for the model. Edi continues a conversation it picked up by
+  itself for two hours after its last turn, then starts a new one; one you opened continues however old. Existing
+  history is split into conversations wherever two hours passed between questions.
+- Desktop context. Each question now carries what you have in front of you: the app and window (not Edi's own), and
+  with Accessibility the page address, open document and selected text, so "this page", "my selection" or "what
+  I'm working on" work without a screenshot. Gathered locally in a few milliseconds, sent only with that question,
+  never stored; password managers and private windows share only the app name. Settings → Privacy & Permissions
+  has a "Share what's in front of you" switch and an Accessibility permission.
 - Files outside Edi's workspace. Edi can search (Spotlight, with a bounded name search as fallback), list and read
   files in Desktop, Documents, Downloads and folders you add, or everywhere in your home folder with Full Disk
   Access. Text, code, CSV/JSON and Word/RTF/HTML documents are read; PDFs are not yet. Renaming, moving, creating
@@ -176,6 +232,16 @@ Meaningful product and architecture changes are recorded here. The format follow
   proactivity, computer use, and community extensions without making post-alpha ideas private-alpha gates.
 
 ### Fixed
+
+- Asking Edi to look something up ("where I went to school") hunted through code files and folders, then timed out
+  with nothing. File search now ranks what a person means: name matches first, documents over other files, code
+  projects last, and dependency/environment folders (node_modules, site-packages, venvs, app bundles) skipped, so
+  "resume" finds the résumé instead of 20 source files. Google Docs, Sheets and Slides shared by link are read
+  through their text export, and a page that only says it needs a browser or sign-in is reported as unreadable
+  instead of "read". Web searches now appear as steps with the pages they found. Public facts and "look it up
+  online" go to web search. A reply or task that runs out of time or steps stops acting and answers from what it
+  found; a run that ends with no answer is reported, and a failed typed question shows its reason in the bubble
+  when Conversations isn't open (voice says the real reason too, not always "couldn't reach the AI model").
 
 - The agent reported a cloud voice by its id (and fell back on earlier conversation, e.g. "Heart") instead of
   its name; cloud voice names now come from the account, and the live setup outranks earlier messages.

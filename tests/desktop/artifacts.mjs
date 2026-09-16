@@ -1,5 +1,5 @@
 import { _electron as electron, expect } from '@playwright/test';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRepositories, openDatabase } from '../../packages/storage/src/index.ts';
@@ -11,8 +11,13 @@ import { createRepositories, openDatabase } from '../../packages/storage/src/ind
  * Do not run while `pnpm dev` Edi is open: both share a bundle id and the test app is killed.
  */
 const profile = await mkdtemp(join(tmpdir(), 'edi-artifacts-'));
+// Edi's workspace (Documents › Edi) lives here for the test, so exports never touch the Mac's own.
+const documents = await mkdtemp(join(tmpdir(), 'edi-documents-'));
+const exportsFolder = join(documents, 'Edi', 'Exports');
 const runId = '00000000-0000-4000-8000-000000000001';
 const callId = '00000000-0000-4000-8000-000000000002';
+const diagramId = '00000000-0000-4000-8000-000000000003';
+const documentId = '00000000-0000-4000-8000-000000000004';
 
 const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><body>
 <button id="count">Count 0</button><pre id="result">running</pre>
@@ -82,13 +87,77 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     createdAt: 3,
     updatedAt: 3,
   });
+  // A diagram, drawn by the bundled Mermaid inside the artifact window.
+  const mermaid = 'flowchart LR\n  app[Edi] --> api[API]\n  api --> db[(Database)]';
+  repositories.toolCalls.create({
+    id: diagramId,
+    runId,
+    capability: 'workspace.show',
+    title: 'Show content',
+    effect: 'read',
+    input: { kind: 'diagram', title: 'Architecture', mermaid },
+    status: 'running',
+    at: 4,
+  });
+  repositories.toolCalls.finish(
+    diagramId,
+    'succeeded',
+    'Showed “Architecture”.',
+    {
+      shown: true,
+      kind: 'diagram',
+      title: 'Architecture',
+      path: 'Artifacts/Diagrams/x.mmd',
+      bytes: 60,
+    },
+    5,
+  );
+  repositories.artifacts.add({
+    id: diagramId,
+    kind: 'diagram',
+    title: 'Architecture',
+    content: { kind: 'diagram', title: 'Architecture', mermaid },
+    path: 'Artifacts/Diagrams/edi-test-architecture-missing.mmd',
+    bytes: 60,
+    createdAt: 5,
+    updatedAt: 5,
+  });
+  // A document, exported to PDF and Markdown.
+  const markdown = '# Launch plan\n\n- Ship the beta\n- Tell the testers\n\n| Step | Owner |\n| --- | --- |\n| QA | Ada |';
+  repositories.toolCalls.create({
+    id: documentId,
+    runId,
+    capability: 'workspace.show',
+    title: 'Show content',
+    effect: 'read',
+    input: { kind: 'document', title: 'Launch plan', markdown },
+    status: 'running',
+    at: 6,
+  });
+  repositories.toolCalls.finish(
+    documentId,
+    'succeeded',
+    'Showed “Launch plan”.',
+    { shown: true, kind: 'document', title: 'Launch plan', path: 'Artifacts/Reports/x.md', bytes: 90 },
+    7,
+  );
+  repositories.artifacts.add({
+    id: documentId,
+    kind: 'document',
+    title: 'Launch plan',
+    content: { kind: 'document', title: 'Launch plan', markdown },
+    path: 'Artifacts/Reports/edi-test-launch-plan-missing.md',
+    bytes: 90,
+    createdAt: 7,
+    updatedAt: 7,
+  });
   database.close();
 }
 
 let app;
 try {
   app = await electron.launch({
-    env: { ...process.env, EDI_VOICE: 'off', EDI_MODEL_CATALOG: 'off' },
+    env: { ...process.env, EDI_VOICE: 'off', EDI_MODEL_CATALOG: 'off', EDI_DOCUMENTS: documents },
     executablePath: resolve(
       'apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
     ),
@@ -98,15 +167,18 @@ try {
     .poll(() => app.windows().filter(page => page.url().includes('surface=')).length)
     .toBe(2);
   const workspace = app.windows().find(page => page.url().includes('surface=workspace'));
+  // A closed artifact window can linger in the list for a moment; only an open one counts.
+  const openArtifactPage = () =>
+    app.windows().find(page => page.url().includes('surface=artifact') && !page.isClosed());
   const artifactWindow = async () => {
-    await expect
-      .poll(() => app.windows().some(page => page.url().includes('surface=artifact')))
-      .toBe(true);
-    return app.windows().find(page => page.url().includes('surface=artifact'));
+    await expect.poll(() => Boolean(openArtifactPage())).toBe(true);
+    return openArtifactPage();
   };
-  const artifactOpen = () => app.windows().some(page => page.url().includes('surface=artifact'));
+  const artifactOpen = () => Boolean(openArtifactPage());
 
   // 1. From the conversation: the page stays put and the artifact opens beside the card.
+  // The card listens for navigation once it has rendered; a request before that is dropped.
+  await workspace.locator('.workspace-card').waitFor({ state: 'attached' });
   await workspace.evaluate(() =>
     window.edi.command({ type: 'show-workspace', view: 'conversations' }),
   );
@@ -114,12 +186,22 @@ try {
   let artifact = await artifactWindow();
   await expect(artifact.getByRole('heading', { name: 'Sandbox probe' })).toBeVisible();
   await expect(artifact.getByText('Interactive', { exact: true })).toBeVisible();
-  for (const name of ['Copy', 'Download', 'Show in Finder', 'Close'])
+  for (const name of ['Copy', 'Export', 'Show in Finder', 'Close'])
     await expect(artifact.getByRole('button', { name })).toBeVisible();
   await expect(artifact.getByRole('button', { name: /Back/ })).toHaveCount(0);
-  expect(
-    await workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view),
-  ).toBe('conversations');
+  // Copy uses the real system clipboard; put the person's clipboard back afterwards.
+  const savedClipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
+  try {
+    await artifact.getByRole('button', { name: 'Copy' }).click();
+    await expect(artifact.getByRole('button', { name: 'Copied' })).toBeVisible();
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toContain('<');
+  } finally {
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard);
+  }
+  // Navigation lands a moment after launch; wait for it rather than reading once.
+  await expect
+    .poll(() => workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view))
+    .toBe('conversations');
   const [card, shown] = await app.evaluate(({ BrowserWindow }) =>
     ['surface=workspace', 'surface=artifact'].map(surface =>
       BrowserWindow.getAllWindows()
@@ -168,7 +250,7 @@ try {
 
   // 4. From Library: the same artifact is listed and opens in the window.
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace', view: 'library' }));
-  const row = workspace.getByRole('button', { name: /Sandbox probe/ });
+  const row = workspace.getByRole('button', { name: /^Sandbox probe/ });
   await expect(row).toBeVisible();
   await row.click();
   artifact = await artifactWindow();
@@ -176,23 +258,129 @@ try {
   expect(
     await workspace.evaluate(() => document.querySelector('.workspace-card').dataset.view),
   ).toBe('library');
-  await artifact.keyboard.press('Escape');
+  // Escape closes the window mid-keypress, so the press itself may report the page closed.
+  await artifact.keyboard.press('Escape').catch(() => {});
   await expect.poll(artifactOpen).toBe(false);
 
   // 5. Library Delete asks first; Cancel keeps the item, Move to Trash removes it everywhere.
-  await workspace.getByRole('button', { name: 'Delete “Sandbox probe”' }).click();
+  const rowAction = async (title, action) => {
+    await workspace.getByRole('button', { name: `More for “${title}”` }).click();
+    await workspace
+      .getByRole('menu', { name: `Actions for “${title}”` })
+      .getByRole('menuitem', { name: action, exact: true })
+      .click();
+  };
+  await rowAction('Sandbox probe', 'Move to Trash…');
   await expect(workspace.getByText(/Move “Sandbox probe” to the Trash\?/)).toBeVisible();
   await workspace.getByRole('button', { name: 'Cancel' }).click();
   await expect(row).toBeVisible();
-  await workspace.getByRole('button', { name: 'Delete “Sandbox probe”' }).click();
+  await rowAction('Sandbox probe', 'Move to Trash…');
   await workspace.getByRole('button', { name: 'Move to Trash' }).click();
   await expect(row).toHaveCount(0);
   expect((await workspace.evaluate(() => window.edi.library())).map(item => item.id)).not.toContain(
     callId,
   );
 
+  // 6. A diagram opens drawn: Mermaid renders its SVG in the window, offline and sandboxed.
+  await workspace.evaluate(ref => window.edi.command({ type: 'open-artifact', ref }), {
+    callId: diagramId,
+  });
+  artifact = await artifactWindow();
+  await expect(artifact.getByRole('heading', { name: 'Architecture' })).toBeVisible();
+  await expect(artifact.getByText('Diagram', { exact: true })).toBeVisible();
+  await expect(artifact.locator('.artifact-diagram svg')).toBeVisible({ timeout: 15_000 });
+  await expect(artifact.locator('.artifact-diagram')).toContainText('Database');
+  for (const name of ['Copy', 'Export'])
+    await expect(artifact.getByRole('button', { name })).toBeVisible();
+
+  // 7. Export is its own step: the kind's formats, written to Documents › Edi › Exports.
+  const exportAs = async (format, file) => {
+    await artifact.getByRole('button', { name: 'Export' }).click();
+    const menu = artifact.getByRole('menu', { name: 'Export as' });
+    await expect(menu).toBeVisible();
+    await menu.getByRole('menuitem', { name: format, exact: true }).click();
+    await expect(artifact.getByRole('status')).toContainText(`Exported “${file}” to Exports`, {
+      timeout: 20_000,
+    });
+    return readFile(join(exportsFolder, file));
+  };
+  await artifact.getByRole('button', { name: 'Export' }).click();
+  await expect(
+    artifact.getByRole('menu', { name: 'Export as' }).getByRole('menuitem'),
+  ).toHaveText(['PNG image', 'SVG image', 'PDF', 'Mermaid source', 'Export to…']);
+  // Escape closes the menu, not the window.
+  await artifact.keyboard.press('Escape');
+  await expect(artifact.getByRole('menu')).toHaveCount(0);
+  expect(artifactOpen()).toBe(true);
+  const png = await exportAs('PNG image', 'Architecture.png');
+  expect(png.subarray(1, 4).toString()).toBe('PNG');
+  expect(png.length).toBeGreaterThan(2_000);
+  const svg = (await exportAs('SVG image', 'Architecture.svg')).toString();
+  expect(svg).toMatch(/^<\?xml[^>]*>\n<svg[^>]*width="\d+"/);
+  expect(svg).toContain('Database');
+  expect((await exportAs('PDF', 'Architecture.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
+  expect((await exportAs('Mermaid source', 'Architecture.mmd')).toString()).toContain('flowchart LR');
+  // A second export of the same format never replaces the first.
+  await exportAs('PNG image', 'Architecture 2.png');
+
+  await workspace.evaluate(ref => window.edi.command({ type: 'open-artifact', ref }), {
+    callId: documentId,
+  });
+  await expect(artifact.getByRole('heading', { name: 'Launch plan', level: 1 })).toBeVisible();
+  const pdf = await exportAs('PDF', 'Launch plan.pdf');
+  expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  expect(pdf.length).toBeGreaterThan(5_000);
+  expect((await exportAs('Markdown', 'Launch plan.md')).toString()).toContain('| QA | Ada |');
+  expect((await readdir(exportsFolder)).sort()).toEqual([
+    'Architecture 2.png',
+    'Architecture.mmd',
+    'Architecture.pdf',
+    'Architecture.png',
+    'Architecture.svg',
+    'Launch plan.md',
+    'Launch plan.pdf',
+  ]);
+  // Exporting never adds anything to the workspace's own artifacts.
+  expect((await workspace.evaluate(() => window.edi.library())).length).toBe(2);
+
+  // 8. Library row actions: rename (file follows), pin to the top, export, and regenerate.
+  await workspace.evaluate(() => window.edi.command({ type: 'show-workspace', view: 'library' }));
+  await rowAction('Launch plan', 'Rename');
+  const field = workspace.getByRole('textbox', { name: 'New name for “Launch plan”' });
+  await expect(field).toBeFocused();
+  await field.fill('Launch day');
+  await field.press('Enter');
+  await expect(workspace.getByRole('button', { name: /^Launch day/ })).toBeVisible();
+  // The open artifact window follows the new title.
+  await expect(artifact.getByRole('heading', { name: 'Launch day', level: 1 })).toBeVisible();
+  const renamed = (await workspace.evaluate(() => window.edi.library())).find(
+    item => item.id === documentId,
+  );
+  expect(renamed.title).toBe('Launch day');
+  expect(await readdir(join(documents, 'Edi', 'Artifacts', 'Reports'))).toEqual(['launch-day.md']);
+  // Escape leaves a rename without changing anything.
+  await rowAction('Launch day', 'Rename');
+  await workspace.getByRole('textbox', { name: 'New name for “Launch day”' }).press('Escape');
+  await expect(workspace.getByRole('button', { name: /^Launch day/ })).toBeVisible();
+
+  await expect(workspace.getByRole('list', { name: 'Pinned' })).toHaveCount(0);
+  await rowAction('Architecture', 'Pin to Top');
+  const pinnedList = workspace.getByRole('list', { name: 'Pinned' });
+  await expect(pinnedList.getByRole('button', { name: /^Architecture/ })).toBeVisible();
+  await rowAction('Architecture', 'Unpin');
+  await expect(workspace.getByRole('list', { name: 'Pinned' })).toHaveCount(0);
+
+  await rowAction('Launch day', 'Export as Markdown');
+  await expect(workspace.getByRole('status')).toContainText('Exported “Launch day.md” to Exports');
+  expect(await readFile(join(exportsFolder, 'Launch day.md'), 'utf8')).toContain('| QA | Ada |');
+
+  // Regenerate asks Edi again; with no AI set up, the Library says why instead of failing quietly.
+  await rowAction('Launch day', 'Regenerate');
+  await expect(workspace.getByRole('alert')).toContainText('Set up OpenRouter first.');
+  await artifact.keyboard.press('Escape').catch(() => {});
+
   console.log(
-    'PASS: artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
+    'PASS: diagrams draw; Library renames, pins, exports and regenerates; exports write PNG, SVG, PDF, Mermaid and Markdown to Exports; artifact window from conversation and Library; sandboxed page runs with no network, storage or bridge; Library delete confirms first.',
   );
 } finally {
   await app?.close();

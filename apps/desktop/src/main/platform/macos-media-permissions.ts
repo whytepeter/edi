@@ -1,7 +1,7 @@
 import { session, shell, systemPreferences, type BrowserWindow, type WebContents } from 'electron';
 import { type PermissionId, type PermissionSnapshot, type PermissionStatus } from '@edi/contracts';
 import { PermissionManager } from '../permission-manager';
-import { ScreenRecording } from '../permissions';
+import { eventKit, macAccessibilityTrusted, ScreenRecording } from '../permissions';
 
 interface VoicePermissionState {
   readonly wantsMicrophone: boolean;
@@ -101,6 +101,37 @@ export function createMacMediaPermissions({
     microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
     'screen-recording':
       'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    reminders: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders',
+    calendar: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars',
+  };
+  // Reminders and Calendar: full access through EventKit; write-only counts as not enough.
+  const kit = eventKit();
+  const eventStatus = (entity: 0 | 1): PermissionStatus => {
+    if (!kit) return 'unavailable';
+    const status = kit.status(entity);
+    return status === 3
+      ? 'granted'
+      : status === 0
+        ? 'not-determined'
+        : status === 1
+          ? 'restricted'
+          : 'denied';
+  };
+  const eventAdapter = (entity: 0 | 1, id: 'reminders' | 'calendar') => ({
+    status: () => eventStatus(entity),
+    request: async () => {
+      if (kit && eventStatus(entity) === 'not-determined') await kit.request(entity);
+      return eventStatus(entity);
+    },
+    openSettings: () => shell.openExternal(settingsUrls[id]).then(() => undefined),
+  });
+  // macOS reports only trusted or not; after Edi has asked once, not trusted means switched off.
+  let accessibilityAsked = false;
+  const accessibilityStatus = (): PermissionStatus => {
+    const trusted = macAccessibilityTrusted();
+    if (trusted === 'unavailable') return 'unavailable';
+    return trusted ? 'granted' : accessibilityAsked ? 'denied' : 'not-determined';
   };
   const manager = new PermissionManager(
     {
@@ -115,6 +146,17 @@ export function createMacMediaPermissions({
         openSettings: () =>
           shell.openExternal(settingsUrls['screen-recording']).then(() => undefined),
       },
+      accessibility: {
+        status: accessibilityStatus,
+        request: async () => {
+          accessibilityAsked = true;
+          macAccessibilityTrusted(true);
+          return accessibilityStatus();
+        },
+        openSettings: () => shell.openExternal(settingsUrls.accessibility).then(() => undefined),
+      },
+      reminders: eventAdapter(1, 'reminders'),
+      calendar: eventAdapter(0, 'calendar'),
     },
     revealPermissionCard,
   );

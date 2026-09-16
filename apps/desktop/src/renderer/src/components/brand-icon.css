@@ -1,0 +1,19 @@
+/* An app's tile: its logo on the brand colour, or its initial. Used by Connectors and Skills. */
+.brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent-fill, var(--fill-hover));
+  color: var(--on-accent, var(--label));
+  font: var(--text-footnote);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.brand-icon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}

@@ -9,6 +9,7 @@ import {
   type CharacterExpression,
   type CharacterManifest,
   type StatusBubbleState,
+  type Suggestion,
 } from '@edi/contracts';
 import {
   characterMenuSize,
@@ -44,8 +45,12 @@ type MenuAction = 'content' | 'settings' | 'sleep' | 'quit' | 'dismiss';
 /** One entry point for character clicks, menu actions and the global shortcut. */
 export class CharacterActions {
   private bubble?: { window: BrowserWindow; state: StatusBubbleState; side: BubbleSide };
+  /** The quiet offer the bubble is showing, until it is taken up or waved away. */
+  private suggestion?: Suggestion;
   /** The thinking bubble's current progress line. */
   private bubbleText?: string;
+  /** The latest progress line for running work, even while the bubble shows something else. */
+  private progress?: string;
   private ackTimer?: ReturnType<typeof setTimeout>;
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
@@ -75,6 +80,8 @@ export class CharacterActions {
    * conversation ("Searching the web"). The line updates in place; the bubble never flickers.
    */
   setThinking = (thinking: boolean, text?: string) => {
+    // Kept while the bubble is busy, so a voice reply that goes quiet shows what Edi is doing.
+    this.progress = thinking ? text : undefined;
     if (!thinking) {
       clearTimeout(this.ackTimer);
       if (this.bubble?.state === 'thinking') this.hideBubble();
@@ -125,7 +132,24 @@ export class CharacterActions {
       else if (this.bubble?.state !== 'approval' && this.bubble?.state !== 'artifact')
         this.hideBubble();
     } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
+    else if (status === 'thinking' && this.bubble?.state !== 'approval')
+      this.showThinking(this.progress);
     else if (this.bubble?.state !== status) this.showStatus(status);
+  };
+
+  /** One quiet offer from what's in front: its line, its action, and Not now. */
+  showSuggestion = (suggestion: Suggestion | null) => {
+    if (!suggestion) {
+      this.suggestion = undefined;
+      if (this.bubble?.state === 'suggestion') this.hideBubble();
+      return;
+    }
+    // Never over a review, a voice turn or shown content: a suggestion is the least urgent thing.
+    if (this.bubble && this.bubble.state !== 'suggestion') return;
+    if (this.suggestion?.key === suggestion.key && this.bubble?.state === 'suggestion') return;
+    this.suggestion = suggestion;
+    this.hideMenu();
+    this.showStatus('suggestion', 30_000);
   };
 
   /** Compact, actionable preview; the full prepared effect stays in the content card. */
@@ -187,7 +211,9 @@ export class CharacterActions {
     });
     this.bubble = { window, state, side };
     this.bubbleReady = false;
-    window.setIgnoreMouseEvents(state !== 'approval' && state !== 'artifact');
+    window.setIgnoreMouseEvents(
+      state !== 'approval' && state !== 'artifact' && state !== 'suggestion',
+    );
     window.setBounds(bounds);
     let shown = false;
     const show = () => {
@@ -212,8 +238,15 @@ export class CharacterActions {
   private pushApproval() {
     const bubble = this.bubble;
     if (!this.bubbleReady || !bubble || bubble.window.isDestroyed()) return;
+    if (bubble.state === 'suggestion' && this.suggestion)
+      return bubble.window.webContents.send('edi:bubble-suggestion', this.suggestion);
     if (bubble.state !== 'approval' || !this.approval) return;
     bubble.window.webContents.send('edi:bubble-approval', this.approval);
+  }
+
+  /** The offer the bubble is showing, for its own window to read. */
+  get openSuggestion(): Suggestion | null {
+    return this.bubble?.state === 'suggestion' ? (this.suggestion ?? null) : null;
   }
 
   private bubblePlacement(size: { width: number; height: number }, side?: BubbleSide) {

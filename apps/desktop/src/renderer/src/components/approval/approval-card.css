@@ -1,0 +1,221 @@
+/*
+ * An approval, shaped like a macOS notification: tile, source in small caps, the question in
+ * bold and a detail line; a full-width hairline; a round-badge row; two equal soft buttons.
+ */
+.approval-card {
+  --card-pad: 16px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.approval-card[data-compact] {
+  --card-pad: 14px;
+  gap: 10px;
+}
+.approval-card h2,
+.approval-card p {
+  margin: 0;
+}
+
+.approval-card-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 12px;
+}
+.approval-card-head > .brand-icon,
+.approval-card-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+.approval-card-head > .brand-icon img {
+  width: 20px;
+  height: 20px;
+}
+.approval-card-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #ffffff, #eef0f4);
+  color: var(--accent-strong);
+}
+.approval-card[data-compact] .approval-card-head > .brand-icon,
+.approval-card[data-compact] .approval-card-tile {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.approval-card-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.approval-card-source {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font: 600 11px/1.3 var(--font-text, inherit);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+}
+.approval-card-source > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.approval-card-source button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: 500 11px/1.3 var(--font-text, inherit);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--label-tertiary);
+  cursor: pointer;
+}
+.approval-card-source button:hover:not(:disabled) {
+  color: var(--label-secondary);
+}
+.approval-card h2 {
+  font: var(--text-headline);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.approval-card[data-compact] h2 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.approval-card-detail {
+  overflow: hidden;
+  font: var(--text-callout);
+  color: var(--label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Stop asking: a hairline across the card, then a badge, the words and a checkbox. */
+.approval-card-always {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-inline: calc(var(--card-pad) * -1);
+  padding: 12px var(--card-pad) 0;
+  border-top: 0.5px solid var(--separator);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  cursor: pointer;
+}
+.approval-card-always > span:nth-child(2) {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.approval-card-always small {
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+}
+.approval-card-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-inline: 7px;
+  border-radius: 50%;
+  background: var(--label);
+  color: var(--content-base, #fff);
+}
+.approval-card[data-compact] .approval-card-badge {
+  margin-inline: 5px;
+}
+.approval-card-check {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1.5px var(--label-quaternary);
+  background: transparent;
+  cursor: pointer;
+}
+.approval-card-check:checked {
+  background: var(--accent-fill);
+  box-shadow: none;
+}
+.approval-card-check:checked::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.approval-card-check:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.approval-card-error {
+  font: var(--text-footnote);
+  color: #c2502e;
+}
+
+/* Two equal buttons, like a notification's: the action carries the weight, not the colour. */
+.approval-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.approval-card-button {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill-hover);
+  font: var(--text-callout);
+  font-weight: 500;
+  color: var(--label);
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    transform var(--press-duration) ease-out;
+}
+.approval-card-button[data-primary] {
+  font-weight: 650;
+}
+.approval-card-button:hover:not(:disabled) {
+  background: var(--fill-pressed);
+}
+.approval-card-button:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+.approval-card-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.approval-card-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+@media (prefers-color-scheme: dark) {
+  .approval-card-tile {
+    background: linear-gradient(180deg, #3a3d48, #2c2f38);
+    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.08);
+  }
+  .approval-card-error {
+    color: #f2a283;
+  }
+}

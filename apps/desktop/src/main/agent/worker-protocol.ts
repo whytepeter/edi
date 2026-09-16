@@ -1,6 +1,14 @@
 import { z } from 'zod';
-import type { ToolOutcome } from '@edi/capabilities';
-import { assistantNameSchema, modelIdSchema, usageEntrySchema } from '@edi/contracts';
+import { randomUUID } from 'node:crypto';
+import type { ToolCallRecorder, ToolOutcome } from '@edi/capabilities';
+import type { Repositories } from '@edi/storage';
+import {
+  assistantNameSchema,
+  desktopContextSchema,
+  modelIdSchema,
+  providerFailureSchema,
+  usageEntrySchema,
+} from '@edi/contracts';
 
 const bytesWithin = (limit: number) =>
   z.custom<Uint8Array>(
@@ -12,13 +20,16 @@ const toolManifestEntrySchema = z
     name: z.string().min(1).max(64),
     description: z.string().min(1).max(2_000),
     inputSchema: z.record(z.string(), z.unknown()),
+    app: z.string().min(1).max(60).optional(),
+    deferred: z.boolean().optional(),
   })
   .strict();
 
 /** Passed once at startup. The worker never receives OS handles or other secrets. */
 export const workerInputSchema = z
   .object({
-    apiKey: z.string().min(10).max(4_096),
+    /** The OpenRouter key. */
+    apiKey: z.string().max(4_096),
     model: modelIdSchema,
     /** What the person calls their companion. */
     name: assistantNameSchema.default('Edi'),
@@ -37,13 +48,86 @@ export const workerInputSchema = z
           .strict(),
       )
       .max(4),
+    /**
+     * Where the person's own mouse was when they asked, in that screen's pixels: “this” and
+     * “here” mean whatever is under it. Edi never moves their pointer.
+     */
+    pointer: z
+      .object({
+        screen: z.number().int().min(1).max(4),
+        x: z.number().int().min(0),
+        y: z.number().int().min(0),
+        closeUp: z
+          .object({ label: z.string().min(1).max(160), jpeg: bytesWithin(4 * 1024 * 1024) })
+          .strict()
+          .optional(),
+        /** Boxes the person drew on that screen to say “this bit”. */
+        marks: z
+          .array(
+            z
+              .object({
+                x: z.number().int(),
+                y: z.number().int(),
+                width: z.number().int().positive(),
+                height: z.number().int().positive(),
+              })
+              .strict(),
+          )
+          .max(5)
+          .optional(),
+        /** What sits under it, and where that control is in the same screen's pixels. */
+        element: z
+          .object({
+            text: z.string().min(1).max(300),
+            named: z.boolean().default(false),
+            box: z
+              .object({
+                x: z.number().int(),
+                y: z.number().int(),
+                width: z.number().int().positive(),
+                height: z.number().int().positive(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .nullish()
+      .default(null),
     /** The question was spoken and the reply will be read aloud. */
     spoken: z.boolean(),
+    /** A background task works on its own for longer; chat answers the person in front of it. */
+    mode: z.enum(['chat', 'task']).default('chat'),
+    /** Model steps allowed in this run. */
+    maxSteps: z.number().int().min(1).max(40).default(10),
+    /**
+     * How much the model thinks before answering, when main lowers it (spoken turns); absent
+     * keeps the model's default. Main picks a level the model's catalog entry allows.
+     */
+    reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium']).optional(),
     /** Selected speech engine supports Chatterbox paralinguistic expression tags. */
     expressiveVoice: z.boolean().default(false),
+    /** What the person had in front of them when they asked; data from other apps. */
+    desktopContext: desktopContextSchema.nullable().default(null),
     /** Trusted, current, non-secret product configuration supplied by main. */
     selfContext: z.string().max(12_000).default(''),
-    tools: z.array(toolManifestEntrySchema).max(64),
+    /** Switched-on skills, by name and when to use them; skills_use loads the instructions. */
+    skills: z
+      .array(
+        z.object({ name: z.string().min(1).max(64), description: z.string().max(1024) }).strict(),
+      )
+      .max(60)
+      .default([]),
+    // Providers accept up to 128 tools per request. Deferred tools are declared but offered only
+    // once found, so the ones sent directly must leave room for those and web search.
+    tools: z
+      .array(toolManifestEntrySchema)
+      .max(400)
+      .refine(tools => tools.filter(entry => !entry.deferred).length <= 90, {
+        message: 'Too many tools sent directly.',
+      }),
   })
   .strict();
 export type WorkerInput = z.infer<typeof workerInputSchema>;
@@ -62,12 +146,28 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('done') }).strict(),
   /** Tokens and cost of one model call, as the provider reported them. */
   z.object({ type: z.literal('usage'), entry: usageEntrySchema }).strict(),
+  /**
+   * OpenRouter ran a web search during a step. Recorded as a step so the person (and a later
+   * look at the run) can see that the web was searched and which pages it found.
+   */
+  z
+    .object({
+      type: z.literal('web-search'),
+      query: z.string().max(300),
+      pages: z
+        .array(z.object({ url: z.string().url().max(2048), title: z.string().max(300) }).strict())
+        .max(10),
+    })
+    .strict(),
   /** A closed set of progress hints; provider output never becomes free text here. */
   z.object({ type: z.literal('activity'), activity: z.enum(['searching-web']) }).strict(),
   z
     .object({
       type: z.literal('error'),
-      kind: z.enum(['auth', 'credits', 'model', 'temporary', 'unknown']).default('unknown'),
+      kind: z
+        .enum(['auth', 'key-limit', 'credits', 'model', 'tools', 'temporary', 'unknown'])
+        .default('unknown'),
+      detail: providerFailureSchema.optional(),
     })
     .strict(),
 ]);
@@ -75,4 +175,50 @@ export type WorkerMessage = z.infer<typeof workerMessageSchema>;
 
 /** Main → worker. */
 export type HostMessage =
-  { type: 'stop' } | { type: 'tool-result'; id: string; outcome: ToolOutcome };
+  | { type: 'stop' }
+  /** Time is nearly up: stop using tools and answer from what has been found so far. */
+  | { type: 'wrap-up' }
+  | { type: 'tool-result'; id: string; outcome: ToolOutcome };
+
+/** Records a search OpenRouter ran as a finished, read-only step of `runId`. */
+export function recordWebSearch(
+  recorder: ToolCallRecorder,
+  runId: string,
+  search: Extract<WorkerMessage, { type: 'web-search' }>,
+) {
+  const id = randomUUID();
+  const hosts = [...new Set(search.pages.map(page => new URL(page.url).hostname))].slice(0, 3);
+  recorder.created({
+    id,
+    runId,
+    capability: 'web.search',
+    title: 'Search the web',
+    effect: 'read',
+    input: { query: search.query },
+    status: 'running',
+  });
+  recorder.finished(id, {
+    status: 'succeeded',
+    summary:
+      (search.query ? `Searched “${search.query}”. ` : '') +
+      (search.pages.length
+        ? `Found ${search.pages.length === 1 ? '1 page' : `${search.pages.length} pages`} (${hosts.join(', ')}).`
+        : 'Found nothing to cite.'),
+    output: search,
+  });
+}
+
+/** Keeps a failed call's safe summary for diagnosis; best effort, never blocks the run. */
+export function recordFailure(
+  repositories: Pick<Repositories, 'failures'>,
+  runId: string,
+  model: string,
+  failure: Extract<WorkerMessage, { type: 'error' }>,
+) {
+  if (!failure.detail) return;
+  try {
+    repositories.failures.add({ runId, model, kind: failure.kind, ...failure.detail }, Date.now());
+  } catch {
+    // Diagnostics never get in the way of telling the person what happened.
+  }
+}

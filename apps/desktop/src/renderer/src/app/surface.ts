@@ -11,14 +11,23 @@ import {
 
 /** Which window this renderer is. Main chooses it; unknown values fall back safely. */
 export type Surface =
-  'workspace' | 'artifact' | 'pet' | 'voice-status' | 'character-menu' | 'pointer';
+  | 'workspace'
+  | 'artifact'
+  | 'export'
+  | 'pet'
+  | 'voice-status'
+  | 'character-menu'
+  | 'pointer'
+  | 'annotate';
 const surfaces: readonly Surface[] = [
   'workspace',
   'artifact',
+  'export',
   'pet',
   'voice-status',
   'character-menu',
   'pointer',
+  'annotate',
 ];
 
 const params = new URLSearchParams(location.search);
@@ -41,6 +50,12 @@ export const artifactParams = {
       return null;
     }
   })(),
+};
+
+/** The hidden export page: what to draw, and whether for a PDF or a picture. */
+export const exportParams = {
+  reference: artifactParams.initial,
+  format: z.enum(['pdf', 'png', 'svg']).catch('pdf').parse(params.get('format')),
 };
 
 /** Main passes static bubble state in the URL. Validate it before rendering. */
@@ -67,6 +82,11 @@ export const menuParams = {
 const coordinate = (name: string) => {
   const value = Number(params.get(name));
   return Number.isFinite(value) ? Math.max(-20_000, Math.min(20_000, value)) : 0;
+};
+
+/** The colour the person's own marks are drawn in. */
+export const annotateParams = {
+  accent: hexColor('#e0533d').parse(params.get('accent')),
 };
 
 /** The pointer overlay's path, in window-local logical pixels. */

@@ -2,11 +2,19 @@ import { z } from 'zod';
 
 /**
  * Content Edi shows instead of reading out. Structured kinds are plain data drawn by Edi's own
- * components. `html` is the exception for interaction or visuals those kinds cannot express:
+ * components; a `diagram` is Mermaid text (https://mermaid.js.org) drawn by the bundled Mermaid
+ * in strict mode, so a follow-up edits the same text. `html` is the exception for interaction or visuals those kinds cannot express:
  * it is untrusted, served by main with a strict sandbox, and never rendered inside Edi's UI.
  * A summary travels with the conversation; the full content is fetched when it is opened.
  */
-export const artifactKindSchema = z.enum(['document', 'note', 'checklist', 'table', 'html']);
+export const artifactKindSchema = z.enum([
+  'document',
+  'note',
+  'checklist',
+  'table',
+  'diagram',
+  'html',
+]);
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 
 const title = z.string().trim().min(1).max(120);
@@ -39,6 +47,13 @@ export const artifactContentSchema = z.discriminatedUnion('kind', [
         .array(z.array(z.string().max(300)).max(8))
         .min(1)
         .max(100),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('diagram'),
+      title,
+      mermaid: z.string().trim().min(1).max(20_000).describe('The diagram, in Mermaid syntax'),
     })
     .strict(),
   z
@@ -123,7 +138,66 @@ export function artifactExport(content: ArtifactContent | Artifact) {
   }
   if (content.kind === 'html')
     return { copy: content.html, extension: 'html', file: content.html } as const;
+  // Copied as a fenced block so it renders when pasted into GitHub, Notion or Obsidian.
+  if (content.kind === 'diagram')
+    return {
+      copy: `\`\`\`mermaid\n${content.mermaid}\n\`\`\`\n`,
+      extension: 'mmd',
+      file: `${content.mermaid}\n`,
+    } as const;
   return { copy: content.markdown, extension: 'md', file: `${content.markdown}\n` } as const;
+}
+
+/**
+ * Export is its own step, apart from the working copy Edi keeps: a file made to hand to someone,
+ * written to Documents › Edi › Exports. Each kind offers the formats that suit it, first is the
+ * default. PDF and pictures are drawn by Edi's own renderer; the rest are text.
+ */
+export const exportFormatSchema = z.enum(['pdf', 'md', 'csv', 'png', 'svg', 'mmd', 'html']);
+export type ExportFormat = z.infer<typeof exportFormatSchema>;
+
+export const exportFormats: Record<ArtifactKind, readonly ExportFormat[]> = {
+  document: ['pdf', 'md'],
+  note: ['pdf', 'md'],
+  checklist: ['pdf', 'md'],
+  table: ['csv', 'pdf', 'md'],
+  diagram: ['png', 'svg', 'pdf', 'mmd'],
+  html: ['html'],
+};
+
+export const exportFormatLabel: Record<ExportFormat, string> = {
+  pdf: 'PDF',
+  md: 'Markdown',
+  csv: 'CSV',
+  png: 'PNG image',
+  svg: 'SVG image',
+  mmd: 'Mermaid source',
+  html: 'Web page',
+};
+
+/** Formats drawn by a renderer rather than written as text. */
+export const renderedExportFormats: readonly ExportFormat[] = ['pdf', 'png', 'svg'];
+
+/** A file name from a title: no path separators or characters Finder refuses. */
+export function exportFileName(title: string, format: ExportFormat) {
+  const name =
+    title
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\p{Cc}+/gu, '-')
+      .replace(/^[.\s-]+/, '')
+      .trim()
+      .slice(0, 100) || 'Edi';
+  return `${name}.${format}`;
+}
+
+/** The text formats of shown content. Rendered formats (PDF, pictures) come from the host. */
+export function artifactTextExport(content: ArtifactContent | Artifact, format: ExportFormat) {
+  if (!exportFormats[content.kind].includes(format) || renderedExportFormats.includes(format))
+    throw new Error(`A ${content.kind} can't be exported as ${exportFormatLabel[format]} text.`);
+  const portable = artifactExport(content);
+  // A table's own file is CSV; as Markdown it becomes a titled table.
+  if (format === 'md' && content.kind === 'table') return `# ${content.title}\n\n${portable.copy}`;
+  return portable.file;
 }
 
 /**
@@ -181,6 +255,7 @@ export function artifactPreview(content: ArtifactContent | { kind: 'note'; markd
     text = content.items.map(item => `${item.done ? '☑' : '☐'} ${item.text}`).join('\n');
   else if (content.kind === 'table')
     text = [content.columns.join(' · '), ...content.rows.map(row => row.join(' · '))].join('\n');
+  else if (content.kind === 'diagram') text = diagramPreview(content.mermaid);
   else
     text = content.markdown
       .split('\n')
@@ -195,4 +270,38 @@ export function artifactPreview(content: ArtifactContent | { kind: 'note'; markd
       .filter(Boolean)
       .join('\n');
   return text.slice(0, 280);
+}
+
+/** "Flowchart: Browser → API → Database" from Mermaid source: its type and first labels. */
+export function diagramPreview(source: string) {
+  const lines = source
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('%%'));
+  const type = (lines[0] ?? '').split(/\s+/)[0] ?? '';
+  const names: Record<string, string> = {
+    flowchart: 'Flowchart',
+    graph: 'Flowchart',
+    sequenceDiagram: 'Sequence',
+    classDiagram: 'Class diagram',
+    stateDiagram: 'State diagram',
+    'stateDiagram-v2': 'State diagram',
+    erDiagram: 'Entity relationships',
+    timeline: 'Timeline',
+    mindmap: 'Mind map',
+    gantt: 'Schedule',
+    pie: 'Pie chart',
+    journey: 'Journey',
+    quadrantChart: 'Quadrant chart',
+  };
+  const labels: string[] = [];
+  for (const match of source.matchAll(
+    /\[\(?"?([^\]"()]{1,40})"?\)?\]|\(\("?([^)"]{1,40})"?\)\)|\{"?([^}"]{1,40})"?\}|participant\s+(?:\w+\s+as\s+)?([^\n]{1,40})/g,
+  )) {
+    const label = (match[1] ?? match[2] ?? match[3] ?? match[4] ?? '').trim();
+    if (label && !labels.includes(label)) labels.push(label);
+    if (labels.length >= 6) break;
+  }
+  const kind = names[type] ?? 'Diagram';
+  return labels.length ? `${kind}: ${labels.join(' → ')}` : kind;
 }

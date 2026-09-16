@@ -10,25 +10,37 @@
   background: rgb(16 18 26 / 0.28);
   animation: approval-fade 200ms ease-out both;
 }
+/* A notification-style panel: thick glass, soft shadow, rounded like a macOS alert. */
 .approval-sheet {
+  box-sizing: border-box;
   width: 100%;
   max-height: calc(100% - 48px);
   overflow: auto;
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-5) var(--space-5) var(--space-4);
-  border-radius: var(--radius-inset);
-  background: var(--glass-fill-dense);
+  padding: 16px;
+  border-radius: 20px;
+  /* Dense enough that the conversation behind never reads through the buttons. */
+  background: var(--glass-thick-fill);
+  box-shadow:
+    0 0 0 0.5px var(--separator),
+    0 12px 32px rgb(0 0 0 / 0.22);
   transform-origin: bottom center;
   animation: approval-rise var(--spring-fast) var(--spring) both;
 }
 .approval-sheet:focus-visible {
-  box-shadow: var(--shadow-control), var(--focus-ring);
+  box-shadow:
+    0 0 0 0.5px var(--separator),
+    0 12px 32px rgb(0 0 0 / 0.22);
+}
+/* What the card will do, in full: labelled fields and the exact change. */
+.approval-review {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: 48px;
 }
 .approval-fields {
   display: grid;
   gap: 6px;
-  margin: var(--space-2) 0 0;
+  margin: 0;
 }
 .approval-fields > div {
   display: grid;
@@ -49,9 +61,9 @@
 .approval-body {
   max-height: 128px;
   overflow: auto;
-  margin: var(--space-1) 0 0;
+  margin: 0;
   padding: var(--space-3);
-  border-radius: var(--radius-control);
+  border-radius: 10px;
   background: var(--fill);
   font:
     11px/1.5 ui-monospace,
@@ -62,16 +74,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
-}
-.approval-error {
-  font: var(--text-footnote);
-  color: #c2502e;
-}
-.approval-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
 }
 @keyframes approval-fade {
   from {

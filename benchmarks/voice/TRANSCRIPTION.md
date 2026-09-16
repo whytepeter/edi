@@ -28,7 +28,7 @@ Next: bounded native transcription supervision, decode captured WebM to PCM16, r
 
 `provision_transcription.py` pins the model revisions, SHA-256 hashes, CMake wheel and whisper.cpp source commit. Models and the build tool are hash-checked against published metadata. The source archive's digest was recorded from the commit-specific official download and is now pinned for reuse. Downloads have per-file caps and no automatic retries. Partial files require review before retrying.
 
-Source commit: `927cfce34f31707e17f2bff35c349632fb9e2c3a`. Build only the local CLI with Metal, server, download support and third-party network services disabled. This initial setup is development-only, not a packaged app dependency.
+Source commit: `927cfce34f31707e17f2bff35c349632fb9e2c3a`. Build the local CLI and `whisper-server` (bound to 127.0.0.1 on a port Edi picks, so the model stays loaded between turns: about 0.8 s instead of 1.3–1.7 s for an 11 s clip with small.en on an M2 Pro) with Metal, download support and third-party network services disabled. This initial setup is development-only, not a packaged app dependency.
 
 After building, from the Edi root:
 
@@ -43,3 +43,20 @@ Use a new results directory for every run. JSON transcripts, process logs and su
 The base model is not a final accuracy choice. Inspect transcripts, especially Edi, Fewer Labs, Nigerian place names and technical abbreviations, before deciding whether this size is adequate. Silence must not be treated as a valid user command. VAD batch segmentation does not establish real-time turn detection or barge-in behavior.
 
 Sources: [whisper.cpp](https://github.com/ggml-org/whisper.cpp), [model inventory](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md), [VAD download definitions](https://github.com/ggml-org/whisper.cpp/blob/master/models/download-vad-model.sh).
+
+## Recognition comparison, 2026-09-15
+
+Prompted by real voice turns that misheard names and phrases ("Skill Tech" for Skaletek, "Clown" for Glown, "installed" for "in store", "What's my dear like"). `compare_recognition.py` runs each setup through `whisper-server` on the same audio and scores word error rate (WER) and whether the names were spelled right. Five macOS voices (en_IN Rishi, en_ZA Tessa, en_IE Moira, en_GB Daniel, en_US Samantha) read 8–10 sentences. These are synthetic voices, not the owner's accent: they compare setups, they do not show how well Edi hears a real person. `--recordings DIR` runs the same comparison on real recordings (`name.wav` at 16 kHz with `name.txt`).
+
+| Setup (M2 Pro) | WER | Names right | Median per clip |
+|---|---|---|---|
+| small.en, CPU | 6.2% | 6/15 | 0.70 s |
+| small.en, CPU + person's words | 3.4% | 15/15 | 0.72 s |
+| large-v3-turbo q5_0, Metal | 5.6% | 4/15 | 0.83 s |
+| large-v3-turbo q5_0, Metal + person's words | 3.1% | 12/15 | 0.84 s |
+
+Adding the end of Edi's previous reply to the prompt (10 sentences, 48 kHz source): small.en 4.7% → 2.8%, turbo 2.6%, 15/15 names each, and no text on silence or a hum. The reply used contained the tested names, so this is the best case for follow-ups. Turbo misheard "Edi" as "Eddie"/"Edy" in addressed sentences even with the name in the prompt; small.en did not. Turbo's first launch compiles Metal shaders for about 20 s (cached by macOS afterwards).
+
+Capture: linear 48 → 16 kHz downsampling without a filter (the first streaming capture) measured 6.5% vs 6.0% WER against proper resampling on small.en; the pet now records at 16 kHz so Chromium filters.
+
+Decision: small.en stays the default, with the person's words (Settings → Voice) and the last reply in the prompt, and "Hey Eddie" corrected to "Hey Edi" where Edi is addressed. `EDI_TRANSCRIPTION_MODEL=large-v3-turbo` switches to turbo on the Metal build (`WITH_METAL=1 sh build_transcription.sh`) for comparing with a real voice; switch the default only if real recordings show turbo ahead.

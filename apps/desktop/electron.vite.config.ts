@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['koffi'],
+        external: ['koffi', 'onnxruntime-node'],
         input: {
           index: resolve('src/main/index.ts'),
           'agent-worker': resolve('src/main/agent/agent-worker.ts'),

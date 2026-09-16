@@ -1,16 +1,34 @@
-import { BrowserWindow, desktopCapturer, screen, systemPreferences } from 'electron';
+import {
+  BrowserWindow,
+  desktopCapturer,
+  nativeImage,
+  screen,
+  systemPreferences,
+} from 'electron';
 
 import {
   createScreenContextSession,
+  describePointerElement,
   maxScreenshots,
+  pointerCloseUp,
+  pointerCloseUpLabel,
+  pointerElementSchema,
+  pointsAtCursor,
+  privateContextApps,
   screenLabel,
+  screenPointToScreenshot,
   screenshotJpegQuality,
   screenshotMaxEdge,
   type AgentState,
   type ScreenText,
 } from '@edi/contracts';
 
-import { captureDisplayJpeg, macScreenCaptureGranted, recognizedDisplayText } from '../permissions';
+import {
+  captureDisplayJpeg,
+  elementAtPointJson,
+  macScreenCaptureGranted,
+  recognizedDisplayText,
+} from '../permissions';
 
 export type ScreenAccess = NonNullable<AgentState['screenAccess']>;
 
@@ -39,9 +57,35 @@ export interface Screenshot {
   text?: Promise<ScreenText | undefined>;
 }
 
+/**
+ * Where the person's own mouse was when they asked, so “what's this?” has a subject. Edi never
+ * moves their pointer; this only says where it already is.
+ */
+export interface PointerContext {
+  /** 1-based index into `screenshots`. */
+  screen: number;
+  /** In that screenshot's pixels. */
+  x: number;
+  y: number;
+  /** A close-up of the area around it, when the question points at something. */
+  closeUp?: { label: string; jpeg: Uint8Array };
+  /**
+   * What sits under it, when Accessibility is granted: one line naming the control, and its box
+   * in the same screenshot's pixels so Edi can mark it exactly.
+   */
+  element?: {
+    text: string;
+    named: boolean;
+    box?: { x: number; y: number; width: number; height: number };
+  };
+  /** Boxes the person drew on this screen, in the same screenshot's pixels. */
+  marks?: { x: number; y: number; width: number; height: number }[];
+}
+
 export type ScreenContext = {
   screenshots: Screenshot[];
   access: ScreenAccess | null;
+  pointer?: PointerContext;
 };
 
 /**
@@ -50,19 +94,44 @@ export type ScreenContext = {
  */
 const screenContext = createScreenContextSession();
 
+/** A box the person drew on their own screen, in global logical coordinates. */
+export interface ScreenMark {
+  displayId: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+let marksNow: () => ScreenMark[] = () => [];
+let keepVisible: () => BrowserWindow[] = () => [];
+
+/**
+ * Main tells capture about the person's own marks and the overlay that shows them. That overlay
+ * is the one window Edi does not hide from the capture: the mark has to be in the picture.
+ */
+export function showMarksInCaptures(options: {
+  marks: () => ScreenMark[];
+  windows: () => BrowserWindow[];
+}) {
+  marksNow = options.marks;
+  keepVisible = options.windows;
+}
+
 /**
  * Generic conversation does not touch ScreenCaptureKit or allocate
  * image data unless screen context is actually needed.
  */
-export function captureScreensForPrompt(prompt: string): Promise<ScreenContext> {
-  if (!screenContext.decide(prompt)) {
-    return Promise.resolve({
-      screenshots: [],
-      access: null,
-    });
-  }
+export async function captureScreensForPrompt(
+  prompt: string,
+  /** Privacy mode: false while Edi mustn't look (paused, a screen share, a private app). */
+  mayLook: () => Promise<boolean> = async () => true,
+): Promise<ScreenContext> {
+  if (!screenContext.decide(prompt)) return { screenshots: [], access: null };
+  if (!(await mayLook().catch(() => false))) return { screenshots: [], access: null };
 
-  return captureScreens();
+  // “What's this?” gets a close-up around the pointer; every screen question gets its position.
+  return captureScreens({ closeUp: pointsAtCursor(prompt) });
 }
 
 /**
@@ -77,9 +146,10 @@ const GET_SOURCES_MS = 12_000;
  * Edi's own windows are hidden from the capture and nothing here
  * is written to disk.
  */
-export async function captureScreens(): Promise<{
+export async function captureScreens(options: { closeUp?: boolean } = {}): Promise<{
   screenshots: Screenshot[];
   access: ScreenAccess;
+  pointer?: PointerContext;
 }> {
   const access = currentScreenAccess();
 
@@ -95,14 +165,14 @@ export async function captureScreens(): Promise<{
     };
   }
 
-  if (access !== 'granted' && !macScreenCaptureGranted()) {
-    return {
-      screenshots: [],
-      access,
-    };
-  }
+  // macOS remembers its first “no” for the life of the process, so a permission granted while
+  // Edi is running still reads as denied. The capture is tried anyway: one that works proves it.
+  const believed = access === 'granted' || macScreenCaptureGranted();
 
-  const ownWindows = BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+  const shown = new Set(keepVisible());
+  const ownWindows = BrowserWindow.getAllWindows().filter(
+    win => !win.isDestroyed() && !shown.has(win),
+  );
 
   // Prevent Edi's own UI from appearing in screenshots.
   ownWindows.forEach(win => {
@@ -112,13 +182,17 @@ export async function captureScreens(): Promise<{
   try {
     const displays = screen.getAllDisplays();
 
-    const cursorDisplayId = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id;
+    const cursor = screen.getCursorScreenPoint();
+    const cursorDisplayId = screen.getDisplayNearestPoint(cursor).id;
 
     // Prefer native ScreenCaptureKit.
     const native = await captureDisplaysNative(displays);
 
-    // Fall back to Electron if native capture produced nothing.
-    const captured = (native.length ? native : await captureDisplaysElectron(displays))
+    // Electron's own path can record a denial without ever prompting, so it is a fallback only
+    // when macOS already says yes.
+    const captured = (
+      native.length ? native : believed ? await captureDisplaysElectron(displays) : []
+    )
       // Put the display containing the cursor first.
       .sort(
         (a, b) =>
@@ -147,9 +221,12 @@ export async function captureScreens(): Promise<{
       text: 'text' in row ? row.text : undefined,
     }));
 
+    // Nothing came back and macOS never said yes: the person still has to allow it.
+    if (!screenshots.length && !believed) return { screenshots: [], access };
     return {
       screenshots,
       access: currentScreenAccess(),
+      ...(await pointerContext(screenshots, cursor, options.closeUp === true, marksNow())),
     };
   } finally {
     ownWindows
@@ -158,6 +235,105 @@ export async function captureScreens(): Promise<{
         win.setContentProtection(false);
       });
   }
+}
+
+/**
+ * The pointer in the screenshot's own pixels, plus a close-up when asked for. The close-up comes
+ * from a sharper capture of that display when the native path is available, so small labels stay
+ * readable; otherwise from the screenshot already taken.
+ */
+async function pointerContext(
+  screenshots: Screenshot[],
+  cursor: { x: number; y: number },
+  closeUp: boolean,
+  marks: ScreenMark[],
+): Promise<{ pointer?: PointerContext }> {
+  const index = screenshots.findIndex(
+    shot =>
+      cursor.x >= shot.display.x &&
+      cursor.x < shot.display.x + shot.display.width &&
+      cursor.y >= shot.display.y &&
+      cursor.y < shot.display.y + shot.display.height,
+  );
+  const shot = screenshots[index];
+  if (!shot) return {};
+  const at = screenPointToScreenshot(cursor, shot, shot.display);
+  const pointer: PointerContext = { screen: index + 1, x: at.x, y: at.y };
+  const element = await pointerElement(cursor, shot);
+  if (element) pointer.element = element;
+  const marked = marks
+    .filter(mark => mark.displayId === shot.display.id)
+    .map(mark => boxInScreenshot(mark, shot));
+  if (marked.length) pointer.marks = marked;
+  // A mark says exactly what they mean, and the name of the control under the pointer usually
+  // answers the rest: the close-up is only worth its tokens when neither did.
+  if (!closeUp || marked.length > 0 || element?.named) return { pointer };
+
+  const sharper = await captureDisplayJpeg(shot.display.id, 3000, 90).catch(() => undefined);
+  const source = sharper ?? shot;
+  const image = nativeImage.createFromBuffer(Buffer.from(source.jpeg));
+  const size = image.getSize();
+  if (size.width > 0 && size.height > 0) {
+    const centre = screenPointToScreenshot(cursor, size, shot.display);
+    const width = Math.min(pointerCloseUp.width, size.width);
+    const height = Math.min(pointerCloseUp.height, size.height);
+    const crop = image
+      .crop({
+        x: Math.min(Math.max(centre.x - Math.round(width / 2), 0), size.width - width),
+        y: Math.min(Math.max(centre.y - Math.round(height / 2), 0), size.height - height),
+        width,
+        height,
+      })
+      .resize({ width: Math.min(width, pointerCloseUp.maxEdge), quality: 'better' });
+    const cropped = crop.getSize();
+    pointer.closeUp = {
+      label: pointerCloseUpLabel(pointer.screen, cropped.width, cropped.height),
+      jpeg: new Uint8Array(crop.toJPEG(pointerCloseUp.quality)),
+    };
+  }
+  return { pointer };
+}
+
+/** A box in global coordinates, in one screenshot's own pixels. */
+function boxInScreenshot(
+  box: { x: number; y: number; width: number; height: number },
+  shot: Screenshot,
+) {
+  const topLeft = screenPointToScreenshot(box, shot, shot.display);
+  const bottomRight = screenPointToScreenshot(
+    { x: box.x + box.width, y: box.y + box.height },
+    shot,
+    shot.display,
+  );
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: Math.max(1, bottomRight.x - topLeft.x),
+    height: Math.max(1, bottomRight.y - topLeft.y),
+  };
+}
+
+/** The control under the pointer, named and placed in the screenshot's own pixels. */
+async function pointerElement(cursor: { x: number; y: number }, shot: Screenshot) {
+  const raw = await elementAtPointJson(cursor.x, cursor.y).catch(() => null);
+  if (!raw) return undefined;
+  let parsed;
+  try {
+    parsed = pointerElementSchema.safeParse(JSON.parse(raw));
+  } catch {
+    return undefined;
+  }
+  if (!parsed.success) return undefined;
+  const element = parsed.data;
+  // A password manager's window is never described, the same as everywhere else.
+  if (element.bundleId && privateContextApps.has(element.bundleId)) return undefined;
+  const text = describePointerElement(element);
+  if (!text) return undefined;
+  // “Named” means the helper gave something a person would recognise, not just “group”.
+  const named = Boolean(element.name);
+  const frame = element.frame;
+  if (!frame || frame.width <= 0 || frame.height <= 0) return { text, named };
+  return { text, named, box: boxInScreenshot(frame, shot) };
 }
 
 function currentScreenAccess(): ScreenAccess {

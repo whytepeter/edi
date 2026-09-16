@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   systemInfoSchema,
+  ruleAllows,
   cloudVoiceOptionSchema,
   assistantName,
   agentStateSchema,
@@ -13,13 +14,18 @@ import {
   screenLabel,
   screenshotPointToScreen,
   voiceHostEventSchema,
-  maxVoicePcmBytes,
+  voiceSelectionSchema,
+  maxVoiceChunkBytes,
   parsePresentation,
   resolvePresentation,
   localizeActions,
   presentationScriptSchema,
   presentationText,
+  describePointerElement,
   needsScreenContext,
+  pointsAtCursor,
+  privateContextApps,
+  screenPointToScreenshot,
   createScreenContextSession,
   permissionSnapshotSchema,
 } from './index';
@@ -150,6 +156,22 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petPosition, null);
   // Preferences saved before speech could be turned off keep speaking.
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).speakReplies, true);
+  // Edi is a Chatterbox voice; it cannot be chosen for another model.
+  assert.equal(voiceSelectionSchema.safeParse({ model: 'chatterbox', voice: 'edi' }).success, true);
+  assert.equal(voiceSelectionSchema.safeParse({ model: 'kokoro', voice: 'edi' }).success, false);
+  // Words for recognition: trimmed, unique, bounded; anything malformed is dropped, not fatal.
+  assert.deepEqual(
+    settingsSchema.parse({
+      skin: 'edi',
+      pinned: false,
+      voiceWords: [' Skaletek ', 'Glown', 'Glown'],
+    }).voiceWords,
+    ['Skaletek', 'Glown'],
+  );
+  assert.deepEqual(
+    settingsSchema.parse({ skin: 'edi', pinned: false, voiceWords: ['x'.repeat(41)] }).voiceWords,
+    [],
+  );
   assert.equal(settingsSchema.parse({ skin: 'cloud', pinned: false }).petScale, 1);
   assert.equal(
     commandSchema.safeParse({ type: 'set-pet-scale', scale: 3, commit: true }).success,
@@ -200,7 +222,7 @@ test('stored settings require a supported avatar and boolean pin state', () => {
   );
   assert.equal(
     settingsSchema.parse({ skin: 'edi', pinned: false, voiceModel: 'chatterbox-turbo' }).voiceModel,
-    'chatterbox-turbo',
+    'chatterbox',
   );
   // Each model keeps its own voice; a retired voice falls back to that model's default.
   assert.deepEqual(
@@ -211,11 +233,38 @@ test('stored settings require a supported avatar and boolean pin state', () => {
     }).voices,
     {
       kokoro: 'bf_emma',
-      'chatterbox-turbo': 'calm',
+      chatterbox: 'built-in',
       cartesia: null,
       elevenlabs: null,
     },
   );
+  // Chatterbox's Calm and Expressive were saved as voices; they are deliveries now, and the
+  // voice itself becomes the built-in one.
+  const wasExpressive = settingsSchema.parse({
+    skin: 'edi',
+    pinned: false,
+    voiceModel: 'chatterbox-turbo',
+    voices: { kokoro: 'af_heart', 'chatterbox-turbo': 'turbo' },
+  });
+  assert.equal(wasExpressive.voiceModel, 'chatterbox');
+  assert.equal(wasExpressive.voices.chatterbox, 'built-in');
+  assert.equal(wasExpressive.voiceDelivery, 'expressive');
+  const wasCalm = settingsSchema.parse({
+    skin: 'edi',
+    pinned: false,
+    voices: { kokoro: 'af_heart', 'chatterbox-turbo': 'calm' },
+  });
+  assert.equal(wasCalm.voices.chatterbox, 'built-in');
+  assert.equal(wasCalm.voiceDelivery, 'calm');
+  // A voice made from a recording is kept, and delivery stays whatever was saved.
+  const own = settingsSchema.parse({
+    skin: 'edi',
+    pinned: false,
+    voiceDelivery: 'expressive',
+    voices: { kokoro: 'af_heart', 'chatterbox-turbo': 'peter' },
+  });
+  assert.equal(own.voices.chatterbox, 'peter');
+  assert.equal(own.voiceDelivery, 'expressive');
   assert.equal(
     commandSchema.safeParse({
       type: 'set-voice',
@@ -268,6 +317,9 @@ test('permission commands are generic, bounded and typed', () => {
       permissions: [
         { id: 'microphone', status: 'denied', requested: true },
         { id: 'screen-recording', status: 'not-determined', requested: false },
+        { id: 'accessibility', status: 'granted', requested: false },
+        { id: 'reminders', status: 'not-determined', requested: false },
+        { id: 'calendar', status: 'denied', requested: true },
       ],
     }).success,
     true,
@@ -325,6 +377,59 @@ test('screen context is attached only for requests about visible content', () =>
     'Read this image',
   ])
     assert.equal(needsScreenContext(prompt), true, prompt);
+});
+
+test('the pointer maps into a screenshot, and pointing words ask for its close-up', () => {
+  const display = { x: 1512, y: 0, width: 1512, height: 982 };
+  const image = { width: 1280, height: 831 };
+  // A point on the second display becomes that screenshot's own pixels.
+  assert.deepEqual(screenPointToScreenshot({ x: 2268, y: 491 }, image, display), {
+    x: 640,
+    y: 416,
+  });
+  // Anything off the display is clamped to its edge rather than sent as a wild coordinate.
+  assert.deepEqual(screenPointToScreenshot({ x: 9000, y: -50 }, image, display), {
+    x: 1280,
+    y: 0,
+  });
+  // The round trip lands back where it started.
+  const at = screenPointToScreenshot({ x: 2000, y: 300 }, image, display);
+  const back = screenshotPointToScreen(at, image, display);
+  assert.ok(Math.abs(back.x - 2000) <= 2 && Math.abs(back.y - 300) <= 2);
+
+  for (const prompt of [
+    "What's this?",
+    'Explain this chart',
+    'What does it do?',
+    'Where am I pointing?',
+  ])
+    assert.equal(pointsAtCursor(prompt), true, prompt);
+  for (const prompt of ['Summarize my screen', 'Read the visible chart', 'What can you do?'])
+    assert.equal(pointsAtCursor(prompt), false, prompt);
+});
+
+test('what the pointer is over reads as one line, and a password field keeps its value', () => {
+  assert.equal(
+    describePointerElement({
+      kind: 'button',
+      name: 'Export',
+      app: 'Numbers',
+      frame: { x: 10, y: 20, width: 90, height: 28 },
+    }),
+    'button “Export” in Numbers',
+  );
+  assert.equal(
+    describePointerElement({ role: 'AXTextField', name: 'Subject', value: 'Launch plan' }),
+    'textfield “Subject”, showing “Launch plan”',
+  );
+  // The helper omits a secure field's value; nothing invents one back.
+  assert.equal(
+    describePointerElement({ kind: 'secure text field', app: '1Password' }),
+    'secure text field in 1Password',
+  );
+  assert.equal(describePointerElement({}), 'something');
+  // A password manager is filtered by bundle id before it ever reaches this.
+  assert.equal(privateContextApps.has('com.1password.1password'), true);
 });
 
 test('short follow-ups recapture only during an active visual conversation', () => {
@@ -476,7 +581,7 @@ test('screenshots are labelled per display and points map back to those displays
 });
 
 test('voice messages carry typed audio and reject anything else', () => {
-  const pcm = { type: 'pcm', generation: 1, rate: 24000 };
+  const pcm = { type: 'pcm', generation: 1, turn: 1, rate: 24000 };
   assert.equal(
     voiceHostEventSchema.safeParse({ ...pcm, samples: new Float32Array(10) }).success,
     true,
@@ -486,13 +591,18 @@ test('voice messages carry typed audio and reject anything else', () => {
     voiceHostEventSchema.safeParse({ ...pcm, samples: new Float32Array(0) }).success,
     false,
   );
-  const audio = { type: 'voice-audio', generation: 1 };
+  // Microphone audio streams in chunks of at most one second of 16 kHz PCM16.
+  const audio = { type: 'voice-pcm', generation: 1 };
   assert.equal(commandSchema.safeParse({ ...audio, pcm: new Uint8Array(3200) }).success, true);
   assert.equal(commandSchema.safeParse({ ...audio, pcm: Buffer.alloc(3200) }).success, true);
   assert.equal(commandSchema.safeParse({ ...audio, pcm: new Uint8Array(3) }).success, false); // odd byte count
   assert.equal(
-    commandSchema.safeParse({ ...audio, pcm: new Uint8Array(maxVoicePcmBytes + 2) }).success,
+    commandSchema.safeParse({ ...audio, pcm: new Uint8Array(maxVoiceChunkBytes + 2) }).success,
     false,
+  );
+  assert.equal(
+    commandSchema.safeParse({ type: 'voice-event', generation: 1, event: 'long-pause' }).success,
+    true,
   );
 });
 
@@ -584,10 +694,80 @@ test('system info accepts the longest cloud voice name with its model', () => {
     voice: {
       available: true,
       name: `${voice.name} · ElevenLabs`,
-      models: ['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs'].map(model),
+      models: ['kokoro', 'chatterbox', 'cartesia', 'elevenlabs'].map(model),
+      packs: [
+        {
+          id: 'listening',
+          name: 'Listening model',
+          bytes: 487_614_201,
+          received: 120_000_000,
+          state: 'downloading',
+        },
+      ],
     },
     pushToTalk: { status: 'ready', label: '⌥ Space' },
-    notesFolder: '/Users/me/Documents/Edi',
+    workspaceFolder: '/Users/me/Documents/Edi',
   };
   assert.equal(systemInfoSchema.safeParse(info).success, true);
+});
+
+test('a saved rule allows only the same action when it covers everything the action touches', () => {
+  const request = (
+    capability: string,
+    scope?: { kind: 'folder' | 'site' | 'app' | 'any'; covers: string[] },
+  ) => ({
+    callId: '00000000-0000-4000-8000-000000000001',
+    runId: '00000000-0000-4000-8000-000000000002',
+    capability: { id: capability, title: 'x' },
+    preview: { title: 'x', action: 'x', summary: 'x', fields: [] },
+    ...(scope ? { scope: { ...scope, value: '', label: '' } } : {}),
+  });
+  const rule = (capabilityId: string, kind: 'folder' | 'site' | 'app' | 'any', value: string) => ({
+    id: '00000000-0000-4000-8000-000000000003',
+    capabilityId,
+    capabilityTitle: 'x',
+    kind,
+    value,
+    label: value,
+    createdAt: 0,
+  });
+  const desktop = rule('files.move', 'folder', '/Users/ada/Desktop');
+  assert.equal(
+    ruleAllows(
+      desktop,
+      request('files.move', {
+        kind: 'folder',
+        covers: ['/Users/ada/Desktop', '/Users/ada/Desktop/Shots'],
+      }),
+    ),
+    true,
+  );
+  // A sibling whose name starts the same, another folder, another action, or no scope: no.
+  for (const other of [
+    request('files.move', { kind: 'folder', covers: ['/Users/ada/Desktop Old/a'] }),
+    request('files.move', {
+      kind: 'folder',
+      covers: ['/Users/ada/Desktop/a', '/Users/ada/Downloads'],
+    }),
+    request('files.trash', { kind: 'folder', covers: ['/Users/ada/Desktop/a'] }),
+    request('files.move'),
+    request('files.move', { kind: 'folder', covers: [] }),
+  ])
+    assert.equal(ruleAllows(desktop, other), false);
+  const github = rule('mac.open_url', 'site', 'github.com');
+  assert.equal(
+    ruleAllows(github, request('mac.open_url', { kind: 'site', covers: ['gist.github.com'] })),
+    true,
+  );
+  assert.equal(
+    ruleAllows(github, request('mac.open_url', { kind: 'site', covers: ['evilgithub.com'] })),
+    false,
+  );
+  assert.equal(
+    ruleAllows(
+      rule('mac.reminders_create', 'any', ''),
+      request('mac.reminders_create', { kind: 'any', covers: [] }),
+    ),
+    true,
+  );
 });

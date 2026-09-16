@@ -43,7 +43,7 @@
   justify-content: center;
   animation: none;
 }
-/* A one-line status like "voice coming soon" stays on one line in its fitted window. */
+/* A one-line status like "Set up voice in Settings" stays on one line in its fitted window. */
 .status-bubble-surface[data-state='unavailable'] .bubble-reply {
   white-space: nowrap;
   font-size: 13px;
@@ -54,6 +54,28 @@
 
 .status-bubble-surface[data-state='artifact'] {
   padding: 2px 2px 7px;
+}
+
+/* A quiet offer: one line, then Not now and the action it names. */
+.status-bubble-surface[data-state='suggestion'] .ds-bubble {
+  box-sizing: border-box;
+  width: 100%;
+  align-items: stretch;
+}
+.bubble-suggestion {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+.bubble-suggestion p {
+  margin: 0;
+  font: var(--text-callout);
+  color: var(--label);
+}
+.bubble-suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .status-bubble-surface[data-state='notice'] .ds-bubble {
@@ -71,76 +93,12 @@
   width: 100%;
   max-width: 100%;
   min-height: 100%;
-  padding: var(--space-4);
+  padding: 14px;
   white-space: normal;
 }
-
-.bubble-approval {
-  align-items: stretch;
-}
-
-.bubble-approval h2,
-.bubble-approval p {
-  margin: 0;
-}
-
-.bubble-approval h2 {
-  margin-top: 2px;
-  overflow: hidden;
-  color: var(--label-primary);
-  font: var(--text-headline);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bubble-approval > p:not(.ds-eyebrow) {
-  display: -webkit-box;
-  margin-top: var(--space-1);
-  overflow: hidden;
-  color: var(--label-secondary);
-  font: var(--text-footnote);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.bubble-approval-field {
-  display: grid;
-  grid-template-columns: minmax(52px, auto) minmax(0, 1fr);
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  color: var(--label-tertiary);
-  font: var(--text-caption);
-}
-
-.bubble-approval-field strong {
-  overflow: hidden;
-  color: var(--label-secondary);
-  font-weight: 500;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bubble-approval-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.bubble-deny {
+/* The approval itself is the shared notification-style card (components/approval). */
+.status-bubble-surface[data-state='approval'] .approval-card {
   width: 100%;
-  margin-top: var(--space-1);
-  padding: var(--space-1);
-  border: 0;
-  color: var(--label-tertiary);
-  background: transparent;
-  font: var(--text-caption);
-  cursor: pointer;
-}
-
-.bubble-deny:hover:not(:disabled) {
-  color: var(--label-secondary);
 }
 
 .bubble-reply {

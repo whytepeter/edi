@@ -11,6 +11,7 @@ export interface Destination {
 export const primaryDestinations: readonly Destination[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'conversations', label: 'Conversations', icon: 'chat' },
+  { id: 'tasks', label: 'Tasks', icon: 'tasks' },
   { id: 'library', label: 'Library', icon: 'library' },
   { id: 'skills', label: 'Skills', icon: 'sparkles' },
   { id: 'connectors', label: 'Connectors', icon: 'plug' },
@@ -28,6 +29,8 @@ const pageTitles: Record<Exclude<WorkspaceView, WorkspaceSection>, string> = {
   'settings.usage': 'Usage',
   'settings.keyboard': 'Keyboard',
   'settings.privacy': 'Privacy & Permissions',
+  'settings.memory': 'Memory',
+  'settings.behavior': 'Behavior',
   'settings.activity': 'Activity',
   'settings.about': 'About Edi',
 };

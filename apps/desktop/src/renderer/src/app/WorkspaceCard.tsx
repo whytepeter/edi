@@ -21,8 +21,11 @@ import { SettingsView } from '../features/settings/SettingsView';
 import { AiSettings } from '../features/settings/AiSettings';
 import { VoiceSettings } from '../features/settings/VoiceSettings';
 import { UsageSettings } from '../features/settings/UsageSettings';
+import { TasksView } from '../features/tasks/TasksView';
 import { KeyboardSettings } from '../features/settings/KeyboardSettings';
 import { PrivacySettings } from '../features/settings/PrivacySettings';
+import { MemorySettings } from '../features/settings/MemorySettings';
+import { BehaviorSettings } from '../features/settings/BehaviorSettings';
 import { AboutSettings } from '../features/settings/AboutSettings';
 import { useSystemInfo } from '../features/settings/useSystemInfo';
 import {
@@ -172,7 +175,8 @@ export function WorkspaceCard() {
 
         <div className="workspace-pane">
           <main className="workspace-content" inert={blocked}>
-            {shownError && (
+            {/* A permission ask covers the page; its own errors show inside it. */}
+            {shownError && !activePermission && (
               <div role="alert" className="workspace-error">
                 {shownError}
               </div>
@@ -195,6 +199,13 @@ export function WorkspaceCard() {
               )}
               {view === 'conversations' && (
                 <AgentPanel onSetUp={() => navigate('settings.ai')} onOpenArtifact={openArtifact} />
+              )}
+              {view === 'tasks' && (
+                <TasksView
+                  defaultBudgetUsd={settings.taskBudgetUsd}
+                  onOpenArtifact={openArtifact}
+                  onOpenUsage={() => navigate('settings.usage')}
+                />
               )}
               {view === 'library' && <LibraryView refreshKey={refreshKey} onOpen={openArtifact} />}
               {view === 'skills' && <SkillsView />}
@@ -225,6 +236,12 @@ export function WorkspaceCard() {
                   voiceModel={settings.voiceModel}
                   voices={settings.voices}
                   speakReplies={settings.speakReplies}
+                  voiceInput={settings.voiceInput}
+                  onVoiceInput={input => void send({ type: 'set-voice-input', input })}
+                  voiceDelivery={settings.voiceDelivery}
+                  onVoiceDelivery={delivery => void send({ type: 'set-voice-delivery', delivery })}
+                  voiceWords={settings.voiceWords}
+                  onVoiceWords={words => void send({ type: 'set-voice-words', words })}
                   onVoiceModel={model => void send({ type: 'set-voice-model', model })}
                   onVoice={selection => void send({ type: 'set-voice', selection })}
                   onPreview={async selection => {
@@ -236,9 +253,37 @@ export function WorkspaceCard() {
               )}
               {view === 'settings.keyboard' && <KeyboardSettings system={system} />}
               {view === 'settings.privacy' && (
-                <PrivacySettings permissions={permissionSnapshot} onOpen={navigate} />
+                <PrivacySettings
+                  permissions={permissionSnapshot}
+                  shareDesktopContext={settings.shareDesktopContext}
+                  onShareDesktopContext={enabled =>
+                    void send({ type: 'set-share-desktop-context', enabled })
+                  }
+                  privacyPaused={settings.privacyPaused}
+                  pauseWhenSharing={settings.pauseWhenSharing}
+                  privateApps={settings.privateApps}
+                  onOpen={navigate}
+                />
               )}
-              {view === 'settings.usage' && <UsageSettings refreshKey={refreshKey} />}
+              {view === 'settings.usage' && (
+                <UsageSettings
+                  refreshKey={refreshKey}
+                  taskBudgetUsd={settings.taskBudgetUsd}
+                  onTaskBudget={budgetUsd => void send({ type: 'set-task-budget', budgetUsd })}
+                />
+              )}
+              {view === 'settings.memory' && (
+                <MemorySettings
+                  remember={settings.remember}
+                  onRemember={enabled => void send({ type: 'set-remember', enabled })}
+                />
+              )}
+              {view === 'settings.behavior' && (
+                <BehaviorSettings
+                  suggestions={settings.suggestions}
+                  onSuggestions={level => void send({ type: 'set-suggestions', level })}
+                />
+              )}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}
               {view === 'settings.about' && <AboutSettings system={system} />}
             </div>

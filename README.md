@@ -24,7 +24,7 @@ pnpm test:desktop
 pnpm package
 ```
 
-`package` produces an unpacked local app under `apps/desktop/release`. Distribution signing/notarization and custom application icons are not configured yet.
+`package` produces an unpacked local app under `apps/desktop/release`, unsigned and for this Mac only. `pnpm --filter @edi/desktop release` builds a signed, notarized `.dmg` and `.zip` for other Macs once a Developer ID certificate and notarization credentials are set up. See [docs/RELEASE.md](docs/RELEASE.md). Custom application icons are not configured yet.
 
 ## Working now
 

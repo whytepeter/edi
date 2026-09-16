@@ -42,9 +42,18 @@ button:disabled {
   cursor: default;
 }
 
+/* `hidden` always wins: a layout rule like `display: flex` must never bring a hidden view back. */
+[hidden] {
+  display: none !important;
+}
+
 :focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+/* Containers focused from code (a dialog, so keys reach it) aren't controls: no ring. */
+[tabindex='-1']:focus-visible {
+  box-shadow: none;
 }
 
 ::selection {

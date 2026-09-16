@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
+import type { VoiceDelivery } from '@edi/contracts';
 import type { Readable, Writable } from 'node:stream';
 
 /** The MLX speech runtime (benchmarks/voice/provision_mlx.py): one env, one worker script. */
@@ -8,7 +9,7 @@ export interface MlxRuntime {
   cache: string;
 }
 
-export type MlxEngineId = 'kokoro' | 'chatterbox-turbo';
+export type MlxEngineId = 'kokoro' | 'chatterbox';
 
 export interface MlxEngine {
   id: MlxEngineId;
@@ -18,6 +19,8 @@ export interface MlxEngine {
   label: string;
   /** Voice loaded and warmed at start; each reply may name another voice of the same model. */
   voice?: string;
+  /** Chatterbox voices made from recordings on this Mac: voice id → 24 kHz mono WAV path. */
+  references?: () => Readonly<Record<string, string>>;
 }
 
 type Consume = (pcm: Float32Array, sampleRate: number) => Promise<void>;
@@ -41,6 +44,9 @@ class MlxWorker {
   ) {
     const args = ['-u', runtime.worker, '--engine', engine.id, '--model', engine.model];
     if (engine.voice) args.push('--voice', engine.voice);
+    // Read at each start, so a reloaded worker has every voice added since.
+    for (const [voice, path] of Object.entries(engine.references?.() ?? {}))
+      if (/^[a-z]{2,20}$/.test(voice)) args.push('--reference', `${voice}=${path}`);
     this.child = spawn(runtime.python, args, {
       stdio: ['pipe', 'pipe', 'ignore'],
       env: {
@@ -185,13 +191,15 @@ export class MlxVoice {
     text: string,
     signal: AbortSignal,
     consume: Consume,
-    options: { voice?: string; timeoutMs?: number } = {},
+    options: { voice?: string; delivery?: VoiceDelivery; timeoutMs?: number } = {},
   ) {
     if (!text.trim() || text.length > 2_000) {
       return Promise.reject(new Error('Voice text must be 1–2000 characters'));
     }
-    const { voice, timeoutMs = 180_000 } = options;
-    const result = this.queue.then(() => this.utter(text, voice, signal, consume, timeoutMs));
+    const { voice, delivery, timeoutMs = 180_000 } = options;
+    const result = this.queue.then(() =>
+      this.utter(text, voice, delivery, signal, consume, timeoutMs),
+    );
     this.queue = result.catch(() => {});
     return result;
   }
@@ -237,6 +245,7 @@ export class MlxVoice {
   private async utter(
     text: string,
     voice: string | undefined,
+    delivery: VoiceDelivery | undefined,
     signal: AbortSignal,
     consume: Consume,
     timeoutMs: number,
@@ -261,7 +270,9 @@ export class MlxVoice {
       process = await race(this.ensure());
       timeout = deadline(timeoutMs, `${this.label} timed out`);
       const started = Date.now();
-      process.write(JSON.stringify(voice ? { text, voice } : { text }));
+      process.write(
+        JSON.stringify({ text, ...(voice ? { voice } : {}), ...(delivery ? { delivery } : {}) }),
+      );
       for (;;) {
         const frame = await race(process.next());
         if (frame.type === 'done') {

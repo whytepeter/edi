@@ -13,33 +13,51 @@ import {
   parsePresentation,
   modelIdSchema,
   resolvePresentation,
+  ruleAllows,
   type AgentState,
   type ApprovalRequest,
   type ArtifactSummary,
   type ChatMessage,
+  type ConversationSummary,
+  type DesktopContext,
   type ToolStep,
 } from '@edi/contracts';
 import type { Repositories, ThreadTurn } from '@edi/storage';
 import type { ScreenContext, Screenshot } from '../capture/screens';
 
 type CapturedScreens = ScreenContext;
+import type { ApprovalRules } from './approval-rules';
 import { ApprovalQueue } from './approvals';
 import type { OpenRouterCredentials } from './credentials';
-import { workerMessageSchema, type HostMessage, type WorkerInput } from './worker-protocol';
+import {
+  recordFailure,
+  recordWebSearch,
+  workerMessageSchema,
+  type HostMessage,
+  type WorkerInput,
+} from './worker-protocol';
 
 /** Wall-clock budget for a run, excluding time spent waiting for a person to decide. */
 const RUN_BUDGET_MS = 120_000;
+/** After the budget, the model gets this long to answer from what it found, without tools. */
+export const WRAP_UP_MS = 30_000;
 /** Conversation context: completed exchanges sent with each request. */
 const HISTORY_TURNS = 10;
 const MAX_TEXT = 32_000;
 const MAX_STEPS_SHOWN = 20;
 /** How long a finished reply waits for on-screen text before pointing without it. */
 const GROUNDING_WAIT_MS = 1500;
+/** The longest a question waits for the app, window, page and selection in front. */
+const CONTEXT_WAIT_MS = 2_000;
+/** A conversation Edi picked up by itself is continued only within this long of its last turn. */
+const FRESH_MS = 2 * 60 * 60 * 1000;
 
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
   capabilities: readonly Capability[];
+  /** Tools from connected apps, read at the start of each run. */
+  connectedTools?: () => readonly Capability[];
   /** Privacy gate decides locally whether this prompt needs current screen context. */
   captureScreens: (prompt: string) => Promise<CapturedScreens>;
   screenPermissionRequired?: () => void;
@@ -47,10 +65,21 @@ interface AgentServiceOptions {
   point?: (target: PointTarget) => void;
   /** Live, non-secret Edi configuration for identity and setup questions. */
   selfContext?: () => string;
+  /** Switched-on skills the model can pick from. */
+  skills?: () => { name: string; description: string }[];
   /** The companion's current name (the person's choice, or its character's). */
   assistantName?: () => string;
+  /**
+   * The least reasoning the model allows, for spoken turns: thinking before the first word is
+   * most of the wait in a voice reply. Undefined keeps the model's default.
+   */
+  spokenEffort?: (model: string) => WorkerInput['reasoningEffort'];
   /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
   readerModel?: () => string | null;
+  /** What the person has in front of them, gathered when they ask; null when off or unknown. */
+  desktopContext?: () => Promise<DesktopContext | null>;
+  /** Saved "Always allow" choices. */
+  rules?: ApprovalRules;
   /** Artifacts shown in finished turns, rebuilt from storage for the conversation thread. */
   threadArtifacts?: (runIds: string[]) => Map<string, ArtifactSummary[]>;
 }
@@ -59,6 +88,7 @@ export type PointTarget = NonNullable<ReturnType<typeof resolvePresentation>>;
 
 interface ActiveRun {
   id: string;
+  conversationId: string;
   /** A voice turn: shown content goes to the bubble rather than taking over the card. */
   spoken: boolean;
   /** Kept in memory for this run only (to map pointing back to displays). Never stored. */
@@ -66,6 +96,12 @@ interface ActiveRun {
   worker: Worker;
   abort: AbortController;
   deadline: PausableTimer;
+  /** The budget ran out and the model was asked to answer without more actions. */
+  wrappingUp: boolean;
+  /** A tool was called since the last text: the next words start a new paragraph. */
+  afterTool?: boolean;
+  /** What the worker was started with. */
+  input: WorkerInput;
 }
 
 type FinishedStatus = Extract<AgentState['status'], 'done' | 'stopped' | 'error'>;
@@ -79,19 +115,40 @@ export class AgentService {
   private run?: ActiveRun;
   /** Finished turns shown in the card; refreshed on load and when a run ends. */
   private cachedThread: ThreadTurn[] = [];
+  /** The conversation new questions join; null starts a new one with the next question. */
+  private conversationId: string | null = null;
+  /** The person chose this conversation, so it continues however long ago it was used. */
+  private conversationChosen = false;
   private cachedArtifacts = new Map<string, ArtifactSummary[]>();
+  private cachedSteps = new Map<string, ToolStep[]>();
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
   private starting?: object;
   private configuring = false;
   private readonly listeners = new Set<(state: AgentState) => void>();
-  private readonly approvals = new ApprovalQueue(head => this.onApprovalChange(head));
+  private readonly approvals = new ApprovalQueue(
+    head => this.onApprovalChange(head),
+    request =>
+      Boolean(this.options.rules?.allows(request)) ||
+      (this.run?.id === request.runId &&
+        Boolean(
+          this.allowedInConversation.get(this.run.conversationId)?.has(request.capability.id),
+        )),
+  );
+  /** Kinds of action the person allowed for the rest of a conversation, this session only. */
+  private readonly allowedInConversation = new Map<string, Set<string>>();
   private readonly broker: CapabilityBroker;
+  private readonly stepRecorder: ToolCallRecorder;
 
   constructor(private readonly options: AgentServiceOptions) {
-    this.broker = new CapabilityBroker(options.capabilities, {
-      approvals: this.approvals,
-      recorder: this.recorder(),
-    });
+    this.stepRecorder = this.recorder();
+    this.broker = new CapabilityBroker(
+      options.capabilities,
+      {
+        approvals: this.approvals,
+        recorder: this.stepRecorder,
+      },
+      () => options.connectedTools?.() ?? [],
+    );
   }
 
   onChange(listener: (state: AgentState) => void) {
@@ -101,9 +158,12 @@ export class AgentService {
 
   async load() {
     await this.options.credentials.load();
-    const { configured, model } = this.options.credentials;
+    const { model } = this.options.credentials;
+    // Pick up where the person left off if they were talking recently.
+    const latest = this.options.repositories.conversations.list(1)[0];
+    this.conversationId = latest && Date.now() - latest.updatedAt < FRESH_MS ? latest.id : null;
     this.refreshThread();
-    this.state = this.withMessages({ ...this.state, configured, model });
+    this.state = this.withMessages({ ...this.state, configured: this.canAnswer, model });
   }
 
   /** Without a new key, the saved key is kept and only the model changes. */
@@ -121,13 +181,29 @@ export class AgentService {
     }
   }
 
+  /**
+   * The person asked Edi to use another model: saved now, used from the next turn (the one
+   * running keeps its model). The key stays as it is.
+   */
+  async chooseModel(model: string) {
+    const key = this.options.credentials.apiKey;
+    if (!key) throw new Error('Connect OpenRouter in Settings → AI first.');
+    await this.options.credentials.save(key, model);
+    this.update({ ...this.state, model });
+  }
+
+  /** Edi can answer once OpenRouter is connected in Settings → AI. */
+  private get canAnswer() {
+    return this.options.credentials.configured;
+  }
+
   async disconnect() {
     if (this.configuring) throw new Error('Connection update in progress.');
     this.configuring = true;
     try {
       this.stop();
       await this.options.credentials.clear();
-      this.update(idle());
+      this.update({ ...idle(), configured: this.canAnswer });
     } finally {
       this.configuring = false;
     }
@@ -140,30 +216,50 @@ export class AgentService {
    */
   async ask(
     prompt: string,
-    options: { screens?: CapturedScreens; spoken?: boolean; expressiveVoice?: boolean } = {},
+    options: {
+      screens?: CapturedScreens;
+      spoken?: boolean;
+      expressiveVoice?: boolean;
+      /** Continue this conversation (for example after an app finished connecting). */
+      conversationId?: string;
+      /** Edi started this turn itself: the conversation shows this instead of the prompt. */
+      note?: string;
+    } = {},
   ): Promise<string | undefined> {
     const { credentials, repositories } = this.options;
-    if (!credentials.configured || this.configuring) throw new Error('Set up OpenRouter first.');
+    if (this.configuring || !credentials.configured) throw new Error('Set up OpenRouter first.');
     if (this.run || this.starting) throw new Error('A response is already running.');
 
     const starting = {};
     this.starting = starting;
+    const conversationId = this.conversationFor(prompt, options.conversationId);
     this.update({
       ...this.state,
       status: 'running',
       runId: null,
       prompt,
+      note: options.note ?? '',
       text: '',
       error: '',
       steps: [],
       artifacts: [],
       approval: null,
     });
-    const { screenshots, access } = await (
-      options.screens ? Promise.resolve(options.screens) : this.options.captureScreens(prompt)
-    ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' }));
+    // Desktop context is gathered alongside screens and never holds a question up for long.
+    const context = Promise.race([
+      (this.options.desktopContext?.() ?? Promise.resolve(null)).catch(() => null),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), CONTEXT_WAIT_MS)),
+    ]);
+    const [{ screenshots, access, pointer }, desktopContext] = await Promise.all([
+      (options.screens
+        ? Promise.resolve(options.screens)
+        : this.options.captureScreens(prompt)
+      ).catch((): CapturedScreens => ({ screenshots: [], access: 'unknown' })),
+      context,
+    ]);
     if (this.starting !== starting) return undefined; // stopped while capturing
     this.starting = undefined;
+    const model = credentials.model;
     if (access !== null && access !== 'granted') {
       this.options.screenPermissionRequired?.();
       this.update({
@@ -180,43 +276,76 @@ export class AgentService {
     repositories.runs.start({
       id,
       prompt,
-      model: credentials.model,
+      model,
       screens: screenshots.length,
       startedAt: Date.now(),
+      threadId: conversationId,
+      note: options.note ?? null,
     });
+    repositories.conversations.touch(conversationId, Date.now());
     const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
+    const reasoningEffort = options.spoken
+      ? this.options.spokenEffort?.(credentials.model)
+      : undefined;
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
-      model: credentials.model,
+      model,
       name: this.options.assistantName?.() ?? 'Edi',
       prompt,
-      history: repositories.runs.recentExchanges(HISTORY_TURNS),
+      history: repositories.runs.recentExchanges(HISTORY_TURNS, conversationId),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
+      // Where their own mouse was: “this” and “here” have a subject.
+      pointer: pointer ?? null,
       spoken: options.spoken ?? false,
+      mode: 'chat',
+      maxSteps: 10,
       expressiveVoice: options.expressiveVoice ?? false,
       selfContext: this.options.selfContext?.() ?? '',
+      skills: this.options.skills?.() ?? [],
+      desktopContext,
       ...(readerModel ? { readerModel } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       tools: this.broker.manifest(),
     };
     const run: ActiveRun = {
       id,
+      conversationId,
       spoken: options.spoken ?? false,
       screenshots,
-      worker: new Worker(join(__dirname, 'agent-worker.js'), { workerData }),
+      worker: this.spawn(workerData),
+      input: workerData,
       abort: new AbortController(),
-      deadline: new PausableTimer(RUN_BUDGET_MS, () =>
-        this.finish(run, 'error', 'The response timed out. You can try again.'),
-      ),
+      deadline: new PausableTimer(RUN_BUDGET_MS, () => {
+        if (run.wrappingUp)
+          return this.finish(run, 'error', 'The response timed out. You can try again.');
+        run.wrappingUp = true;
+        run.worker.postMessage({ type: 'wrap-up' } satisfies HostMessage);
+        run.deadline.restart(WRAP_UP_MS);
+      }),
+      wrappingUp: false,
     };
     this.run = run;
     this.update({ ...this.state, runId: id, screenAccess: access ?? null });
 
+    this.listen(run);
+    return id;
+  }
+
+  private spawn(workerData: WorkerInput) {
+    return new Worker(join(__dirname, 'agent-worker.js'), { workerData });
+  }
+
+  private listen(run: ActiveRun) {
     run.worker.on('message', raw => this.onWorkerMessage(run, raw));
     run.worker.on('error', () => this.finish(run, 'error', 'The response worker could not start.'));
     run.worker.on('exit', () =>
       this.finish(run, 'error', 'The response worker ended unexpectedly.'),
     );
-    return id;
+  }
+
+  /** Nothing has been said or done yet in this run, so it can start over elsewhere. */
+  private untouched() {
+    return !this.state.text.trim() && this.state.steps.length === 0;
   }
 
   /** Resolves with the final state of `runId`, or rejects if `signal` aborts first. */
@@ -246,6 +375,93 @@ export class AgentService {
     });
   }
 
+  /** The conversation a running response belongs to. */
+  conversationOfRun(runId: string) {
+    return this.run?.id === runId ? this.run.conversationId : undefined;
+  }
+
+  /** The next question starts a new conversation. */
+  newConversation() {
+    this.assertIdle();
+    this.conversationId = null;
+    this.conversationChosen = true;
+    this.showConversation();
+  }
+
+  openConversation(id: string) {
+    this.assertIdle();
+    if (!this.options.repositories.conversations.get(id))
+      throw new Error('That conversation no longer exists.');
+    this.conversationId = id;
+    this.conversationChosen = true;
+    this.showConversation();
+  }
+
+  /** Removes the conversation and its turns; what it saved to the workspace stays in Library. */
+  deleteConversation(id: string) {
+    if (this.run?.conversationId === id || (this.starting && this.conversationId === id))
+      throw new Error('Stop the response before deleting this conversation.');
+    this.options.repositories.conversations.remove(id);
+    this.allowedInConversation.delete(id);
+    if (this.conversationId === id) {
+      this.conversationId = null;
+      this.showConversation();
+    }
+  }
+
+  /** Most recent first; with a query, the best matches with what matched. */
+  conversations(query = '', limit = 100): ConversationSummary[] {
+    const { conversations } = this.options.repositories;
+    if (!query.trim())
+      return conversations
+        .list(limit)
+        .map(({ id, title, updatedAt, turns }) => ({ id, title, updatedAt, turns }));
+    return conversations.search(query, { limit: 50 }).map(match => ({
+      id: match.id,
+      title: match.title,
+      updatedAt: match.updatedAt,
+      turns: conversations.get(match.id)?.turns ?? 0,
+      excerpt: match.excerpt,
+    }));
+  }
+
+  private assertIdle() {
+    if (this.run || this.starting) throw new Error('Stop the response first.');
+  }
+
+  private showConversation() {
+    this.refreshThread();
+    const { configured, model, screenAccess } = this.state;
+    this.update({ ...idle(), configured, model, screenAccess });
+  }
+
+  /**
+   * The conversation this question joins. A conversation picked up automatically goes quiet
+   * after two hours, and the next question then starts a fresh one; one the person opened
+   * continues regardless.
+   */
+  private conversationFor(prompt: string, requested?: string) {
+    const { conversations } = this.options.repositories;
+    if (requested && conversations.get(requested)) {
+      if (this.conversationId !== requested) {
+        this.conversationId = requested;
+        this.conversationChosen = true;
+        this.refreshThread();
+      }
+      return requested;
+    }
+    const current = this.conversationId ? conversations.get(this.conversationId) : undefined;
+    const stale = current && !this.conversationChosen && Date.now() - current.updatedAt > FRESH_MS;
+    if (current && !stale) return current.id;
+    const id = randomUUID();
+    const title = prompt.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation';
+    conversations.create({ id, title, at: Date.now() });
+    this.conversationId = id;
+    this.conversationChosen = false;
+    this.refreshThread();
+    return id;
+  }
+
   stop() {
     if (this.starting) {
       this.starting = undefined;
@@ -267,11 +483,23 @@ export class AgentService {
   }
 
   /** Bound to the pending call: a decision for any other call ID is rejected. */
-  respondToApproval(callId: string, decision: 'approve' | 'deny') {
-    if (!this.run || this.state.approval?.callId !== callId) {
+  respondToApproval(callId: string, decision: 'approve' | 'approve-always' | 'deny') {
+    const approval = this.state.approval;
+    if (!this.run || approval?.callId !== callId) {
       throw new Error('That approval is no longer pending.');
     }
-    this.approvals.respond(callId, decision === 'approve' ? 'approved' : 'denied');
+    // An action that says where it applies is remembered there; others for this conversation.
+    const rule = decision === 'approve-always' ? this.options.rules?.save(approval) : null;
+    if (decision === 'approve-always' && !rule) {
+      const allowed = this.allowedInConversation.get(this.run.conversationId) ?? new Set<string>();
+      allowed.add(approval.capability.id);
+      this.allowedInConversation.set(this.run.conversationId, allowed);
+    }
+    this.approvals.respond(
+      callId,
+      decision === 'deny' ? 'denied' : 'approved',
+      rule ? request => ruleAllows(rule, request) : decision === 'approve-always',
+    );
   }
 
   private onWorkerMessage(run: ActiveRun, raw: unknown) {
@@ -296,24 +524,48 @@ export class AgentService {
         this.finish(run, 'error', 'Response reached the display limit. Ask for a shorter answer.');
         return;
       }
-      this.update({ ...this.state, text: this.state.text + message.text, activity: null });
+      // Words before a tool ("Sure, checking.") and the answer after it are separate paragraphs,
+      // not "checking.You have three emails".
+      const gap = run.afterTool && this.state.text.trim() && !/\s$/.test(this.state.text);
+      run.afterTool = false;
+      this.update({
+        ...this.state,
+        text: this.state.text + (gap ? '\n\n' : '') + message.text,
+        activity: null,
+      });
+    } else if (message.type === 'web-search') {
+      recordWebSearch(this.stepRecorder, run.id, message);
     } else if (message.type === 'activity') {
       this.update({ ...this.state, activity: message.activity });
     } else if (message.type === 'tool-call') {
+      run.afterTool = true;
       void this.invokeTool(run, message.id, message.name, message.input);
     } else if (message.type === 'done') {
-      const produced = this.state.text || this.state.steps.length || this.state.artifacts.length;
-      this.finish(
-        run,
-        produced ? 'done' : 'error',
-        produced ? '' : 'No text was returned. Try a text-capable model.',
-      );
+      // Tags alone (a mood, a pointer) are not an answer; steps without one leave the person
+      // with nothing, so that is reported rather than shown as a silent success.
+      const said = parsePresentation(this.state.text)
+        .text.replace(/\[MOOD:[a-z]+\]/gi, '')
+        .trim();
+      if (said || this.state.artifacts.length) this.finish(run, 'done');
+      else
+        this.finish(
+          run,
+          'error',
+          this.state.steps.length
+            ? 'Edi finished without an answer. Try again, or ask more specifically.'
+            : 'No text was returned. Try a text-capable model.',
+        );
     } else if (message.type === 'error') {
+      recordFailure(this.options.repositories, run.id, run.input.model, message);
       const errors = {
         auth: 'OpenRouter rejected the saved key. Replace it in Settings → AI.',
+        'key-limit':
+          'Your OpenRouter key reached its spending limit. Raise the limit for this key on openrouter.ai.',
         credits: 'OpenRouter has no available credits. Add credits, then try again.',
         model:
           'The selected OpenRouter model is unavailable or incompatible. Choose another model in Settings → AI.',
+        tools:
+          'The model couldn’t write out all of those actions at once. Try again, ask for a smaller step, or choose another model in Settings → AI.',
         temporary:
           'OpenRouter and its backup providers could not answer after retrying. Try again in a moment.',
         unknown:
@@ -346,6 +598,7 @@ export class AgentService {
     const presentation = parsePresentation(this.state.text);
     const { text } = presentation;
     this.options.repositories.runs.finish(run.id, { status, text, error, at: Date.now() });
+    this.options.repositories.conversations.touch(run.conversationId, Date.now());
     this.refreshThread();
     this.update({ ...this.state, status, text, error, approval: null });
     if (status === 'done' && presentation.actions.length)
@@ -419,13 +672,14 @@ export class AgentService {
   }
 
   private refreshThread() {
-    this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS);
-    this.cachedArtifacts =
-      this.options.threadArtifacts?.(this.cachedThread.map(turn => turn.id)) ?? new Map();
+    this.cachedThread = this.options.repositories.runs.thread(HISTORY_TURNS, this.conversationId);
+    const runIds = this.cachedThread.map(turn => turn.id);
+    this.cachedArtifacts = this.options.threadArtifacts?.(runIds) ?? new Map();
+    this.cachedSteps = this.options.repositories.toolCalls.steps(runIds);
   }
 
   private withMessages(state: AgentState): AgentState {
-    return { ...state, messages: this.buildMessages(state) };
+    return { ...state, conversationId: this.conversationId, messages: this.buildMessages(state) };
   }
 
   private buildMessages(state: AgentState): ChatMessage[] {
@@ -434,15 +688,21 @@ export class AgentService {
     for (const turn of this.cachedThread) {
       if (state.status === 'running' && turn.id === state.runId) continue;
       seen.add(turn.id);
-      messages.push({ id: `${turn.id}-u`, role: 'user', text: turn.prompt });
+      messages.push(
+        turn.note
+          ? { id: `${turn.id}-u`, role: 'note', text: turn.note }
+          : { id: `${turn.id}-u`, role: 'user', text: turn.prompt },
+      );
       const reply = turn.reply || turn.error;
       const artifacts = this.cachedArtifacts.get(turn.id);
-      if (reply || artifacts?.length)
+      const steps = this.cachedSteps.get(turn.id);
+      if (reply || artifacts?.length || steps?.length)
         messages.push({
           id: `${turn.id}-a`,
           role: 'assistant',
           text: reply,
           ...(artifacts?.length ? { artifacts } : {}),
+          ...(steps?.length ? { steps } : {}),
         });
     }
     const live =
@@ -450,7 +710,11 @@ export class AgentService {
       (state.status === 'running' || !state.runId || !seen.has(state.runId));
     if (live) {
       const id = state.runId ?? 'pending';
-      messages.push({ id: `${id}-u`, role: 'user', text: state.prompt });
+      messages.push(
+        state.note
+          ? { id: `${id}-u`, role: 'note', text: state.note }
+          : { id: `${id}-u`, role: 'user', text: state.prompt },
+      );
       if (state.text || state.status === 'running' || state.artifacts.length) {
         messages.push({
           id: `${id}-a`,
@@ -477,7 +741,7 @@ function idle(): AgentState {
 }
 
 /** A one-shot timer whose remaining time survives pause/resume. */
-class PausableTimer {
+export class PausableTimer {
   private timer?: ReturnType<typeof setTimeout>;
   private startedAt = 0;
 
@@ -499,10 +763,20 @@ class PausableTimer {
     if (this.timer) return;
     this.startedAt = Date.now();
     this.timer = setTimeout(this.onExpire, Math.max(0, this.remaining));
+    // A deadline alone never keeps the process alive (tests, and Edi quitting mid-task).
+    this.timer.unref?.();
   }
 
   clear() {
     clearTimeout(this.timer);
     this.timer = undefined;
+  }
+
+  /** Starts again with `ms` left, keeping whether it was paused. */
+  restart(ms: number) {
+    const paused = !this.timer;
+    this.clear();
+    this.remaining = ms;
+    if (!paused) this.resume();
   }
 }

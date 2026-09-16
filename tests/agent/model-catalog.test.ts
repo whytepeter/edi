@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   ModelCatalog,
   compatibleModels,
+  quickEffort,
+  quickEffortsFrom,
   readerModelFrom,
 } from '../../apps/desktop/src/main/agent/model-catalog';
 
@@ -65,6 +67,7 @@ test('recommendations pick the newest model of each suited family, never a batch
       entry('google/gemini-3.5-flash-lite', 5),
       entry('anthropic/claude-sonnet-5', 1),
       entry('anthropic/claude-opus-5', 1),
+      entry('openrouter/free', 1),
       entry('vendor/other', 9),
     ],
   });
@@ -75,6 +78,7 @@ test('recommendations pick the newest model of each suited family, never a batch
     fast: 'google/gemini-3.8-flash',
     balanced: 'anthropic/claude-sonnet-5',
     best: 'anthropic/claude-opus-5',
+    free: 'openrouter/free',
   });
 });
 
@@ -100,4 +104,48 @@ test('the page reader is the newest Gemini Flash Lite, by version, else the fast
     'google/gemini-3.8-flash',
   );
   assert.equal(readerModelFrom([]), null);
+});
+
+test('spoken turns ask for the least reasoning each model allows', () => {
+  const entry = (id: string, reasoning: unknown) => ({ ...vision, id, reasoning });
+  const efforts = quickEffortsFrom({
+    data: [
+      // Optional reasoning is switched off.
+      entry('anthropic/claude-sonnet-5', {
+        mandatory: false,
+        supported_efforts: ['max', 'xhigh', 'high', 'medium', 'low'],
+      }),
+      // Required reasoning gets its lowest level.
+      entry('google/gemini-3.8-flash', {
+        mandatory: true,
+        supported_efforts: ['high', 'medium', 'low'],
+      }),
+      // Unknown levels, only high levels or no reasoning keep the model's default.
+      entry('google/gemini-2.5-pro', { mandatory: true }),
+      entry('vendor/only-high', { mandatory: true, supported_efforts: ['high'] }),
+      entry('openai/gpt-4o-mini', undefined),
+      // A model Edi cannot offer still gets its level: the saved model may predate the filter.
+      { id: 'vendor/text-only', reasoning: { mandatory: false } },
+    ],
+  });
+  assert.deepEqual(Object.fromEntries(efforts), {
+    'anthropic/claude-sonnet-5': 'none',
+    'google/gemini-3.8-flash': 'low',
+    'vendor/text-only': 'none',
+  });
+  assert.equal(quickEffort(null), undefined);
+});
+
+test('the quickest reasoning level never waits for the catalog', async () => {
+  let calls = 0;
+  const catalog = new ModelCatalog((async () => {
+    calls++;
+    return new Response(JSON.stringify({ data: [{ ...vision, reasoning: { mandatory: false } }] }));
+  }) as typeof fetch);
+  // Nothing loaded yet: no level, and the catalog starts loading in the background.
+  assert.equal(catalog.quickEffort(vision.id), undefined);
+  await catalog.list();
+  assert.equal(calls, 1);
+  assert.equal(catalog.quickEffort(vision.id), 'none');
+  assert.equal(catalog.quickEffort('vendor/unknown'), undefined);
 });

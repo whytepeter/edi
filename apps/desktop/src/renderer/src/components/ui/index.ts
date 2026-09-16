@@ -1,4 +1,4 @@
-export { Icon, type IconName } from './Icon';
+export { Icon, isIconName, type IconName } from './Icon';
 export { Button, IconButton, ToolbarGroup } from './Button';
 export { TextField } from './TextField';
 export { SegmentedControl } from './SegmentedControl';

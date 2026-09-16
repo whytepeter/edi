@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { ApprovalPreview, ToolCallStatus } from '@edi/contracts';
+import type { ApprovalPreview, ApprovalScope, ToolCallStatus } from '@edi/contracts';
 
 /** read: no approval. write: changes something outside Edi and always needs review. */
 export type Effect = 'read' | 'write';
@@ -12,6 +12,8 @@ export interface CallContext {
 /** An action whose exact effect is fixed before review. Approval binds to this plan. */
 export interface PreparedAction {
   preview: ApprovalPreview;
+  /** Where "Always allow" may apply beyond this conversation; absent means this chat only. */
+  scope?: ApprovalScope;
   execute(signal: AbortSignal): Promise<ActionResult>;
 }
 
@@ -31,6 +33,10 @@ export interface Capability<Input = unknown> {
   description: string;
   effect: Effect;
   input: z.ZodType<Input>;
+  /** The JSON Schema shown to the model, when it comes from elsewhere (an MCP server's tool). */
+  inputSchema?: Record<string, unknown>;
+  /** The connected app a tool comes from; built-in tools have none. */
+  app?: string;
   timeoutMs: number;
   prepare(input: Input, context: CallContext): Promise<PreparedAction> | PreparedAction;
 }
@@ -70,7 +76,13 @@ export interface ToolCallRecorder {
 /** Asks a person. Must reject with an AbortError if `signal` aborts first. */
 export interface ApprovalGate {
   request(
-    request: { callId: string; runId: string; preview: ApprovalPreview },
+    request: {
+      callId: string;
+      runId: string;
+      /** Which kind of action this is, so a person can allow it for the rest of a chat. */
+      capability: { id: string; title: string; app?: string };
+      preview: ApprovalPreview;
+    },
     signal: AbortSignal,
   ): Promise<'approved' | 'denied'>;
 }
@@ -80,4 +92,8 @@ export interface ToolManifestEntry {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** The connected app it comes from. */
+  app?: string;
+  /** Declared but shown to the model only after it finds the tool with `find_app_tools`. */
+  deferred?: boolean;
 }

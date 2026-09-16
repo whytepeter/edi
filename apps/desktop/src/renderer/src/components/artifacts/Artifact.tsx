@@ -1,9 +1,18 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { Artifact, ArtifactKind, ArtifactRef, ArtifactSummary } from '@edi/contracts';
+import {
+  exportFormatLabel,
+  exportFormats,
+  type Artifact,
+  type ArtifactKind,
+  type ArtifactRef,
+  type ArtifactSummary,
+  type ExportFormat,
+} from '@edi/contracts';
 import { useSettings } from '../../hooks/useSettings';
 import { characterById, useCharacters } from '../../hooks/useCharacters';
-import { Icon, IconButton, type IconName } from '../ui';
+import { Icon, IconButton, Menu, type IconName } from '../ui';
 import { Markdown } from './Markdown';
+import { Diagram } from './Diagram';
 import './artifacts.css';
 
 const kindIcon: Record<ArtifactKind, IconName> = {
@@ -11,13 +20,15 @@ const kindIcon: Record<ArtifactKind, IconName> = {
   note: 'library',
   checklist: 'check',
   table: 'window',
+  diagram: 'chart',
   html: 'code',
 };
-const kindLabel: Record<ArtifactKind, string> = {
+export const kindLabel: Record<ArtifactKind, string> = {
   document: 'Document',
   note: 'Note',
   checklist: 'Checklist',
   table: 'Table',
+  diagram: 'Diagram',
   html: 'Interactive',
 };
 
@@ -48,6 +59,7 @@ const previewLabel: Record<ArtifactKind, string> = {
   note: 'Note',
   checklist: 'Checklist',
   table: 'Table',
+  diagram: 'Diagram',
   html: 'Interactive page',
 };
 
@@ -147,7 +159,29 @@ function InteractivePage({ reference, title }: { reference: ArtifactRef; title: 
   );
 }
 
-function Body({ artifact, reference }: { artifact: Artifact; reference: ArtifactRef }) {
+/** The content itself: in the artifact window, and on white in the hidden export page. */
+export function ArtifactBody({
+  artifact,
+  reference,
+  onDiagram,
+  onFixDiagram,
+  light = false,
+}: {
+  artifact: Artifact;
+  reference: ArtifactRef;
+  onDiagram?: (svg: string | null) => void;
+  onFixDiagram?: (problem: string) => void;
+  light?: boolean;
+}) {
+  if (artifact.kind === 'diagram')
+    return (
+      <Diagram
+        source={artifact.mermaid}
+        light={light}
+        {...(onDiagram ? { onRendered: onDiagram } : {})}
+        {...(onFixDiagram ? { onFix: onFixDiagram } : {})}
+      />
+    );
   if (artifact.kind === 'html')
     return <InteractivePage reference={reference} title={artifact.title} />;
   if (artifact.kind === 'checklist')
@@ -187,19 +221,22 @@ function Body({ artifact, reference }: { artifact: Artifact; reference: Artifact
   return <Markdown source={artifact.markdown} />;
 }
 
+/** Main's own reason (e.g. a note's file was deleted), without Electron's IPC wrapping. */
+function loadProblem(error: unknown) {
+  const text =
+    error instanceof Error
+      ? error.message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '').trim()
+      : '';
+  return text && text.length <= 240 ? text : 'This content is no longer available.';
+}
+
 /** Which actions make sense for each kind. Future kinds (images, HTML) may not copy as text. */
 const canCopy: Record<ArtifactKind, boolean> = {
   document: true,
   note: true,
   checklist: true,
   table: true,
-  html: true,
-};
-const canDownload: Record<ArtifactKind, boolean> = {
-  document: true,
-  note: true,
-  checklist: true,
-  table: true,
+  diagram: true,
   html: true,
 };
 
@@ -219,14 +256,30 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
   });
   const [actionError, setActionError] = useState({ key: '', message: '' });
   const [copiedKey, setCopiedKey] = useState('');
+  const [exportMenu, setExportMenu] = useState(false);
+  // Exporting, then what was written, for the content it belongs to.
+  const [exportStatus, setExportStatus] = useState<{
+    key: string;
+    name?: string;
+    elsewhere?: boolean;
+  }>({ key: '' });
   const artifact = loaded.key === key ? (loaded.artifact ?? null) : null;
   const error =
     (loaded.key === key ? loaded.error : '') ||
     (actionError.key === key ? actionError.message : '');
   const copied = copiedKey === key && key !== '';
 
-  // The window is reused: main sends new content instead of opening another window.
-  useEffect(() => window.edi?.onOpenArtifact(setReference), []);
+  // The window is reused: main sends new content instead of opening another window, or the same
+  // content again after it changed (a rename), which loads it afresh.
+  const [opened, setOpened] = useState(0);
+  useEffect(
+    () =>
+      window.edi?.onOpenArtifact(ref => {
+        setReference(ref);
+        setOpened(count => count + 1);
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!window.edi || !reference) return;
@@ -234,13 +287,13 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     window.edi
       .artifact(reference)
       .then(value => alive && setLoaded({ key, artifact: value }))
-      .catch(() => alive && setLoaded({ key, error: 'This content is no longer available.' }));
+      .catch((error: unknown) => alive && setLoaded({ key, error: loadProblem(error) }));
     return () => {
       alive = false;
     };
-    // `key` identifies the reference; a new object for the same content need not reload.
+    // `key` identifies the content; `opened` counts every time main sends it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, opened]);
 
   useEffect(() => {
     if (!copied) return;
@@ -248,16 +301,25 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
     return () => clearTimeout(timer);
   }, [copied]);
 
+  const exportShown = exportStatus.key === key && key !== '' ? exportStatus : null;
+  const exportDone = Boolean(exportShown?.name);
+  useEffect(() => {
+    if (!exportDone) return;
+    const timer = setTimeout(() => setExportStatus({ key: '' }), 8000);
+    return () => clearTimeout(timer);
+  }, [exportDone]);
+
   const close = () => void window.edi?.command({ type: 'close-artifact' });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
+      // The export menu handles its own Escape first.
+      if (event.key === 'Escape' && !event.defaultPrevented) close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const act = async (type: 'artifact-copy' | 'artifact-download' | 'artifact-reveal') => {
+  const act = async (type: 'artifact-copy' | 'artifact-reveal') => {
     if (!reference || !window.edi) return;
     try {
       setActionError({ key: '', message: '' });
@@ -267,16 +329,29 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
       setActionError({
         key,
         message:
-          type === 'artifact-reveal'
-            ? 'Couldn’t find the saved file.'
-            : type === 'artifact-copy'
-              ? 'Couldn’t copy this.'
-              : 'Couldn’t save a copy.',
+          type === 'artifact-reveal' ? 'Couldn’t find the saved file.' : 'Couldn’t copy this.',
       });
     }
   };
 
+  /** Straight into Documents › Edi › Exports, or through the save panel with `choose`. */
+  const exportAs = async (format: ExportFormat, choose = false) => {
+    setExportMenu(false);
+    if (!reference || !window.edi) return;
+    const forKey = key;
+    setActionError({ key: '', message: '' });
+    setExportStatus({ key: forKey });
+    try {
+      const result = await window.edi.exportArtifact(reference, format, choose);
+      setExportStatus(result ? { key: forKey, name: result.name, elsewhere: choose } : { key: '' });
+    } catch {
+      setExportStatus({ key: '' });
+      setActionError({ key: forKey, message: 'Couldn’t export this. Try another format.' });
+    }
+  };
+
   const kind = artifact?.kind;
+  const formats = kind ? exportFormats[kind] : [];
   return (
     <article
       className="artifact-window ds-card glass-window"
@@ -305,11 +380,13 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
               onClick={() => void act('artifact-copy')}
             />
           )}
-          {kind && canDownload[kind] && (
+          {artifact && formats.length > 0 && (
             <IconButton
               icon="download"
-              label="Download"
-              onClick={() => void act('artifact-download')}
+              label="Export"
+              aria-haspopup="menu"
+              aria-expanded={exportMenu}
+              onClick={() => setExportMenu(open => !open)}
             />
           )}
           {artifact && (
@@ -328,8 +405,72 @@ export function ArtifactWindow({ initial }: { initial: ArtifactRef | null }) {
             {error}
           </p>
         )}
-        {artifact && reference && <Body artifact={artifact} reference={reference} />}
+        {artifact && reference && (
+          <ArtifactBody
+            artifact={artifact}
+            reference={reference}
+            {...('callId' in reference
+              ? {
+                  onFixDiagram: (problem: string) =>
+                    void window.edi
+                      ?.command({ type: 'artifact-fix', ref: reference, problem })
+                      .catch(() =>
+                        setActionError({ key, message: 'Couldn’t ask Edi to fix this.' }),
+                      ),
+                }
+              : {})}
+          />
+        )}
       </div>
+      {exportMenu && (
+        <>
+          <button
+            type="button"
+            className="artifact-menu-dismiss"
+            aria-label="Close menu"
+            onClick={() => setExportMenu(false)}
+          />
+          <Menu
+            label="Export as"
+            className="artifact-export-menu"
+            onDismiss={() => setExportMenu(false)}
+            items={[
+              ...formats.map(format => ({
+                id: format,
+                label: exportFormatLabel[format],
+                onSelect: () => void exportAs(format),
+              })),
+              { separator: true },
+              {
+                id: 'choose',
+                label: 'Export to…',
+                icon: 'folder' as const,
+                onSelect: () => void exportAs(formats[0]!, true),
+              },
+            ]}
+          />
+        </>
+      )}
+      {exportShown && (
+        <div className="artifact-export-status" role="status">
+          {exportShown.name ? (
+            <>
+              <Icon name="check" size={14} />
+              <span>
+                Exported “{exportShown.name}”{exportShown.elsewhere ? '' : ' to Exports'}
+              </span>
+              <button
+                type="button"
+                onClick={() => void window.edi?.command({ type: 'reveal-export' })}
+              >
+                Show in Finder
+              </button>
+            </>
+          ) : (
+            <span>Exporting…</span>
+          )}
+        </div>
+      )}
     </article>
   );
 }

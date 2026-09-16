@@ -53,6 +53,14 @@
 .home-input::placeholder {
   color: var(--label-tertiary);
 }
+/*
+ * The whole pill shows this field's focus (.home-composer:has below), so the field itself must
+ * not also draw the global :focus-visible ring from base.css — being a bare input with no radius
+ * of its own, that ring squares off a second box inside the capsule.
+ */
+.home-input:focus-visible {
+  box-shadow: none;
+}
 .home-send {
   display: grid;
   flex: none;
@@ -67,7 +75,11 @@
 .home-send:disabled {
   opacity: 0.35;
 }
-.home-composer:focus-within {
+/*
+ * The pill lights up for the field only. Tabbing to Send shows Send's own ring instead, so the
+ * two never stack.
+ */
+.home-composer:has(.home-input:focus) {
   box-shadow:
     var(--focus-ring),
     inset 0 0 0 1px var(--accent-fill);

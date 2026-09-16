@@ -31,6 +31,50 @@ test('the artifact session loads only Edi itself, its private scheme and inline 
   assert.equal(allowed('http://localhost:5174/', 'http://localhost:5173'), false);
 });
 
+test('a page is taken whichever field it arrives in, and says which field it wants', () => {
+  const page = '<!doctype html><html lang="en"><body><canvas id="board"></canvas></body></html>';
+  // The model sent an interactive page in `markdown`; the content is the page either way.
+  assert.deepEqual(toArtifactContent({ kind: 'html', title: 'Chess', markdown: page }), {
+    kind: 'html',
+    title: 'Chess',
+    html: page,
+  });
+  assert.deepEqual(
+    toArtifactContent({ kind: 'diagram', title: 'Flow', markdown: 'flowchart LR\n  a --> b' }),
+    { kind: 'diagram', title: 'Flow', mermaid: 'flowchart LR\n  a --> b' },
+  );
+  // With no content at all, the message names the field to use.
+  assert.throws(() => toArtifactContent({ kind: 'html', title: 'Empty' }), /in `html`/);
+  assert.throws(() => toArtifactContent({ kind: 'diagram', title: 'Empty' }), /in `mermaid`/);
+});
+
+test('a page that needs the web is refused, because the sandbox would leave it empty', () => {
+  // What Edi actually wrote for the 3D chess game: the board never appeared.
+  const chess =
+    '<!doctype html><html><head>' +
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>' +
+    '<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>' +
+    '</head><body><script>const s = new THREE.Scene();</script></body></html>';
+  assert.throws(() => toArtifactContent({ kind: 'html', title: '3D Chess', html: chess }), {
+    message: /no network.*never loads/s,
+  });
+  for (const bad of [
+    '<link href="https://fonts.googleapis.com/css2?family=Inter" rel="stylesheet">',
+    '<script type="module">import * as THREE from \'https://unpkg.com/three\';</script>',
+    "<script>fetch('https://example.com/scores')</script>",
+    '<img src="http://example.com/piece.png">',
+  ])
+    assert.throws(
+      () => toArtifactContent({ kind: 'html', title: 'Page', html: `<!doctype html>${bad}` }),
+      /no network/,
+      bad,
+    );
+  // A link the person can read is not a load, and stays allowed.
+  const linked =
+    '<!doctype html><html><body><a href="https://example.com">Example</a><script>1;</script></body></html>';
+  assert.equal(toArtifactContent({ kind: 'html', title: 'Links', html: linked }).kind, 'html');
+});
+
 test('interactive pages are sandboxed, legible by default, and exported as HTML', () => {
   assert.match(ARTIFACT_HTML_CSP, /default-src 'none'/);
   assert.match(ARTIFACT_HTML_CSP, /sandbox allow-scripts(;|$)/);
@@ -55,5 +99,5 @@ test('interactive pages are sandboxed, legible by default, and exported as HTML'
   assert.deepEqual(artifactExport(page), { copy: page.html, extension: 'html', file: page.html });
   assert.equal(artifactPreview(page), 'Tip Split the bill');
   assert.deepEqual(toArtifactContent(page), page);
-  assert.throws(() => toArtifactContent({ kind: 'html', title: 'Empty' }), /needs its HTML/);
+  assert.throws(() => toArtifactContent({ kind: 'html', title: 'Empty' }), /needs the whole page, in `html`/);
 });

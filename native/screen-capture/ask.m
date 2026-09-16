@@ -1,7 +1,10 @@
 #import <AppKit/AppKit.h>
+#import <ApplicationServices/ApplicationServices.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <EventKit/EventKit.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
+#import <PDFKit/PDFKit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <Vision/Vision.h>
 #import <math.h>
@@ -205,6 +208,313 @@ void edi_start_text_recognition_file(const char *path, uint32_t key) {
   if (image) CGImageRelease(image);
 }
 
+/*
+ * Text of a document the person asked Edi to read: a PDF's own text, or recognized text for
+ * scanned pages and images. Blocking; call it off the main thread (koffi async). Returns the
+ * UTF-8 bytes written to `dest` (cut at a character boundary to fit), 0 when there is no
+ * text, or -1 when the file cannot be opened.
+ */
+static NSString *edi_ocr_lines(CGImageRef image) {
+  if (!image) return @"";
+  VNRecognizeTextRequest *request = [VNRecognizeTextRequest new];
+  request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+  request.usesLanguageCorrection = YES;
+  VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:image options:@{}];
+  if (![handler performRequests:@[ request ] error:nil]) return @"";
+  NSMutableArray<NSString *> *lines = [NSMutableArray array];
+  for (VNRecognizedTextObservation *observation in request.results) {
+    NSString *line = [[observation topCandidates:1] firstObject].string;
+    if (line.length) [lines addObject:line];
+  }
+  return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSString *edi_trimmed(NSString *text) {
+  return [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+int edi_document_text(const char *path, int max_pages, char *dest, int capacity) {
+  if (!path || !dest || capacity <= 0) return -1;
+  @autoreleasepool {
+    NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
+    NSString *extension = url.pathExtension.lowercaseString;
+    NSMutableString *text = [NSMutableString string];
+    if ([extension isEqualToString:@"pdf"]) {
+      PDFDocument *document = [[PDFDocument alloc] initWithURL:url];
+      if (!document || document.isLocked) return -1;
+      const NSInteger pages = MIN(document.pageCount, (NSInteger)MAX(1, max_pages));
+      for (NSInteger index = 0; index < pages; index++) {
+        PDFPage *page = [document pageAtIndex:index];
+        if (!page) continue;
+        NSString *own = edi_trimmed(page.string ?: @"");
+        if (own.length < 40) {
+          // A scanned page: draw it at about 2x and read the picture.
+          const NSRect box = [page boundsForBox:kPDFDisplayBoxMediaBox];
+          const double scale = MIN(2.0, 2400.0 / MAX(1.0, MAX(box.size.width, box.size.height)));
+          NSImage *picture = [page thumbnailOfSize:NSMakeSize(box.size.width * scale, box.size.height * scale)
+                                            forBox:kPDFDisplayBoxMediaBox];
+          CGImageRef image = [picture CGImageForProposedRect:NULL context:nil hints:nil];
+          NSString *seen = edi_trimmed(edi_ocr_lines(image));
+          if (seen.length > own.length) own = seen;
+        }
+        if (!own.length) continue;
+        if (pages > 1) [text appendFormat:@"%@[Page %ld]\n", text.length ? @"\n\n" : @"", (long)index + 1];
+        [text appendString:own];
+      }
+    } else {
+      CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
+      CGImageRef image = source ? CGImageSourceCreateImageAtIndex(source, 0, NULL) : NULL;
+      if (source) CFRelease(source);
+      if (!image) return -1;
+      [text appendString:edi_trimmed(edi_ocr_lines(image))];
+      CGImageRelease(image);
+    }
+    NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
+    NSUInteger length = MIN(data.length, (NSUInteger)capacity);
+    const uint8_t *bytes = data.bytes;
+    // Never end inside a multi-byte character.
+    if (length < data.length)
+      while (length > 0 && (bytes[length] & 0xC0) == 0x80) length--;
+    memcpy(dest, bytes, length);
+    return (int)length;
+  }
+}
+
+/*
+ * Reminders and Calendar through EventKit. Every call blocks (koffi async runs it off the main
+ * thread), takes and returns JSON, and uses a fresh store so access granted a moment ago applies.
+ * entity: 0 events, 1 reminders. Status: 0 not determined, 1 restricted, 2 denied, 3 full access,
+ * 4 write only.
+ */
+static EKEntityType edi_entity(int entity) { return entity == 1 ? EKEntityTypeReminder : EKEntityTypeEvent; }
+
+int edi_eventkit_status(int entity) {
+  return (int)[EKEventStore authorizationStatusForEntityType:edi_entity(entity)];
+}
+
+bool edi_eventkit_request(int entity) {
+  EKEventStore *store = [EKEventStore new];
+  dispatch_semaphore_t done = dispatch_semaphore_create(0);
+  __block BOOL granted = NO;
+  void (^finish)(BOOL, NSError *) = ^(BOOL ok, NSError *error) {
+    granted = ok;
+    dispatch_semaphore_signal(done);
+  };
+  if (@available(macOS 14.0, *)) {
+    if (entity == 1) [store requestFullAccessToRemindersWithCompletion:finish];
+    else [store requestFullAccessToEventsWithCompletion:finish];
+  } else {
+    [store requestAccessToEntityType:edi_entity(entity) completion:finish];
+  }
+  // The person may take a while to answer the prompt.
+  dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_SEC));
+  return granted;
+}
+
+static NSString *edi_string(id value, NSUInteger max) {
+  if (![value isKindOfClass:NSString.class]) return @"";
+  NSString *text = value;
+  return text.length > max ? [text substringToIndex:max] : text;
+}
+
+static EKCalendar *edi_calendar_named(EKEventStore *store, EKEntityType type, NSString *name) {
+  if (name.length == 0) return nil;
+  for (EKCalendar *calendar in [store calendarsForEntityType:type])
+    if ([calendar.title compare:name options:NSCaseInsensitiveSearch] == NSOrderedSame) return calendar;
+  return nil;
+}
+
+static NSNumber *edi_ms(NSDate *date) { return date ? @((long long)(date.timeIntervalSince1970 * 1000)) : (id)NSNull.null; }
+static NSDate *edi_date(id value) {
+  return [value isKindOfClass:NSNumber.class] ? [NSDate dateWithTimeIntervalSince1970:[value doubleValue] / 1000.0] : nil;
+}
+
+static id edi_eventkit_do(NSDictionary *request) {
+  NSString *op = edi_string(request[@"op"], 40);
+  EKEventStore *store = [EKEventStore new];
+  NSCalendar *gregorian = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+
+  if ([op isEqualToString:@"reminders.list"]) {
+    NSString *include = edi_string(request[@"include"], 20);
+    EKCalendar *only = edi_calendar_named(store, EKEntityTypeReminder, edi_string(request[@"list"], 200));
+    if (edi_string(request[@"list"], 200).length && !only) return @{@"error" : @"There is no reminders list with that name."};
+    NSArray *calendars = only ? @[ only ] : nil;
+    NSPredicate *predicate =
+        [include isEqualToString:@"completed"] ? [store predicateForCompletedRemindersWithCompletionDateStarting:nil ending:nil calendars:calendars]
+        : [include isEqualToString:@"all"]     ? [store predicateForRemindersInCalendars:calendars]
+                                               : [store predicateForIncompleteRemindersWithDueDateStarting:nil ending:nil calendars:calendars];
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    __block NSArray<EKReminder *> *found = @[];
+    [store fetchRemindersMatchingPredicate:predicate
+                                completion:^(NSArray<EKReminder *> *reminders) {
+                                  found = reminders ?: @[];
+                                  dispatch_semaphore_signal(done);
+                                }];
+    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC));
+    NSInteger limit = MAX(1, MIN(200, [request[@"limit"] integerValue] ?: 50));
+    NSArray *sorted = [found sortedArrayUsingComparator:^NSComparisonResult(EKReminder *a, EKReminder *b) {
+      NSDate *x = a.dueDateComponents ? [gregorian dateFromComponents:a.dueDateComponents] : NSDate.distantFuture;
+      NSDate *y = b.dueDateComponents ? [gregorian dateFromComponents:b.dueDateComponents] : NSDate.distantFuture;
+      return [x compare:y];
+    }];
+    NSMutableArray *items = [NSMutableArray array];
+    for (EKReminder *reminder in sorted) {
+      if ((NSInteger)items.count >= limit) break;
+      NSDateComponents *due = reminder.dueDateComponents;
+      [items addObject:@{
+        @"title" : edi_string(reminder.title, 300),
+        @"due" : due ? edi_ms([gregorian dateFromComponents:due]) : NSNull.null,
+        @"dueHasTime" : @(due && due.hour != NSDateComponentUndefined),
+        @"notes" : edi_string(reminder.notes, 1000),
+        @"list" : edi_string(reminder.calendar.title, 200),
+        @"completed" : @(reminder.completed),
+      }];
+    }
+    return items;
+  }
+
+  if ([op isEqualToString:@"reminders.create"]) {
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSDictionary *item in ([request[@"items"] isKindOfClass:NSArray.class] ? request[@"items"] : @[])) {
+      if (![item isKindOfClass:NSDictionary.class]) continue;
+      NSString *title = edi_string(item[@"title"], 300);
+      EKCalendar *calendar = edi_calendar_named(store, EKEntityTypeReminder, edi_string(item[@"list"], 200));
+      if (edi_string(item[@"list"], 200).length && !calendar) {
+        [results addObject:@{@"title" : title, @"list" : @"", @"error" : @"No list with that name."}];
+        continue;
+      }
+      EKReminder *reminder = [EKReminder reminderWithEventStore:store];
+      reminder.title = title;
+      reminder.notes = edi_string(item[@"notes"], 2000);
+      reminder.calendar = calendar ?: store.defaultCalendarForNewReminders;
+      NSDate *due = edi_date(item[@"due"]);
+      if (due) {
+        const BOOL timed = [item[@"dueHasTime"] boolValue];
+        NSCalendarUnit units = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay |
+                               (timed ? NSCalendarUnitHour | NSCalendarUnitMinute : 0);
+        NSDateComponents *parts = [gregorian components:units fromDate:due];
+        parts.timeZone = NSTimeZone.localTimeZone;
+        reminder.dueDateComponents = parts;
+        if (timed) [reminder addAlarm:[EKAlarm alarmWithAbsoluteDate:due]];
+      }
+      NSError *error = nil;
+      if (!reminder.calendar || ![store saveReminder:reminder commit:NO error:&error])
+        [results addObject:@{@"title" : title, @"list" : @"", @"error" : error.localizedDescription ?: @"Could not save."}];
+      else
+        [results addObject:@{@"title" : title, @"list" : edi_string(reminder.calendar.title, 200)}];
+    }
+    NSError *error = nil;
+    if (![store commit:&error]) return @{@"error" : error.localizedDescription ?: @"Could not save reminders."};
+    return results;
+  }
+
+  if ([op isEqualToString:@"events.list"]) {
+    NSDate *from = edi_date(request[@"from"]);
+    NSDate *to = edi_date(request[@"to"]);
+    if (!from || !to) return @{@"error" : @"Missing dates."};
+    EKCalendar *only = edi_calendar_named(store, EKEntityTypeEvent, edi_string(request[@"calendar"], 200));
+    if (edi_string(request[@"calendar"], 200).length && !only) return @{@"error" : @"There is no calendar with that name."};
+    NSPredicate *predicate = [store predicateForEventsWithStartDate:from endDate:to calendars:only ? @[ only ] : nil];
+    NSArray *events = [[store eventsMatchingPredicate:predicate] sortedArrayUsingSelector:@selector(compareStartDateWithEvent:)];
+    NSMutableArray *items = [NSMutableArray array];
+    for (EKEvent *event in events) {
+      if (items.count >= 200) break;
+      [items addObject:@{
+        @"id" : edi_string(event.eventIdentifier, 200),
+        @"title" : edi_string(event.title, 300),
+        @"start" : edi_ms(event.startDate),
+        @"end" : edi_ms(event.endDate),
+        @"allDay" : @(event.allDay),
+        @"location" : edi_string(event.location, 300),
+        @"calendar" : edi_string(event.calendar.title, 200),
+        @"notes" : edi_string(event.notes, 1000),
+      }];
+    }
+    return items;
+  }
+
+  if ([op isEqualToString:@"events.create"]) {
+    NSDate *start = edi_date(request[@"start"]);
+    NSDate *end = edi_date(request[@"end"]);
+    if (!start || !end) return @{@"error" : @"Missing dates."};
+    EKCalendar *calendar = edi_calendar_named(store, EKEntityTypeEvent, edi_string(request[@"calendar"], 200));
+    if (edi_string(request[@"calendar"], 200).length && !calendar) return @{@"error" : @"There is no calendar with that name."};
+    EKEvent *event = [EKEvent eventWithEventStore:store];
+    event.title = edi_string(request[@"title"], 300);
+    event.location = edi_string(request[@"location"], 300);
+    event.notes = edi_string(request[@"notes"], 2000);
+    event.allDay = [request[@"allDay"] boolValue];
+    event.startDate = start;
+    // An all-day event's end is inclusive: the last moment of its final day.
+    event.endDate = event.allDay ? [end dateByAddingTimeInterval:-1] : end;
+    event.calendar = calendar ?: store.defaultCalendarForNewEvents;
+    NSError *error = nil;
+    if (!event.calendar || ![store saveEvent:event span:EKSpanThisEvent commit:YES error:&error])
+      return @{@"error" : error.localizedDescription ?: @"Could not save the event."};
+    // The identifier comes back so Edi can undo an event it added.
+    return @{
+      @"calendar" : edi_string(event.calendar.title, 200),
+      @"eventId" : edi_string(event.eventIdentifier, 200)
+    };
+  }
+
+  if ([op isEqualToString:@"events.update"]) {
+    NSString *eventId = edi_string(request[@"eventId"], 200);
+    if (!eventId.length) return @{@"error" : @"Missing event id."};
+    EKEvent *event = [store eventWithIdentifier:eventId];
+    if (!event) return @{@"error" : @"Event not found."};
+    if (request[@"title"]) event.title = edi_string(request[@"title"], 300);
+    if (request[@"location"]) event.location = edi_string(request[@"location"], 300);
+    if (request[@"notes"]) event.notes = edi_string(request[@"notes"], 2000);
+    if (request[@"start"]) {
+      NSDate *start = edi_date(request[@"start"]);
+      if (!start) return @{@"error" : @"Invalid start date."};
+      event.startDate = start;
+    }
+    if (request[@"end"]) {
+      NSDate *end = edi_date(request[@"end"]);
+      if (!end) return @{@"error" : @"Invalid end date."};
+      event.endDate = end;
+    }
+    if (request[@"allDay"]) event.allDay = [request[@"allDay"] boolValue];
+    if (request[@"calendar"]) {
+      EKCalendar *calendar = edi_calendar_named(store, EKEntityTypeEvent, edi_string(request[@"calendar"], 200));
+      if (calendar) event.calendar = calendar;
+    }
+    NSError *error = nil;
+    if (![store saveEvent:event span:EKSpanThisEvent commit:YES error:&error])
+      return @{@"error" : error.localizedDescription ?: @"Could not update the event."};
+    return @{@"calendar" : edi_string(event.calendar.title, 200)};
+  }
+
+  if ([op isEqualToString:@"events.delete"]) {
+    NSString *eventId = edi_string(request[@"eventId"], 200);
+    if (!eventId.length) return @{@"error" : @"Missing event id."};
+    EKEvent *event = [store eventWithIdentifier:eventId];
+    if (!event) return @{@"error" : @"Event not found."};
+    NSError *error = nil;
+    if (![store removeEvent:event span:EKSpanThisEvent commit:YES error:&error])
+      return @{@"error" : error.localizedDescription ?: @"Could not delete the event."};
+    return @{@"deleted" : @YES};
+  }
+
+  return @{@"error" : @"Unknown request."};
+}
+
+/** Returns bytes of JSON written, or -1 when the request is not valid JSON or does not fit. */
+int edi_eventkit_run(const char *json, char *dest, int capacity) {
+  if (!json || !dest || capacity <= 0) return -1;
+  @autoreleasepool {
+    NSData *input = [NSData dataWithBytes:json length:strlen(json)];
+    NSDictionary *request = [NSJSONSerialization JSONObjectWithData:input options:0 error:nil];
+    if (![request isKindOfClass:NSDictionary.class]) return -1;
+    NSData *output = [NSJSONSerialization dataWithJSONObject:@{@"result" : edi_eventkit_do(request)} options:0 error:nil];
+    if (!output || (int)output.length > capacity) return -1;
+    memcpy(dest, output.bytes, output.length);
+    return (int)output.length;
+  }
+}
+
 /** Do not wait on the main thread — that hides the system prompt. */
 void edi_start_screen_capture_ask(void) {
   if (CGPreflightScreenCaptureAccess()) {
@@ -225,13 +535,19 @@ void edi_start_screen_capture_ask(void) {
 
 int edi_screen_capture_ask_state(void) { return atomic_load(&edi_ask_state); }
 
-bool edi_screen_capture_granted(void) { return CGPreflightScreenCaptureAccess(); }
+/**
+ * macOS caches the preflight answer for the life of the process: once it says no, it keeps
+ * saying no even after the person grants the permission in Settings. A capture that actually
+ * worked proves the permission, so it counts from then on and no relaunch is needed.
+ */
+static atomic_bool edi_capture_proven = false;
 
+bool edi_screen_capture_granted(void) {
+  return CGPreflightScreenCaptureAccess() || atomic_load(&edi_capture_proven);
+}
+
+/** A capture is tried even when the preflight says no, for the same reason. */
 void edi_start_display_capture(uint32_t display_id, int max_edge, int quality) {
-  if (!CGPreflightScreenCaptureAccess()) {
-    edi_store_jpeg(nil, 0, 0);
-    return;
-  }
   const int gen = atomic_fetch_add(&edi_cap_gen, 1) + 1;
   atomic_store(&edi_cap_state, EDI_CAP_PENDING);
   edi_last_jpeg = nil;
@@ -278,6 +594,7 @@ void edi_start_display_capture(uint32_t display_id, int max_edge, int quality) {
                                         edi_store_jpeg(nil, 0, 0);
                                         return;
                                       }
+                                      atomic_store(&edi_capture_proven, true);
                                       edi_capture_with_image(image, max_edge, quality, display_id);
                                     }];
         }];
@@ -285,6 +602,7 @@ void edi_start_display_capture(uint32_t display_id, int max_edge, int quality) {
   }
 
   CGImageRef image = CGDisplayCreateImage(display_id);
+  if (image) atomic_store(&edi_capture_proven, true);
   edi_capture_with_image(image, max_edge, quality, display_id);
   if (image) CGImageRelease(image);
 }
@@ -414,4 +732,230 @@ void edi_shape_glass_window(uint64_t handle, double radius) {
     window.hasShadow = YES;
     [window invalidateShadow];
   });
+}
+
+/** Accessibility trust for selected text and focused-window details; `prompt` shows the system ask. */
+bool edi_accessibility_trusted(bool prompt) {
+  if (!prompt) return AXIsProcessTrusted();
+  NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt : @YES};
+  return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+}
+
+static NSString *edi_ax_text(AXUIElementRef element, CFStringRef attribute) {
+  CFTypeRef value = NULL;
+  if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || !value) return nil;
+  NSString *text = nil;
+  if (CFGetTypeID(value) == CFStringGetTypeID()) text = [(__bridge NSString *)value copy];
+  else if (CFGetTypeID(value) == CFURLGetTypeID()) text = [[(__bridge NSURL *)value absoluteString] copy];
+  CFRelease(value);
+  return text;
+}
+
+static AXUIElementRef edi_ax_child(AXUIElementRef element, CFStringRef attribute) {
+  CFTypeRef value = NULL;
+  if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || !value) return NULL;
+  if (CFGetTypeID(value) != AXUIElementGetTypeID()) {
+    CFRelease(value);
+    return NULL;
+  }
+  return (AXUIElementRef)value;
+}
+
+/** A string attribute, trimmed to keep a whole text field out of the answer. */
+static NSString *edi_ax_short(AXUIElementRef element, CFStringRef attribute, NSUInteger limit) {
+  NSString *text = edi_ax_text(element, attribute);
+  if (!text.length) return nil;
+  NSString *flat = [[text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]
+      componentsJoinedByString:@" "];
+  return flat.length > limit ? [[flat substringToIndex:limit] stringByAppendingString:@"…"] : flat;
+}
+
+/**
+ * What sits under a point on screen, as JSON: its kind, name, value and frame, so "what's this?"
+ * has a subject and can be marked exactly. Needs Accessibility; reads only the element under the
+ * pointer, never the window's contents, and never a password field's value.
+ * Returns the byte length written, the negative length needed if `capacity` is too small, or 0.
+ */
+int edi_element_at(double x, double y, char *dest, int capacity) {
+  @autoreleasepool {
+    if (!AXIsProcessTrusted()) return 0;
+    AXUIElementRef system = AXUIElementCreateSystemWide();
+    AXUIElementSetMessagingTimeout(system, 0.25f);
+    AXUIElementRef element = NULL;
+    AXError status = AXUIElementCopyElementAtPosition(system, (float)x, (float)y, &element);
+    CFRelease(system);
+    if (status != kAXErrorSuccess || !element) return 0;
+    // The element is the app's, not ours: bound its replies too, so a hung app can't stall.
+    AXUIElementSetMessagingTimeout(element, 0.25f);
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSString *role = edi_ax_short(element, kAXRoleAttribute, 60);
+    NSString *subrole = edi_ax_short(element, kAXSubroleAttribute, 60);
+    NSString *kind = edi_ax_short(element, kAXRoleDescriptionAttribute, 60) ?: role;
+    if (kind.length) result[@"kind"] = kind;
+    if (role.length) result[@"role"] = role;
+    NSString *name = edi_ax_short(element, kAXTitleAttribute, 120);
+    if (!name.length) name = edi_ax_short(element, kAXDescriptionAttribute, 120);
+    if (!name.length) name = edi_ax_short(element, kAXHelpAttribute, 120);
+    if (name.length) result[@"name"] = name;
+    // A password field's contents never leave the app.
+    if (![subrole isEqualToString:(__bridge NSString *)kAXSecureTextFieldSubrole]) {
+      CFTypeRef raw = NULL;
+      if (AXUIElementCopyAttributeValue(element, kAXValueAttribute, &raw) == kAXErrorSuccess && raw) {
+        if (CFGetTypeID(raw) == CFStringGetTypeID()) {
+          NSString *value = (__bridge NSString *)raw;
+          if (value.length) result[@"value"] = value.length > 200 ? [[value substringToIndex:200]
+              stringByAppendingString:@"…"] : value;
+        } else if (CFGetTypeID(raw) == CFNumberGetTypeID()) {
+          result[@"value"] = [(__bridge NSNumber *)raw stringValue];
+        } else if (CFGetTypeID(raw) == CFBooleanGetTypeID()) {
+          result[@"value"] = CFBooleanGetValue((CFBooleanRef)raw) ? @"on" : @"off";
+        }
+        CFRelease(raw);
+      }
+    }
+
+    CFTypeRef positionValue = NULL;
+    CFTypeRef sizeValue = NULL;
+    CGPoint origin = CGPointZero;
+    CGSize size = CGSizeZero;
+    if (AXUIElementCopyAttributeValue(element, kAXPositionAttribute, &positionValue) == kAXErrorSuccess &&
+        positionValue) {
+      AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &origin);
+      CFRelease(positionValue);
+    }
+    if (AXUIElementCopyAttributeValue(element, kAXSizeAttribute, &sizeValue) == kAXErrorSuccess &&
+        sizeValue) {
+      AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+      CFRelease(sizeValue);
+    }
+    if (size.width > 0 && size.height > 0) {
+      result[@"frame"] = @{
+        @"x" : @(lround(origin.x)),
+        @"y" : @(lround(origin.y)),
+        @"width" : @(lround(size.width)),
+        @"height" : @(lround(size.height))
+      };
+    }
+    pid_t pid = 0;
+    if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
+      NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+      if (app.localizedName) result[@"app"] = app.localizedName;
+      if (app.bundleIdentifier) result[@"bundleId"] = app.bundleIdentifier;
+    }
+    CFRelease(element);
+    if (!result.count) return 0;
+
+    NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    if (!json) return 0;
+    if ((int)json.length > capacity) return -(int)json.length;
+    memcpy(dest, json.bytes, json.length);
+    return (int)json.length;
+  }
+}
+
+/**
+ * What the person has in front of them, as JSON: the frontmost normal window that is not Edi's
+ * (so asking from Edi's own card still describes the app behind it), its app, and, with
+ * Accessibility, the focused window's title and document and the selected text.
+ * Returns the byte length written, the negative length needed if `capacity` is too small, or 0.
+ */
+int edi_front_context(int exclude_pid, char *dest, int capacity) {
+  @autoreleasepool {
+    CFArrayRef windows = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (!windows) return 0;
+    pid_t pid = 0;
+    NSString *owner = nil;
+    NSString *windowName = nil;
+    for (NSDictionary *info in (__bridge NSArray *)windows) {
+      pid_t candidate = [info[(__bridge NSString *)kCGWindowOwnerPID] intValue];
+      if (candidate == exclude_pid) continue;
+      if ([info[(__bridge NSString *)kCGWindowLayer] intValue] != 0) continue;
+      if ([info[(__bridge NSString *)kCGWindowAlpha] doubleValue] < 0.05) continue;
+      CGRect bounds;
+      if (!CGRectMakeWithDictionaryRepresentation(
+              (__bridge CFDictionaryRef)info[(__bridge NSString *)kCGWindowBounds], &bounds))
+        continue;
+      if (bounds.size.width < 120 || bounds.size.height < 80) continue;
+      pid = candidate;
+      owner = info[(__bridge NSString *)kCGWindowOwnerName];
+      windowName = info[(__bridge NSString *)kCGWindowName];
+      break;
+    }
+    CFRelease(windows);
+    if (!pid) return 0;
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    result[@"app"] = app.localizedName ?: owner ?: @"";
+    if (app.bundleIdentifier) result[@"bundleId"] = app.bundleIdentifier;
+    if (windowName.length) result[@"windowTitle"] = windowName;
+    bool trusted = AXIsProcessTrusted();
+    result[@"accessibility"] = @(trusted);
+    if (trusted) {
+      AXUIElementRef element = AXUIElementCreateApplication(pid);
+      AXUIElementSetMessagingTimeout(element, 0.25f);
+      AXUIElementRef window = edi_ax_child(element, kAXFocusedWindowAttribute);
+      if (window) {
+        NSString *title = edi_ax_text(window, kAXTitleAttribute);
+        if (title.length) result[@"windowTitle"] = title;
+        NSString *document = edi_ax_text(window, kAXDocumentAttribute);
+        if (document.length) result[@"document"] = document;
+        CFRelease(window);
+      }
+      AXUIElementRef focused = edi_ax_child(element, kAXFocusedUIElementAttribute);
+      if (focused) {
+        NSString *selected = edi_ax_text(focused, kAXSelectedTextAttribute);
+        if (selected.length) result[@"selectedText"] = selected;
+        CFRelease(focused);
+      }
+      CFRelease(element);
+    }
+    NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    if (!json) return 0;
+    if ((int)json.length > capacity) return -(int)json.length;
+    memcpy(dest, json.bytes, json.length);
+    return (int)json.length;
+  }
+}
+
+/**
+ * The windows on screen: owner, bundle id, title and layer. Edi reads it to notice a screen share
+ * (call apps put up a "sharing" bar); titles are only there with Screen Recording.
+ */
+int edi_window_list(char *dest, int capacity) {
+  @autoreleasepool {
+    CFArrayRef windows = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (!windows) return 0;
+    NSMutableArray *list = [NSMutableArray array];
+    NSMutableDictionary<NSNumber *, NSString *> *bundles = [NSMutableDictionary dictionary];
+    for (NSDictionary *info in (__bridge NSArray *)windows) {
+      NSNumber *pid = info[(__bridge NSString *)kCGWindowOwnerPID];
+      NSString *owner = info[(__bridge NSString *)kCGWindowOwnerName] ?: @"";
+      NSString *name = info[(__bridge NSString *)kCGWindowName];
+      NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+      entry[@"owner"] = owner;
+      entry[@"layer"] = info[(__bridge NSString *)kCGWindowLayer] ?: @0;
+      if (name.length) entry[@"name"] = name;
+      if (pid) {
+        NSString *bundle = bundles[pid];
+        if (!bundle) {
+          bundle = [NSRunningApplication runningApplicationWithProcessIdentifier:pid.intValue]
+                       .bundleIdentifier ?: @"";
+          bundles[pid] = bundle;
+        }
+        if (bundle.length) entry[@"bundleId"] = bundle;
+      }
+      [list addObject:entry];
+      if (list.count >= 400) break;
+    }
+    CFRelease(windows);
+    NSData *json = [NSJSONSerialization dataWithJSONObject:list options:0 error:nil];
+    if (!json) return 0;
+    if ((int)json.length > capacity) return -(int)json.length;
+    memcpy(dest, json.bytes, json.length);
+    return (int)json.length;
+  }
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import type {
-  ApprovalRequest,
-  ArtifactSummary,
-  BubbleSide,
-  StatusBubbleState,
+import {
+  type ApprovalRequest,
+  type ArtifactSummary,
+  type BubbleSide,
+  type StatusBubbleState,
 } from '@edi/contracts';
 import { ArtifactPreview } from '../../components/artifacts/Artifact';
+import { ApprovalCard, type ApprovalDecision } from '../../components/approval/ApprovalCard';
 import {
   Button,
   ListeningBars,
@@ -17,18 +18,27 @@ import './pet.css';
 
 const announcement = (
   name: string,
-): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact'>, string> => ({
-  unavailable: 'voice coming soon',
+): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact' | 'suggestion'>, string> => ({
+  unavailable: 'Set up voice in Settings',
   thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.
   listening: 'I’m listening',
   speaking: `${name} is speaking`,
 });
 
+/** One quiet offer: its line and the word on its button. */
+interface BubbleSuggestion {
+  text: string;
+  label: string;
+}
+
 interface ApprovalBubbleBridge {
   approval(): Promise<ApprovalRequest | null>;
+  suggestion(): Promise<BubbleSuggestion | null>;
+  subscribeSuggestion(callback: (suggestion: BubbleSuggestion) => void): () => void;
+  respondSuggestion(accept: boolean): Promise<void>;
   subscribeApproval(callback: (approval: ApprovalRequest) => void): () => void;
-  respond(callId: string, decision: 'approve' | 'deny'): Promise<void>;
+  respond(callId: string, decision: 'approve' | 'approve-always' | 'deny'): Promise<void>;
   showContent(): Promise<void>;
   openArtifact(callId: string): Promise<void>;
   subscribeText(callback: (text: string) => void): () => void;
@@ -54,6 +64,21 @@ export function StatusBubble({
   artifact: ArtifactSummary | null;
 }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [offer, setOffer] = useState<BubbleSuggestion | null>(null);
+  useEffect(() => {
+    if (state !== 'suggestion') return;
+    const bridge = approvalBridge();
+    let alive = true;
+    void bridge
+      ?.suggestion()
+      .then(value => alive && setOffer(value))
+      .catch(() => {});
+    const stop = bridge?.subscribeSuggestion(setOffer);
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, [state]);
   // Thinking starts with any progress from the URL; updates arrive in place.
   const [progress, setProgress] = useState(state === 'thinking' ? notice : '');
   useEffect(() => {
@@ -81,7 +106,7 @@ export function StatusBubble({
     return () => window.clearTimeout(timer);
   }, [approval]);
 
-  async function respond(decision: 'approve' | 'deny') {
+  async function respond(decision: ApprovalDecision) {
     if (!approval || sending) return;
     setSending(true);
     setError('');
@@ -124,7 +149,11 @@ export function StatusBubble({
       </div>
     );
   const staticText =
-    state === 'notice' ? notice : state === 'approval' ? '' : announcement(name)[state];
+    state === 'notice'
+      ? notice
+      : state === 'approval' || state === 'suggestion'
+        ? ''
+        : announcement(name)[state];
   return (
     <div
       className="status-bubble-surface"
@@ -143,40 +172,41 @@ export function StatusBubble({
         )}
         {state === 'listening' && <ListeningBars />}
         {state === 'speaking' && <SpeakingBars />}
-        {state === 'approval' ? (
-          approval ? (
-            <section className="bubble-approval" aria-labelledby="bubble-approval-title">
-              <p className="ds-eyebrow">{name} needs your OK</p>
-              <h2 id="bubble-approval-title">{approval.preview.title}</h2>
-              <p>{approval.preview.summary}</p>
-              {approval.preview.fields.slice(0, 2).map(field => (
-                <div className="bubble-approval-field" key={field.label}>
-                  <span>{field.label}</span>
-                  <strong>{field.value}</strong>
-                </div>
-              ))}
-              {error && <p role="alert">{error}</p>}
-              <div className="bubble-approval-actions">
-                <Button size="small" disabled={sending} onClick={() => void showDetails()}>
-                  View details
+        {state === 'suggestion' ? (
+          offer ? (
+            <div className="bubble-suggestion">
+              <p role="status">{offer.text}</p>
+              <div className="bubble-suggestion-actions">
+                <Button
+                  size="small"
+                  onClick={() => void approvalBridge()?.respondSuggestion(false)}
+                >
+                  Not now
                 </Button>
                 <Button
                   size="small"
                   variant="prominent"
-                  disabled={!armed || sending}
-                  onClick={() => void respond('approve')}
+                  onClick={() => void approvalBridge()?.respondSuggestion(true)}
                 >
-                  {approval.preview.action}
+                  {offer.label}
                 </Button>
               </div>
-              <button
-                className="bubble-deny"
-                disabled={sending}
-                onClick={() => void respond('deny')}
-              >
-                Don’t allow
-              </button>
-            </section>
+            </div>
+          ) : (
+            <ThinkingDots />
+          )
+        ) : state === 'approval' ? (
+          approval ? (
+            <ApprovalCard
+              approval={approval}
+              compact
+              armed={armed}
+              sending={sending}
+              error={error}
+              titleId="bubble-approval-title"
+              onRespond={decision => void respond(decision)}
+              onDetails={() => void showDetails()}
+            />
           ) : (
             <ThinkingDots />
           )
@@ -186,7 +216,7 @@ export function StatusBubble({
             className={
               state === 'unavailable' || state === 'notice' ? 'bubble-reply' : 'ds-visually-hidden'
             }
-            title={state === 'unavailable' ? 'No microphone is active' : undefined}
+            title={state === 'unavailable' ? 'Settings → Voice' : undefined}
           >
             {staticText}
           </span>

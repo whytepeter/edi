@@ -1,4 +1,4 @@
-export { CapabilityBroker, toolNameFor } from './broker';
+export { CapabilityBroker, DIRECT_APP_TOOLS, toolNameFor } from './broker';
 export {
   defineCapability,
   OutcomeUnknownError,
@@ -22,6 +22,7 @@ export {
 export {
   deleteWorkspaceItem,
   readWorkspaceItem,
+  renameWorkspaceItem,
   searchWorkspace,
   toArtifactContent,
   workspaceCapabilities,
@@ -34,7 +35,9 @@ export {
   fetchPage,
   htmlToText,
   isPublicAddress,
+  readableAddress,
   robotsAllows,
+  unreadableShell,
   webCapabilities,
   type WebFetchDependencies,
   type WebFetchOutput,
@@ -52,3 +55,20 @@ export {
   type FileDependencies,
   type FileRoot,
 } from './builtins/files';
+export { memoryCapabilities } from './builtins/memory';
+export { shortcutsCapabilities } from './builtins/shortcuts';
+export {
+  activityCapabilities,
+  reversal,
+  type RecordedAction,
+  type Reversal,
+} from './builtins/undo';
+export {
+  macCapabilities,
+  parseLocalTime,
+  type CalendarEvent,
+  type EventAccess,
+  type EventStore,
+  type MacDependencies,
+  type ReminderItem,
+} from './builtins/mac';

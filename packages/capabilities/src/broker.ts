@@ -8,12 +8,16 @@ import {
   type ToolManifestEntry,
   type ToolOutcome,
 } from './types';
+import { describeIssue, invalidInputGuide } from './invalid-input';
 
 interface BrokerDependencies {
   approvals: ApprovalGate;
   recorder: ToolCallRecorder;
   id?: () => string;
 }
+
+/** Connected-app tools sent to the model directly; more than this and they are found by search. */
+export const DIRECT_APP_TOOLS = 40;
 
 /** Model-facing names cannot contain dots: `notes.save` → `notes_save`. */
 export const toolNameFor = (capabilityId: string) => capabilityId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -27,28 +31,66 @@ export const toolNameFor = (capabilityId: string) => capabilityId.replace(/[^a-z
  * Writes run one at a time; reads may overlap.
  */
 export class CapabilityBroker {
-  private readonly byName = new Map<string, Capability>();
+  private readonly fixed = new Map<string, Capability>();
   private writeQueue: Promise<unknown> = Promise.resolve();
   private readonly id: () => string;
 
+  /**
+   * `extra` supplies capabilities that come and go while Edi runs (connected apps); they never
+   * replace a built-in one with the same name.
+   */
   constructor(
     capabilities: readonly Capability[],
     private readonly deps: BrokerDependencies,
+    private readonly extra: () => readonly Capability[] = () => [],
   ) {
     for (const capability of capabilities) {
       const name = toolNameFor(capability.id);
-      if (this.byName.has(name)) throw new Error(`Duplicate tool name: ${name}`);
-      this.byName.set(name, capability);
+      if (this.fixed.has(name)) throw new Error(`Duplicate tool name: ${name}`);
+      this.fixed.set(name, capability);
     }
     this.id = deps.id ?? randomUUID;
   }
 
+  private get byName() {
+    const extra = this.extra();
+    if (!extra.length) return this.fixed;
+    const all = new Map(this.fixed);
+    for (const capability of extra) {
+      const name = toolNameFor(capability.id);
+      if (!all.has(name)) all.set(name, capability);
+    }
+    return all;
+  }
+
+  /**
+   * Every tool, for the model. Past `DIRECT_APP_TOOLS` connected-app tools, all of them are
+   * deferred: the model finds the ones it needs by search, keeping each request small and within
+   * providers' tool limits. Built-in tools are never deferred.
+   */
   manifest(): ToolManifestEntry[] {
-    return [...this.byName].map(([name, capability]) => ({
+    const entries = [...this.byName];
+    const defer = entries.filter(([, capability]) => capability.app).length > DIRECT_APP_TOOLS;
+    return entries.map(([name, capability]) => ({
       name,
       description: capability.description,
-      inputSchema: z.toJSONSchema(capability.input) as Record<string, unknown>,
+      inputSchema:
+        capability.inputSchema ?? (z.toJSONSchema(capability.input) as Record<string, unknown>),
+      ...(capability.app ? { app: capability.app } : {}),
+      ...(defer && capability.app ? { deferred: true } : {}),
     }));
+  }
+
+  private readonly invalidCalls = new Map<string, number>();
+
+  /** How many times this run has called this tool with input that didn't fit, this one included. */
+  private countInvalid(runId: string, toolName: string) {
+    const key = `${runId}:${toolName}`;
+    const count = (this.invalidCalls.get(key) ?? 0) + 1;
+    // Only the current runs matter; old counts go rather than piling up.
+    if (this.invalidCalls.size > 200) this.invalidCalls.clear();
+    this.invalidCalls.set(key, count);
+    return count;
   }
 
   async invoke(
@@ -79,9 +121,14 @@ export class CapabilityBroker {
     };
 
     if (!parsed.success) {
+      const attempt = this.countInvalid(runId, toolName);
+      const schema =
+        capability.inputSchema ?? (z.toJSONSchema(capability.input) as Record<string, unknown>);
       return finish({
         status: 'failed',
-        summary: `Invalid input: ${z.prettifyError(parsed.error).slice(0, 300)}`,
+        // People see one line; the model gets the field, what it sent and the exact shape.
+        summary: `Invalid input: ${describeIssue(parsed.error.issues[0]!)}`.slice(0, 160),
+        output: invalidInputGuide(toolName, schema, parsed.error.issues, rawInput, attempt),
       });
     }
     const run = () => this.review(capability, parsed.data, { callId, runId }, signal);
@@ -107,7 +154,16 @@ export class CapabilityBroker {
       let decision: 'approved' | 'denied';
       try {
         decision = await this.deps.approvals.request(
-          { ...context, preview: action.preview },
+          {
+            ...context,
+            capability: {
+              id: capability.id,
+              title: capability.title,
+              ...(capability.app ? { app: capability.app } : {}),
+            },
+            preview: action.preview,
+            ...(action.scope ? { scope: action.scope } : {}),
+          },
           signal,
         );
       } catch {

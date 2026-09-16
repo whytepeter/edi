@@ -18,6 +18,19 @@ The main process owns permission status, native requests, Settings links, and th
 
 Screen capture has a second, local privacy gate. `needsScreenContext()` runs before ScreenCaptureKit or Electron capture is touched. A prompt that names something visible — the screen, a window, an error, a button — may capture current displays. While that visual conversation is still active, a short follow-up (“Better?”, “Is it fixed now?”) may capture again. An unrelated request ends the visual context and stays text-only. Captures remain in memory for the active run, are sent only with that run, and are not stored in history. Edi never watches the screen in the background.
 
+## Desktop context and Accessibility
+
+With each question (Settings → Privacy & Permissions → Share what's in front of you, on by default), main gathers
+what the person has open: `edi_front_context` in `native/screen-capture/ask.m` takes the frontmost normal window that
+is not Edi's (so asking from the card still describes the app behind it), and with Accessibility the focused window's
+title and document (browsers report the current tab's address this way) and the selected text. It runs off the main
+thread in about 3 ms (120 ms the first time) and a question waits at most 2 s for it.
+`normalizeDesktopContext` bounds every field, keeps only http(s) addresses without credentials, fragments or
+secret-looking query strings, and shares only the app name for password managers and private or incognito windows.
+The result goes to the worker with that one question as `<context>` marked as data, is never stored, and its page
+address counts as a link the person gave for `web_fetch`. No AppleScript is used, so there are no per-app Automation
+prompts. Accessibility is an ordinary permission in the queue; without it Edi still knows the app and window.
+
 ## Files & Folders
 
 Edi's file tools (`files.search`, `files.list`, `files.read`, and the reviewed `files.move`, `files.create_folder`,
@@ -30,6 +43,44 @@ macOS offers no way to ask whether a protected folder is allowed without prompti
 `apps/desktop/src/main/platform/file-access.ts` records what it learns when a folder is touched: when the person
 taps Allow in Settings → Privacy & Permissions, or when a file tool first needs it. Full Disk Access is detected by
 opening a file only it unlocks, which never prompts. A refused folder links to System Settings.
+
+## Reminders and Calendar
+
+`reminders` and `calendar` are permission IDs backed by EventKit in the native helper (`edi_eventkit_*` in
+`native/screen-capture/ask.m`). Edi needs full access; write-only access counts as off. The first Reminders or
+Calendar tool call asks macOS if it never has, and Settings → Privacy & Permissions can ask or link to System
+Settings. The app's Info.plist must carry `NSRemindersFullAccessUsageDescription`,
+`NSCalendarsFullAccessUsageDescription` and their pre-14 equivalents (`package.json` `extendInfo` and
+`scripts/prepare-electron.mjs`): without them macOS ends the app when EventKit asks.
+
+## Always allow
+
+Every change is reviewed. "Always allow" is saved (`approval_rules`, migration 9) when the action says where it
+applies: a folder for file changes and opening files, a site for opening links, an app for opening apps, or any for
+adding reminders and events. A rule covers a later request only for the same action when every path, site or app it
+touches is inside the rule (`ruleAllows` in `packages/contracts/src/capabilities.ts`; a sibling folder with the same
+prefix or a look-alike site does not match). Actions without a scope, such as deleting workspace items, can be allowed
+for the current conversation or task only. Saved rules are listed under Settings → Privacy & Permissions → Always
+allowed, where removing one makes Edi ask again.
+
+## Connectors (MCP)
+
+Connected apps are remote MCP servers (`apps/desktop/src/main/connectors/`). Only https addresses are accepted (plain
+http only on 127.0.0.1 or localhost, for testing). Signing in uses the MCP authorization flow through the official SDK:
+protected-resource and authorization-server discovery, dynamic client registration as a public client, PKCE (S256),
+and a one-shot loopback listener on 127.0.0.1 that accepts only `/callback` with the expected state. Client
+registration, tokens and the verifier are stored per connector with Electron `safeStorage` in
+`userData/connectors/<id>.enc`; the database holds only the name, address and tool choices. On launch Edi reconnects
+with saved sign-ins and never registers or opens a browser by itself; an app that needs signing in says so. Every tool
+from a connected app is a reviewed write, whatever the server says about it; results are marked as untrusted
+information for the model.
+
+Apps under **More apps** (Gmail, Slack, Google Drive and others) connect through Composio with the person's own
+Composio key (`connectors/composio.ts`, API v3.1). Edi checks the key with Composio before saving it, encrypted with
+`safeStorage` in `userData/composio.enc`. Signing in opens Composio's link page; Composio holds the app's OAuth client
+and the resulting sign-in, and Edi stores only the connected account id. Accounts use the Composio user id `edi`.
+Removing the app deletes that account in Composio. Tools run through the same broker, approvals and untrusted-result
+marking as MCP tools; only Composio's exact `readOnlyHint` tag marks a tool read-only.
 
 ## Adding another permission
 

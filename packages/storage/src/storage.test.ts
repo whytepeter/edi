@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRepositories, latestVersion, migrate, openDatabase } from './index';
+import { createRepositories, ftsQuery, latestVersion, migrate, openDatabase } from './index';
 
 const run = (id: string, startedAt = 1) => ({
   id,
@@ -117,6 +117,12 @@ test('startup recovery never replays: runs interrupt, approvals cancel, in-fligh
     recovered.steps.map(s => s.status),
     ['cancelled', 'unknown', 'succeeded'],
   );
+  // What stopped part-way, to tell the person: this startup's turns only, and re-run by nothing.
+  assert.deepEqual(
+    repos.runs.interruptedAt(50, 3).map(turn => turn.prompt),
+    ['Save my list'],
+  );
+  assert.deepEqual(repos.runs.interruptedAt(49, 3), []);
   assert.deepEqual(repos.recoverInterrupted(60), { runs: 0, approvals: 0, uncertain: 0 });
 });
 
@@ -140,13 +146,14 @@ test('schema rejects impossible states', () => {
 
 test('recent exchanges are completed turns, oldest first, clipped', () => {
   const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'question 1', at: 1 });
   for (const [n, status] of [
     [1, 'done'],
     [2, 'error'],
     [3, 'done'],
     [4, 'done'],
   ] as const) {
-    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}` });
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}`, threadId: 'c1' });
     repos.runs.finish(uuid(n), {
       status,
       text: status === 'done' ? `answer ${n}` : '',
@@ -154,25 +161,47 @@ test('recent exchanges are completed turns, oldest first, clipped', () => {
       at: n,
     });
   }
-  assert.deepEqual(repos.runs.recentExchanges(2), [
+  assert.deepEqual(repos.runs.recentExchanges(2, 'c1'), [
     { prompt: 'question 3', reply: 'answer 3' },
     { prompt: 'question 4', reply: 'answer 4' },
   ]);
-  assert.equal(repos.runs.recentExchanges(10, { prompt: 4, reply: 3 })[0]?.reply, 'ans');
+  assert.equal(repos.runs.recentExchanges(10, 'c1', { prompt: 4, reply: 3 })[0]?.reply, 'ans');
+  assert.deepEqual(repos.runs.recentExchanges(10, null), []);
+});
+
+test('an interrupted turn stays in the history, marked as cut off', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'emails', at: 1 });
+  for (const [n, status, text] of [
+    [1, 'stopped', ''],
+    [2, 'stopped', 'Sure, checking.'],
+    [3, 'error', ''],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}`, threadId: 'c1' });
+    repos.runs.finish(uuid(n), { status, text, error: '', at: n });
+  }
+  assert.deepEqual(repos.runs.recentExchanges(10, 'c1'), [
+    { prompt: 'question 1', reply: '[The user interrupted before this was answered.]' },
+    {
+      prompt: 'question 2',
+      reply: 'Sure, checking.\n\n[The user interrupted this reply before it finished.]',
+    },
+  ]);
 });
 
 test('thread includes finished turns for the chat, oldest first', () => {
   const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'question 1', at: 1 });
   for (const [n, status, text, error] of [
     [1, 'done', 'answer 1', ''],
     [2, 'error', '', 'Could not reach the model.'],
     [3, 'stopped', 'partial', ''],
     [4, 'done', 'answer 4', ''],
   ] as const) {
-    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}` });
+    repos.runs.start({ ...run(uuid(n), n), prompt: `question ${n}`, threadId: 'c1' });
     repos.runs.finish(uuid(n), { status, text, error, at: n });
   }
-  const turns = repos.runs.thread(3);
+  const turns = repos.runs.thread(3, 'c1');
   assert.equal(turns.length, 3);
   assert.deepEqual(
     turns.map(turn => turn.prompt),
@@ -182,6 +211,25 @@ test('thread includes finished turns for the chat, oldest first', () => {
   assert.ok(turns[1]);
   assert.equal(turns[0].error, 'Could not reach the model.');
   assert.equal(turns[1].reply, 'partial');
+});
+
+test('a turn Edi started itself keeps its note for the chat and its prompt for the model', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'c1', title: 'todo', at: 1 });
+  repos.runs.start({ ...run(uuid(1), 1), prompt: 'Add milk to my Todoist', threadId: 'c1' });
+  repos.runs.finish(uuid(1), { status: 'done', text: 'Connect Todoist first.', error: '', at: 1 });
+  repos.runs.start({
+    ...run(uuid(2), 2),
+    prompt: 'Todoist is connected now. Continue my earlier request: Add milk',
+    note: 'Todoist is connected. Continuing your request.',
+    threadId: 'c1',
+  });
+  repos.runs.finish(uuid(2), { status: 'done', text: 'Added.', error: '', at: 2 });
+  assert.deepEqual(
+    repos.runs.thread(10, 'c1').map(turn => turn.note),
+    [null, 'Todoist is connected. Continuing your request.'],
+  );
+  assert.match(repos.runs.recentExchanges(10, 'c1')[1]!.prompt, /Continue my earlier request/);
 });
 
 test('activity reports how many screens were sent', () => {
@@ -209,8 +257,19 @@ test('notes can be looked up, updated and removed', () => {
     path: '/tmp/groceries.md',
     bytes: 20,
     createdAt: 1,
+    pinnedAt: null,
   });
+  // A rename moves the file with the title; pins are a time, cleared with null.
+  repos.notes.update({ id, title: 'Shop', bytes: 20, path: '/tmp/shop.md' });
+  repos.notes.setPinned(id, 5);
+  assert.deepEqual(
+    [repos.notes.get(id)?.path, repos.notes.list(5)[0]?.pinnedAt],
+    ['/tmp/shop.md', 5],
+  );
+  repos.notes.setPinned(id, null);
+  assert.equal(repos.notes.get(id)?.pinnedAt, null);
   repos.notes.remove(id);
+  assert.throws(() => repos.notes.setPinned(id, 1));
   assert.equal(repos.notes.get(id), undefined);
   assert.throws(() => repos.notes.update({ id, title: 'Gone', bytes: 1 }));
   assert.throws(() => repos.notes.remove(id));
@@ -302,7 +361,11 @@ test('migration 3 records existing shown content as workspace artifacts under th
   );
   shown(21, { kind: 'document', title: 'Failed', markdown: 'x' }, undefined, 'failed' as never);
   // Replay the migration on a database that predates it.
-  db.exec('DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;');
+  db.exec(
+    'ALTER TABLE notes DROP COLUMN pinned_at; ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+      'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads; ' +
+      'DROP TABLE usage; DROP TABLE artifacts; PRAGMA user_version = 2;',
+  );
   migrate(db);
   assert.deepEqual(repos.artifacts.list(10), [
     {
@@ -314,6 +377,7 @@ test('migration 3 records existing shown content as workspace artifacts under th
       bytes: 4,
       createdAt: 20,
       updatedAt: 21,
+      pinnedAt: null,
     },
   ]);
   repos.artifacts.update({ id: uuid(20), title: 'Costs Q3', content: {}, bytes: 9, updatedAt: 30 });
@@ -370,4 +434,396 @@ test('usage totals by kind, model and local day; voice counts characters apart f
   assert.ok(Math.abs(week.daily.find(day => day.day === '2026-09-12')!.costUsd - 0.5) < 1e-9);
   assert.equal(week.byModel[0]?.model, 'anthropic/claude-sonnet-5');
   assert.throws(() => repos.usage.add({ ...call('answer', 'x', -1) }, now));
+});
+
+test('conversations keep their own history and deleting one removes its runs and steps', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'a', title: 'Plan the trip', at: 10 });
+  repos.conversations.create({ id: 'b', title: 'Fix the build', at: 20 });
+  repos.conversations.create({ id: 'empty', title: 'Nothing yet', at: 30 });
+  for (const [n, thread] of [
+    [1, 'a'],
+    [2, 'b'],
+    [3, 'a'],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), n * 10), prompt: `q${n}`, threadId: thread });
+    repos.runs.finish(uuid(n), { status: 'done', text: `a${n}`, error: '', at: n * 10 + 1 });
+    repos.conversations.touch(thread, n * 10 + 1);
+  }
+  repos.toolCalls.create({
+    id: uuid(50),
+    runId: uuid(2),
+    capability: 'notes.save',
+    title: 'Save a note',
+    effect: 'write',
+    input: {},
+    status: 'running',
+    at: 21,
+  });
+  assert.deepEqual(
+    repos.runs.thread(10, 'a').map(turn => turn.prompt),
+    ['q1', 'q3'],
+  );
+  assert.deepEqual(
+    repos.conversations.list(10).map(entry => [entry.id, entry.turns]),
+    [
+      ['a', 2],
+      ['b', 1],
+    ],
+  );
+  repos.conversations.remove('b');
+  assert.equal(repos.conversations.get('b'), undefined);
+  assert.equal(repos.activity(10).length, 2);
+  assert.throws(() => repos.conversations.remove('b'), /no longer exists/);
+});
+
+test('existing history splits into conversations at two-hour gaps', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  const hour = 60 * 60 * 1000;
+  for (const [n, at] of [
+    [1, 0],
+    [2, hour],
+    [3, 4 * hour],
+    [4, 5 * hour],
+  ] as const) {
+    repos.runs.start({ ...run(uuid(n), at), prompt: `question ${n}` });
+    repos.runs.finish(uuid(n), { status: 'done', text: 'ok', error: '', at: at + 1 });
+  }
+  db.exec(
+    'ALTER TABLE notes DROP COLUMN pinned_at; ALTER TABLE runs DROP COLUMN note; DROP TABLE connectors; DROP TABLE failures; DROP TABLE approval_rules; DROP TABLE schedules; ALTER TABLE tasks DROP COLUMN schedule_id; DROP INDEX runs_task; ALTER TABLE runs DROP COLUMN task_id; DROP TABLE tasks; DROP TABLE runs_search; DROP TRIGGER runs_search_insert; DROP TRIGGER runs_search_delete; ' +
+      'DROP TRIGGER runs_search_update; DROP INDEX runs_thread; ALTER TABLE runs DROP COLUMN thread_id; DROP TABLE threads;',
+  );
+  db.exec('PRAGMA user_version = 4');
+  migrate(db);
+  assert.deepEqual(
+    repos.conversations.list(10).map(entry => [entry.title, entry.turns, entry.updatedAt]),
+    [
+      ['question 3', 2, 5 * hour + 1],
+      ['question 1', 2, hour + 1],
+    ],
+  );
+});
+
+test('conversation search matches words by prefix across turns, stays in step and respects dates', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'palette', title: 'Brand colors', at: 100 });
+  repos.conversations.create({ id: 'trip', title: 'Lisbon plans', at: 200 });
+  const turn = (n: number, thread: string, prompt: string, text: string, at: number) => {
+    repos.runs.start({ ...run(uuid(n), at), prompt, threadId: thread });
+    repos.runs.finish(uuid(n), { status: 'done', text, error: '', at: at + 1 });
+  };
+  turn(
+    1,
+    'palette',
+    'Make a warm colour palette',
+    'Here are five terracotta and sand swatches.',
+    1_000,
+  );
+  turn(2, 'palette', 'Darker please', 'Swapped sand for umber.', 2_000);
+  turn(3, 'trip', 'Plan three days in Lisbon', 'Día uno: Alfama; a pastel de nata stop.', 5_000);
+
+  assert.deepEqual(
+    repos.conversations
+      .search('terracotta palet', { limit: 5 })
+      .map(match => [match.id, match.runId]),
+    [['palette', uuid(1)]],
+  );
+  const lisbon = repos.conversations.search('dia pastel', { limit: 5 });
+  assert.deepEqual(
+    lisbon.map(match => match.id),
+    ['trip'],
+  );
+  assert.match(lisbon[0]!.excerpt, /pastel/);
+  assert.deepEqual(repos.conversations.search('sand', { limit: 5, after: 4_000 }), []);
+  assert.deepEqual(repos.conversations.search('"); DROP TABLE runs; --', { limit: 5 }), []);
+  assert.equal(ftsQuery('  ?! '), null);
+
+  repos.conversations.remove('palette');
+  assert.deepEqual(repos.conversations.search('umber', { limit: 5 }), []);
+});
+
+test('tasks: queue order, spending from their runs, recovery and deletion with their runs', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const task = (n: number, at: number) =>
+    repos.tasks.create({
+      id: uuid(100 + n),
+      title: `Task ${n}`,
+      prompt: `Do thing ${n}`,
+      budgetUsd: 0.5,
+      conversationId: null,
+      at,
+    });
+  task(1, 10);
+  task(2, 20);
+  task(3, 30);
+  repos.tasks.update(uuid(101), { status: 'done', finishedAt: 40, result: 'All set.' });
+  repos.tasks.update(uuid(103), { status: 'running', startedAt: 31 });
+  repos.runs.start({ ...run(uuid(1), 31), taskId: uuid(103) });
+  const cost = (costUsd: number) => ({
+    kind: 'answer' as const,
+    provider: 'openrouter' as const,
+    model: 'test/model',
+    inputTokens: 1,
+    outputTokens: 1,
+    cachedTokens: 0,
+    costUsd,
+    characters: 0,
+  });
+  repos.usage.add(cost(0.12), 32, uuid(1));
+  repos.usage.add(cost(0.03), 33, uuid(1));
+  assert.deepEqual(
+    repos.tasks.list(10).map(entry => [entry.title, entry.status]),
+    [
+      ['Task 2', 'queued'],
+      ['Task 3', 'running'],
+      ['Task 1', 'done'],
+    ],
+  );
+  assert.ok(Math.abs(repos.tasks.get(uuid(103))!.spentUsd - 0.15) < 1e-9);
+  // Task runs stay out of conversations.
+  assert.deepEqual(repos.conversations.list(10), []);
+
+  assert.equal(repos.tasks.recover(50), 1);
+  assert.equal(repos.tasks.get(uuid(103))?.status, 'interrupted');
+  assert.equal(repos.tasks.get(uuid(102))?.status, 'queued');
+  repos.tasks.remove(uuid(103));
+  assert.equal(repos.activity(10).length, 0);
+  assert.throws(() => repos.tasks.remove(uuid(103)), /no longer exists/);
+});
+
+test('memories: kept oldest first, edited in place, removed one by one or all at once', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const memory = (n: number, text: string) => ({
+    id: uuid(300 + n),
+    kind: 'preference' as const,
+    text,
+    createdAt: n,
+    updatedAt: n,
+  });
+  repos.memories.add(memory(1, 'Prefers short answers'));
+  repos.memories.add(memory(2, 'Calls the app Nlockd'));
+  assert.deepEqual(
+    repos.memories.list().map(entry => entry.text),
+    ['Prefers short answers', 'Calls the app Nlockd'],
+  );
+  assert.equal(repos.memories.count(), 2);
+
+  repos.memories.update(uuid(301), { text: 'Prefers short answers, no preamble', at: 9 });
+  assert.equal(repos.memories.list()[0]?.text, 'Prefers short answers, no preamble');
+  assert.equal(repos.memories.list()[0]?.updatedAt, 9);
+  assert.throws(() => repos.memories.update(uuid(999), { text: 'x', at: 9 }), /doesn’t remember/);
+
+  assert.equal(repos.memories.remove(uuid(301)), true);
+  assert.equal(repos.memories.remove(uuid(301)), false);
+  assert.equal(repos.memories.clear(), 1);
+  assert.deepEqual(repos.memories.list(), []);
+});
+
+test('schedules: due ones earliest first, disabled and broken rules never due, removal', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  const base = {
+    prompt: 'Check the news',
+    notify: 'always' as const,
+    budgetUsd: 0.25,
+    enabled: true,
+    unattended: false,
+    createdAt: 1,
+  };
+  repos.schedules.create({
+    ...base,
+    id: uuid(201),
+    title: 'Later',
+    when: { kind: 'every', hours: 2 },
+    nextRunAt: 300,
+  });
+  repos.schedules.create({
+    ...base,
+    id: uuid(202),
+    title: 'Sooner',
+    when: { kind: 'daily', time: '09:00' },
+    nextRunAt: 100,
+  });
+  repos.schedules.create({
+    ...base,
+    id: uuid(203),
+    title: 'Off',
+    when: { kind: 'every', hours: 1 },
+    nextRunAt: 50,
+    enabled: false,
+  });
+  repos.schedules.create({
+    ...base,
+    id: uuid(204),
+    title: 'Broken',
+    when: { kind: 'every', hours: 3 },
+    nextRunAt: 60,
+  });
+  db.prepare(`UPDATE schedules SET when_json = '{"kind":"yearly"}' WHERE id = ?`).run(uuid(204));
+
+  assert.deepEqual(
+    repos.schedules.due(400).map(entry => entry.title),
+    ['Sooner', 'Later'],
+  );
+  assert.deepEqual(
+    repos.schedules.due(200).map(entry => entry.title),
+    ['Sooner'],
+  );
+  repos.schedules.update(uuid(202), { nextRunAt: 1000, lastRunAt: 100, lastResult: 'Quiet day.' });
+  assert.deepEqual(repos.schedules.get(uuid(202))?.lastResult, 'Quiet day.');
+  assert.deepEqual(
+    repos.schedules.list(10).map(entry => [entry.title, entry.enabled]),
+    [
+      ['Later', true],
+      ['Sooner', true],
+      ['Off', false],
+    ],
+  );
+  repos.tasks.create({
+    id: uuid(205),
+    title: 'Run',
+    prompt: 'x',
+    budgetUsd: 0.25,
+    conversationId: null,
+    scheduleId: uuid(201),
+    at: 5,
+  });
+  assert.equal(repos.tasks.get(uuid(205))?.scheduleId, uuid(201));
+  repos.schedules.remove(uuid(201));
+  assert.equal(repos.tasks.get(uuid(205))?.scheduleId, null);
+  assert.throws(() => repos.schedules.remove(uuid(201)), /no longer exists/);
+});
+
+test('approval rules: saved once per action and scope, newest first, removable', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const rule = (n: number, value: string, at: number) => ({
+    id: uuid(300 + n),
+    capabilityId: 'files.move',
+    capabilityTitle: 'Move files',
+    kind: 'folder' as const,
+    value,
+    label: value.replace('/Users/ada', '~'),
+    createdAt: at,
+  });
+  repos.approvalRules.add(rule(1, '/Users/ada/Desktop', 10));
+  repos.approvalRules.add(rule(2, '/Users/ada/Downloads', 20));
+  repos.approvalRules.add(rule(3, '/Users/ada/Desktop', 30));
+  assert.deepEqual(
+    repos.approvalRules.list().map(entry => [entry.id, entry.label]),
+    [
+      [uuid(302), '~/Downloads'],
+      [uuid(301), '~/Desktop'],
+    ],
+  );
+  assert.equal(repos.approvalRules.remove(uuid(301)), true);
+  assert.equal(repos.approvalRules.remove(uuid(301)), false);
+  assert.equal(repos.approvalRules.list().length, 1);
+});
+
+test('failures keep only a safe summary, newest first, capped', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  for (let n = 0; n < 503; n++)
+    repos.failures.add(
+      {
+        runId: null,
+        model: 'google/gemini-3.8-flash',
+        kind: 'temporary',
+        status: 502,
+        step: n % 3,
+      },
+      n,
+    );
+  const recent = repos.failures.recent(600);
+  assert.equal(recent.length, 500);
+  assert.equal(recent[0]!.at, 502);
+  assert.deepEqual(
+    { ...recent[0] },
+    {
+      at: 502,
+      runId: null,
+      model: 'google/gemini-3.8-flash',
+      kind: 'temporary',
+      status: 502,
+      provider: null,
+      code: null,
+      message: null,
+      step: 1,
+    },
+  );
+  assert.throws(() =>
+    repos.failures.add(
+      { runId: null, model: 'm', kind: 'unknown', message: 'x'.repeat(300), step: 0 },
+      1,
+    ),
+  );
+});
+
+test('diagrams are stored like other generated content', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const content = { kind: 'diagram', title: 'Flow', mermaid: 'flowchart LR\n  a --> b' };
+  repos.artifacts.add({
+    id: uuid(9),
+    kind: 'diagram',
+    title: 'Flow',
+    content,
+    path: 'Artifacts/Diagrams/flow.mmd',
+    bytes: 22,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  assert.equal(repos.artifacts.get(uuid(9))?.kind, 'diagram');
+  assert.deepEqual(repos.artifacts.get(uuid(9))?.content, content);
+});
+
+test('artifacts pin, move with a rename, and remember the request that made them', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.runs.start({ ...run(uuid(1)), prompt: 'Plan my launch' });
+  repos.toolCalls.create({
+    id: uuid(2),
+    runId: uuid(1),
+    capability: 'workspace.show',
+    title: 'Show',
+    effect: 'read',
+    input: {},
+    status: 'running',
+    at: 1,
+  });
+  const content = { kind: 'document', title: 'Plan', markdown: 'x' };
+  repos.artifacts.add({
+    id: uuid(2),
+    kind: 'document',
+    title: 'Plan',
+    content,
+    path: 'Artifacts/Reports/plan.md',
+    bytes: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  repos.artifacts.update({
+    id: uuid(2),
+    title: 'Launch',
+    content: { ...content, title: 'Launch' },
+    bytes: 1,
+    updatedAt: 1,
+    path: 'Artifacts/Reports/launch.md',
+  });
+  repos.artifacts.setPinned(uuid(2), 9);
+  const record = repos.artifacts.get(uuid(2));
+  assert.deepEqual([record?.title, record?.path, record?.pinnedAt], [
+    'Launch',
+    'Artifacts/Reports/launch.md',
+    9,
+  ]);
+  // An update without a path keeps the file where it is.
+  repos.artifacts.update({ id: uuid(2), title: 'Launch', content, bytes: 2, updatedAt: 3 });
+  assert.equal(repos.artifacts.get(uuid(2))?.path, 'Artifacts/Reports/launch.md');
+  assert.deepEqual(repos.toolCalls.origin(uuid(2)), {
+    prompt: 'Plan my launch',
+    note: null,
+    conversationId: null,
+    taskId: null,
+  });
+  assert.equal(repos.toolCalls.origin(uuid(9)), undefined);
+  assert.throws(() => repos.artifacts.setPinned(uuid(9), 1));
 });

@@ -1,4 +1,4 @@
-"""Provision the pinned MLX speech runtime (Kokoro and Chatterbox Turbo) in an isolated env.
+"""Provision the pinned MLX speech runtime (Kokoro and Chatterbox) in an isolated env.
 
 MLX runs natively on Apple Silicon. The same Chatterbox Turbo model measured 1.3-1.9x slower
 than real time through PyTorch/MPS on an M2 Pro, which is why this runtime exists.
@@ -41,15 +41,16 @@ MODELS = {
         "files": ["config.json", "kokoro-v1_0.safetensors"]
         + [f"voices/{voice}.safetensors" for voice in KOKORO_VOICES],
     },
-    "chatterbox-turbo-4bit": {
-        "repository": "mlx-community/Chatterbox-Turbo-TTS-4bit",
-        "revision": "6e6e9e205b2c5a77eb4b2bfa5e55e751c58bb612",
+    # Chatterbox (the original, not Turbo): it speaks in a voice made from a recording and
+    # clones far better than Turbo, at about 2.6 s to its first sound instead of 0.5 s. It has
+    # no voice of its own, so Kokoro is the built-in local voice.
+    "chatterbox-4bit": {
+        "repository": "mlx-community/Chatterbox-TTS-4bit",
+        "revision": "a3c8ded2d711d6395410d645b3a97c79fd563a13",
         "files": [
             "config.json",
             "model.safetensors",
-            "conds.safetensors",
             "tokenizer.json",
-            "tokenizer_config.json",
         ],
     },
 }

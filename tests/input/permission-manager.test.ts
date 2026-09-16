@@ -10,6 +10,7 @@ function harness() {
   const status: Record<PermissionId, PermissionStatus> = {
     microphone: 'not-determined',
     'screen-recording': 'denied',
+    accessibility: 'not-determined',
   };
   const requested: PermissionId[] = [];
   const opened: PermissionId[] = [];
@@ -25,7 +26,11 @@ function harness() {
     },
   });
   const manager = new PermissionManager(
-    { microphone: adapter('microphone'), 'screen-recording': adapter('screen-recording') },
+    {
+      microphone: adapter('microphone'),
+      'screen-recording': adapter('screen-recording'),
+      accessibility: adapter('accessibility'),
+    },
     () => presentations++,
   );
   return { manager, status, requested, opened, presentations: () => presentations };

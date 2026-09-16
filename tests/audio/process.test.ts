@@ -8,7 +8,7 @@ const runtime = {
   worker: resolve('tests/audio/worker-fixture.py'),
   cache: '/private/tmp/edi-unused-cache',
 };
-const chatterbox = { id: 'chatterbox-turbo', model: 'fixture', label: 'Chatterbox Turbo' } as const;
+const chatterbox = { id: 'chatterbox', model: 'fixture', label: 'Chatterbox Turbo' } as const;
 const kokoro = { id: 'kokoro', model: 'fixture', label: 'Kokoro', voice: 'af_heart' } as const;
 const live = () => new AbortController().signal;
 /** The fixture encodes which utterance a process is serving in its samples. */
@@ -149,5 +149,25 @@ test('an MLX worker reporting a different engine is refused', async () => {
     assert.equal(voice.status, 'off');
   } finally {
     voice.dispose();
+  }
+});
+
+test('a personal Chatterbox voice reaches the worker with its recording; bad ids never do', async () => {
+  const withEdi = new MlxVoice(runtime, {
+    ...chatterbox,
+    references: () => ({ edi: '/tmp/edi.wav', '../escape': '/tmp/x.wav' }),
+  });
+  try {
+    const values: number[] = [];
+    await withEdi.speak('normal', live(), collect(values), { voice: 'edi' });
+    assert.ok(values.length > 0);
+  } finally {
+    withEdi.dispose();
+  }
+  const without = new MlxVoice(runtime, chatterbox);
+  try {
+    await assert.rejects(without.speak('normal', live(), async () => {}, { voice: 'edi' }));
+  } finally {
+    without.dispose();
   }
 });

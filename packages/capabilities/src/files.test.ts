@@ -54,6 +54,32 @@ async function home() {
   return { base, roots, trashed, results, tool, run };
 }
 
+test('a name retyped with plain spaces finds the macOS name with a narrow no-break space', async () => {
+  const { base, run } = await home();
+  const shot = 'Screenshot 2026-09-11 at 10.35.11 PM.png';
+  await writeFile(join(base, 'Desktop', shot), 'png');
+  await mkdir(join(base, 'Desktop/Screenshots'));
+  const moved = await run('files.move', {
+    moves: [
+      {
+        from: '~/Desktop/Screenshot 2026-09-11 at 10.35.11 PM.png',
+        to: '~/Desktop/Screenshots/Screenshot 2026-09-11 at 10.35.11 PM.png',
+      },
+    ],
+  });
+  assert.equal(moved.summary, 'Moved 1 item.');
+  assert.deepEqual(await readdir(join(base, 'Desktop/Screenshots')), [
+    'Screenshot 2026-09-11 at 10.35.11 PM.png',
+  ]);
+  // Reading works the same way.
+  await writeFile(join(base, 'Desktop', 'It’s done.txt'), 'yes');
+  assert.equal(
+    ((await run('files.read', { path: "~/Desktop/It's done.txt" })).output as { text: string })
+      .text,
+    'yes',
+  );
+});
+
 test('search finds by name across allowed folders, skipping hidden items and refused folders', async () => {
   const { run, roots, results } = await home();
   const found = (await run('files.search', { query: 'invoice' })).output as {
@@ -118,7 +144,9 @@ test('list and read: folders first, text in parts, binary refused', async () => 
 test('changes are previewed exactly and refuse the workspace, Library, roots and overwrites', async () => {
   const { base, run, tool, trashed } = await home();
   const prepared = await tool('files.move').prepare(
-    { from: '~/Downloads/Invoices/march-invoice.txt', to: '~/Desktop/march.txt' } as never,
+    {
+      moves: [{ from: '~/Downloads/Invoices/march-invoice.txt', to: '~/Desktop/march.txt' }],
+    } as never,
     context,
   );
   assert.equal(prepared.preview.action, 'Move');
@@ -130,7 +158,7 @@ test('changes are previewed exactly and refuse the workspace, Library, roots and
   assert.ok((await readdir(join(base, 'Desktop'))).includes('march.txt'));
 
   const rename = await tool('files.move').prepare(
-    { from: '~/Desktop/march.txt', to: '~/Desktop/notes.md' } as never,
+    { moves: [{ from: '~/Desktop/march.txt', to: '~/Desktop/notes.md' }] } as never,
     context,
   );
   assert.equal(rename.preview.action, 'Rename');
@@ -138,12 +166,135 @@ test('changes are previewed exactly and refuse the workspace, Library, roots and
 
   for (const path of ['~/Documents/Edi/Notes/list.md', '~/Downloads', '~/Library/x'])
     await assert.rejects(
-      tool('files.trash').prepare({ path } as never, context) as Promise<unknown>,
+      tool('files.trash').prepare({ paths: [path] } as never, context) as Promise<unknown>,
       /workspace|Downloads itself|Library/,
     );
 
-  await run('files.create_folder', { path: '~/Desktop/Receipts' });
+  await run('files.create_folder', { paths: ['~/Desktop/Receipts'] });
   assert.ok((await readdir(join(base, 'Desktop'))).includes('Receipts'));
-  await run('files.trash', { path: '~/Desktop/Receipts' });
+  await run('files.trash', { paths: ['~/Desktop/Receipts'] });
   assert.deepEqual(trashed, [join(base, 'Desktop/Receipts')]);
+});
+
+test('a batch is reviewed once, runs every item and reports the ones that did not work', async () => {
+  const { base, tool } = await home();
+  for (const name of ['a.png', 'b.png', 'c.png'])
+    await writeFile(join(base, 'Desktop', name), 'png');
+  const folders = await tool('files.create_folder').prepare(
+    { paths: ['~/Desktop/Screenshots', '~/Desktop/Screenshots/Old'] } as never,
+    context,
+  );
+  assert.equal(folders.preview.summary, 'Create 2 folders.');
+  await folders.execute(live());
+
+  const batch = await tool('files.move').prepare(
+    {
+      moves: ['a.png', 'b.png', 'c.png', 'notes.md'].map(name => ({
+        from: `~/Desktop/${name}`,
+        to: `~/Desktop/Screenshots/${name}`,
+      })),
+    } as never,
+    context,
+  );
+  assert.equal(batch.preview.summary, 'Move 4 items into ~/Desktop/Screenshots.');
+  assert.equal(batch.preview.body, 'a.png\nb.png\nc.png\nnotes.md');
+  await writeFile(join(base, 'Desktop/Screenshots/notes.md'), 'already here');
+  const result = await batch.execute(live());
+  assert.match(result.summary, /^Moved 3 items; 1 didn’t work \(notes\.md\)\.$/);
+  assert.deepEqual((await readdir(join(base, 'Desktop/Screenshots'))).sort(), [
+    'Old',
+    'a.png',
+    'b.png',
+    'c.png',
+    'notes.md',
+  ]);
+  await assert.rejects(
+    tool('files.move').prepare(
+      {
+        moves: [
+          { from: '~/Desktop/notes.md', to: '~/Desktop/x.md' },
+          { from: '~/Downloads/photo.png', to: '~/Desktop/x.md' },
+        ],
+      } as never,
+      context,
+    ) as Promise<unknown>,
+    /Two items would be moved/,
+  );
+});
+
+test('search ranks what a person means: named documents first, code projects and tool folders last', async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'edi-rank-')));
+  const files = [
+    'Documents/code/app/.git/HEAD',
+    'Documents/code/app/src/resume-worker.ts',
+    'Documents/code/app/src/parser.ts',
+    'Documents/code/env/my-venv/lib/site-packages/resume.py',
+    'Documents/Whyte Peter/Docs/Whyte Peter Resume .pdf',
+    'Documents/Whyte Peter/Docs/Cover letter.pdf',
+    'Documents/notes/resume ideas.md',
+  ];
+  for (const file of files) {
+    await mkdir(join(base, file, '..'), { recursive: true });
+    await writeFile(join(base, file), 'resume');
+  }
+  const asked: string[] = [];
+  const [search] = fileCapabilities({
+    home: base,
+    roots: () => [{ name: 'Documents', path: join(base, 'Documents'), access: 'allowed' }],
+    workspace: join(base, 'Documents/Edi'),
+    trash: async () => {},
+    // Spotlight's own order puts code first; content matches include files without the word in
+    // their name.
+    spotlight: async (_root, _query, _signal, by) => {
+      asked.push(by);
+      const all = files.filter(file => !file.includes('.git/')).map(file => join(base, file));
+      return by === 'name' ? all.filter(path => /resume/i.test(path.split('/').pop()!)) : all;
+    },
+  });
+  const result = await (
+    await search!.prepare({ query: 'resume' } as never, context)
+  ).execute(live());
+  const paths = (result.output as { results: { path: string }[] }).results.map(entry => entry.path);
+  assert.deepEqual(asked, ['name', 'content']);
+  assert.deepEqual(paths.slice(0, 2).sort(), [
+    '~/Documents/Whyte Peter/Docs/Whyte Peter Resume .pdf',
+    '~/Documents/notes/resume ideas.md',
+  ]);
+  assert.equal(paths[2], '~/Documents/code/app/src/resume-worker.ts');
+  assert.ok(!paths.some(path => path.includes('site-packages')));
+  assert.ok(
+    paths.indexOf('~/Documents/Whyte Peter/Docs/Cover letter.pdf') <
+      paths.indexOf('~/Documents/code/app/src/parser.ts'),
+  );
+});
+
+test('PDFs and pictures of documents are read through the native helper', async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'edi-docs-')));
+  await mkdir(join(base, 'Documents'), { recursive: true });
+  for (const name of ['resume.pdf', 'slip.jpg', 'blank.png', 'locked.pdf'])
+    await writeFile(join(base, 'Documents', name), Buffer.from([0x25, 0x50, 0, 0]));
+  const [, , read] = fileCapabilities({
+    home: base,
+    roots: () => [{ name: 'Documents', path: join(base, 'Documents'), access: 'allowed' }],
+    workspace: join(base, 'Documents/Edi'),
+    trash: async () => {},
+    documentText: async path =>
+      path.endsWith('resume.pdf')
+        ? 'Education\nUniversity of Abuja'
+        : path.endsWith('slip.jpg')
+          ? 'RESULT SLIP'
+          : path.endsWith('blank.png')
+            ? ''
+            : null,
+  });
+  const run = async (path: string) =>
+    (await read!.prepare({ path } as never, context)).execute(live());
+  assert.equal(read!.id, 'files.read');
+  assert.match(((await run('~/Documents/resume.pdf')).output as { text: string }).text, /Abuja/);
+  assert.equal(
+    ((await run('~/Documents/slip.jpg')).output as { text: string }).text,
+    'RESULT SLIP',
+  );
+  await assert.rejects(run('~/Documents/blank.png'), /no readable text/);
+  await assert.rejects(run('~/Documents/locked.pdf'), /couldn’t open/);
 });

@@ -1,0 +1,10 @@
+{
+  "name": "@edi/skills",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The skills that ship with Edi, by Fewerlabs, as ordinary Agent Skills folders.",
+  "exports": {
+    "./*": "./*"
+  }
+}

@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import type {
-  FileAccess,
-  FileAccessAction,
-  FolderAccessStatus,
-  PermissionId,
-  PermissionSnapshot,
-  PermissionStatus,
-  WorkspaceView,
+import {
+  describeRule,
+  type ApprovalRule,
+  type FileAccess,
+  type FileAccessAction,
+  type FolderAccessStatus,
+  type PermissionId,
+  type PermissionSnapshot,
+  type PermissionStatus,
+  type PrivateApp,
+  type WorkspaceView,
 } from '@edi/contracts';
-import { Button, type IconName, GroupedList, GroupedRow } from '../../components/ui';
+import { Button, type IconName, GroupedList, GroupedRow, Switch } from '../../components/ui';
+import { usePrivacy } from '../../hooks/usePrivacy';
 import './settings.css';
 
 const permissionCopy: Record<PermissionId, { title: string; detail: string; icon: IconName }> = {
@@ -18,16 +22,47 @@ const permissionCopy: Record<PermissionId, { title: string; detail: string; icon
     detail: 'Only when a question is about your screen',
     icon: 'window',
   },
+  accessibility: {
+    title: 'Accessibility',
+    detail: 'Selected text and the open document, when you ask',
+    icon: 'sliders',
+  },
+  reminders: {
+    title: 'Reminders',
+    detail: 'To check and add reminders when you ask',
+    icon: 'check',
+  },
+  calendar: {
+    title: 'Calendar',
+    detail: 'To check, add, change and remove events when you ask',
+    icon: 'calendar',
+  },
+};
+
+const ruleIcon: Record<ApprovalRule['kind'], IconName> = {
+  folder: 'folder',
+  site: 'arrow-up-right',
+  app: 'window',
+  any: 'check',
 };
 
 const statusLabel: Record<PermissionStatus, string> = {
   granted: 'Allowed',
-  'not-determined': 'Not asked yet',
+  'not-determined': 'Asks when needed',
   denied: 'Off',
   restricted: 'Restricted',
   unavailable: 'Unavailable',
   unknown: 'Checking…',
 };
+
+/** “Desktop, Documents and Downloads”. */
+const folderNames = (folders: readonly { name: string }[]) =>
+  folders.length <= 1
+    ? (folders[0]?.name ?? '')
+    : `${folders
+        .slice(0, -1)
+        .map(folder => folder.name)
+        .join(', ')} and ${folders.at(-1)!.name}`;
 
 const folderStatus: Record<FolderAccessStatus, string> = {
   allowed: 'Allowed',
@@ -39,13 +74,56 @@ const folderStatus: Record<FolderAccessStatus, string> = {
 /** Settings → Privacy & Permissions: OS access, what leaves this Mac, and the activity log. */
 export function PrivacySettings({
   permissions,
+  shareDesktopContext,
+  onShareDesktopContext,
+  privacyPaused,
+  pauseWhenSharing,
+  privateApps,
   onOpen,
 }: {
   permissions: PermissionSnapshot;
+  shareDesktopContext: boolean;
+  onShareDesktopContext(enabled: boolean): void;
+  privacyPaused: boolean;
+  pauseWhenSharing: boolean;
+  privateApps: readonly PrivateApp[];
   onOpen(view: WorkspaceView): void;
 }) {
   const [error, setError] = useState('');
+  const privacy = usePrivacy();
+
+  async function privacyCommand(command: Parameters<NonNullable<typeof window.edi>['command']>[0]) {
+    setError('');
+    try {
+      await window.edi?.command(command);
+    } catch {
+      setError(command.type === 'add-private-app' ? 'Couldn’t add that app.' : 'Couldn’t change that.');
+    }
+  }
   const [files, setFiles] = useState<FileAccess | null>(null);
+  const [rules, setRules] = useState<ApprovalRule[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void window.edi
+      ?.approvalRules()
+      .then(list => alive && setRules(list))
+      .catch(() => {});
+    const stop = window.edi?.onApprovalRules(setRules);
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []);
+
+  async function removeRule(id: string) {
+    setError('');
+    try {
+      await window.edi?.command({ type: 'remove-approval-rule', id });
+    } catch {
+      setError('Couldn’t remove that. Try again.');
+    }
+  }
 
   const loadFiles = useCallback(() => {
     void window.edi
@@ -72,17 +150,26 @@ export function PrivacySettings({
     }
   }
 
-  async function act(permission: PermissionId, status: PermissionStatus) {
+  /** Only for a permission macOS has turned off: everything else is asked for when it's needed. */
+  async function openPermissionSettings(permission: PermissionId) {
     setError('');
     try {
-      await window.edi?.command({
-        type: status === 'denied' ? 'permission-open-settings' : 'permission-request',
-        permission,
-      });
+      await window.edi?.command({ type: 'permission-open-settings', permission });
     } catch {
       setError('Couldn’t reach System Settings. Try again.');
     }
   }
+
+  // The folders Edi ships with need no button: macOS asks the first time Edi reads one. Only a
+  // folder macOS has blocked, and folders the person added themselves, have anything to do.
+  const folders = files?.folders ?? [];
+  const standardFolders = folders.filter(
+    folder => folder.kind !== 'added' && folder.status !== 'off' && folder.status !== 'missing',
+  );
+  const blockedFolders = folders.filter(
+    folder => folder.kind !== 'added' && (folder.status === 'off' || folder.status === 'missing'),
+  );
+  const addedFolders = folders.filter(folder => folder.kind === 'added');
 
   return (
     <div className="settings-page">
@@ -95,20 +182,21 @@ export function PrivacySettings({
         title="Permissions"
         footer="Edi asks for each one the first time a feature needs it."
       >
+        {/* Only a permission macOS has turned off needs a button here; the rest are asked for
+            when a feature first needs them, in the moment. */}
         {permissions.permissions.map(({ id, status }) => {
           const copy = permissionCopy[id];
-          const actionable = status === 'denied' || status === 'not-determined';
           return (
             <GroupedRow
               key={id}
               icon={copy.icon}
               title={copy.title}
               detail={copy.detail}
-              value={actionable ? undefined : statusLabel[status]}
+              value={status === 'denied' ? undefined : statusLabel[status]}
               control={
-                actionable && (
-                  <Button size="small" onClick={() => void act(id, status)}>
-                    {status === 'denied' ? 'Open Settings' : 'Allow'}
+                status === 'denied' && (
+                  <Button size="small" onClick={() => void openPermissionSettings(id)}>
+                    Open Settings
                   </Button>
                 )
               }
@@ -117,45 +205,131 @@ export function PrivacySettings({
         })}
       </GroupedList>
 
+      <GroupedList
+        title="Privacy mode"
+        footer={
+          privacy.paused === 'sharing'
+            ? `Paused now: you’re sharing your screen${privacy.sharingApp ? ` in ${privacy.sharingApp}` : ''}. Edi is out of the share too.`
+            : 'Password managers are always private. Edi only looks when you ask, and keeps nothing it sees.'
+        }
+      >
+        <GroupedRow
+          icon="shield"
+          title="Don’t look at my screen"
+          detail="No screenshots and nothing read from the app in front until you turn this off. You can also ask Edi."
+          control={
+            <Switch
+              label="Don’t look at my screen"
+              checked={privacyPaused}
+              onChange={paused => void privacyCommand({ type: 'set-privacy', paused })}
+            />
+          }
+        />
+        <GroupedRow
+          icon="window"
+          title="Pause while I share my screen"
+          detail="Zoom, Google Meet, Teams, Slack, FaceTime and others"
+          control={
+            <Switch
+              label="Pause while I share my screen"
+              checked={pauseWhenSharing}
+              onChange={enabled =>
+                void privacyCommand({ type: 'set-privacy', pauseWhenSharing: enabled })
+              }
+            />
+          }
+        />
+        {privateApps.map(app => (
+          <GroupedRow
+            key={app.bundleId}
+            icon="shield"
+            title={app.name}
+            detail="Kept private: Edi doesn’t look while it’s in front"
+            control={
+              <Button
+                size="small"
+                onClick={() =>
+                  void privacyCommand({ type: 'remove-private-app', bundleId: app.bundleId })
+                }
+              >
+                Remove
+              </Button>
+            }
+          />
+        ))}
+        <GroupedRow
+          icon="shield"
+          title="Keep an app private…"
+          detail="Edi won’t look at your screen while that app is in front"
+          onOpen={() => void privacyCommand({ type: 'add-private-app' })}
+        />
+      </GroupedList>
+
+      <GroupedList
+        title="What you’re working on"
+        footer="With each question Edi includes the app and window in front, and, with Accessibility, the page address, the open document and any text you selected. Password managers and private windows are left out. Nothing is kept."
+      >
+        <GroupedRow
+          icon="window"
+          title="Share what’s in front of you"
+          detail="So “this page” or “my selection” just works"
+          control={
+            <Switch
+              label="Share what’s in front of you"
+              checked={shareDesktopContext}
+              onChange={onShareDesktopContext}
+            />
+          }
+        />
+      </GroupedList>
+
       {files && (
         <GroupedList
           title="Files & Folders"
-          footer="Edi searches and reads files only in these folders. Renaming, moving, new folders and moving to the Trash always ask first. Full Disk Access lets Edi use everything in your home folder."
+          footer="Edi reads files only in these folders, and never opens one without being asked to. Renaming, moving, new folders and moving to the Trash always ask you first."
         >
-          {files.folders.map(folder => (
+          {/* The folders Edi comes with are one line: macOS asks the first time Edi reads one. */}
+          {standardFolders.length > 0 && (
+            <GroupedRow
+              icon="folder"
+              title={folderNames(standardFolders)}
+              detail="macOS asks the first time Edi reads one"
+              value={standardFolders.some(folder => folder.status === 'allowed') ? 'Ready' : undefined}
+            />
+          )}
+          {blockedFolders.map(folder => (
             <GroupedRow
               key={folder.id}
               icon="folder"
               title={folder.name}
-              detail={folder.path}
-              value={
-                folder.status === 'allowed' || folder.status === 'missing'
-                  ? folderStatus[folder.status]
-                  : undefined
-              }
+              detail={folder.status === 'off' ? 'Turned off for Edi in System Settings' : 'Not found'}
+              value={folder.status === 'missing' ? folderStatus.missing : undefined}
               control={
-                folder.kind === 'added' ? (
-                  <Button
-                    size="small"
-                    onClick={() => void fileAction({ type: 'remove', id: folder.id })}
-                  >
-                    Remove
-                  </Button>
-                ) : folder.status === 'not-checked' ? (
-                  <Button
-                    size="small"
-                    onClick={() => void fileAction({ type: 'check', id: folder.id })}
-                  >
-                    Allow
-                  </Button>
-                ) : folder.status === 'off' ? (
+                folder.status === 'off' && (
                   <Button
                     size="small"
                     onClick={() => void fileAction({ type: 'open-settings', pane: 'files' })}
                   >
                     Open Settings
                   </Button>
-                ) : undefined
+                )
+              }
+            />
+          ))}
+          {addedFolders.map(folder => (
+            <GroupedRow
+              key={folder.id}
+              icon="folder"
+              title={folder.name}
+              detail={folder.path}
+              value={folder.status === 'off' ? folderStatus.off : undefined}
+              control={
+                <Button
+                  size="small"
+                  onClick={() => void fileAction({ type: 'remove', id: folder.id })}
+                >
+                  Remove
+                </Button>
               }
             />
           ))}
@@ -163,17 +337,8 @@ export function PrivacySettings({
             icon="shield"
             title="Full Disk Access"
             detail="Everything in your home folder, including other apps’ files"
-            value={files.fullDiskAccess ? 'On' : undefined}
-            control={
-              !files.fullDiskAccess && (
-                <Button
-                  size="small"
-                  onClick={() => void fileAction({ type: 'open-settings', pane: 'full-disk' })}
-                >
-                  Open Settings
-                </Button>
-              )
-            }
+            value={files.fullDiskAccess ? 'On' : 'Off'}
+            onOpen={() => void fileAction({ type: 'open-settings', pane: 'full-disk' })}
           />
           <GroupedRow
             icon="folder"
@@ -184,12 +349,35 @@ export function PrivacySettings({
         </GroupedList>
       )}
 
+      <GroupedList
+        title="Always allowed"
+        footer={
+          rules.length
+            ? 'Edi does these without asking. Remove one to be asked again.'
+            : 'When you choose “Always allow” for a folder, a site, an app, or adding reminders and events, it shows here.'
+        }
+      >
+        {rules.map(rule => (
+          <GroupedRow
+            key={rule.id}
+            icon={ruleIcon[rule.kind]}
+            title={rule.capabilityTitle}
+            detail={describeRule(rule)}
+            control={
+              <Button size="small" onClick={() => void removeRule(rule.id)}>
+                Remove
+              </Button>
+            }
+          />
+        ))}
+      </GroupedList>
+
       <GroupedList title="What leaves this Mac">
         <li>
           <ul className="settings-prose">
             <li>
-              Your questions, recent conversation, and any screenshot a question needs go to
-              OpenRouter with your key.
+              Your questions, recent conversation, what you’re working on (when shared) and any
+              screenshot a question needs go to OpenRouter with your key.
             </li>
             <li>
               When Edi reads one of your files to answer, that text goes to OpenRouter too. Your

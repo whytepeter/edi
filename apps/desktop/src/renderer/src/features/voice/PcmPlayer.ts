@@ -7,6 +7,8 @@ export class PcmPlayer {
   private started = false;
   private sources = new Set<AudioBufferSourceNode>();
   private gaps = 0;
+  /** Held while the person talks over Edi; queued audio waits where it is. */
+  private held = false;
   /** Context time at which the most recently accepted chunk starts playing. */
   private lastStart = 0;
 
@@ -40,6 +42,7 @@ export class PcmPlayer {
     sampleRate: number,
   ): 'accepted' | 'stale' | 'backpressure' {
     if (token !== this.generation || !this.accepting || this.disposed) return 'stale';
+    if (this.held) return 'backpressure';
     if (this.context.state !== 'running') {
       this.stop();
       throw new Error('Audio output was suspended');
@@ -93,8 +96,26 @@ export class PcmPlayer {
     if (token === this.generation) this.accepting = false;
   }
 
+  /** Hold playback exactly where it is (the clock stops, so queued audio keeps its timing). */
+  pause(): void {
+    if (this.held || this.disposed) return;
+    this.held = true;
+    void this.context.suspend().catch(() => {});
+  }
+
+  resume(): void {
+    if (!this.held || this.disposed) return;
+    this.held = false;
+    void this.context.resume().catch(() => {});
+  }
+
+  get paused() {
+    return this.held;
+  }
+
   /** Synchronously disconnect all scheduled audio, then invalidate producer messages. */
   stop(): void {
+    if (this.held) this.resume();
     this.generation += 1;
     this.accepting = false;
     for (const source of this.sources) {

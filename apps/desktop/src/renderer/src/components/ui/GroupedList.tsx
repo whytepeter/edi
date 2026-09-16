@@ -24,6 +24,8 @@ export function GroupedList({
 
 interface GroupedRowProps {
   icon?: IconName;
+  /** Custom leading element; replaces the icon when both are given. */
+  leading?: ReactNode;
   title: string;
   detail?: ReactNode;
   value?: ReactNode;
@@ -33,14 +35,14 @@ interface GroupedRowProps {
   control?: ReactNode;
 }
 
-export function GroupedRow({ icon, title, detail, value, onOpen, control }: GroupedRowProps) {
+export function GroupedRow({ icon, leading, title, detail, value, onOpen, control }: GroupedRowProps) {
   const body = (
     <>
-      {icon && (
+      {leading ?? (icon && (
         <span className="ds-group-row-icon">
           <Icon name={icon} size={16} />
         </span>
-      )}
+      ))}
       <span className="ds-group-row-text">
         <span className="ds-group-row-title">{title}</span>
         {detail && <span className="ds-group-row-detail">{detail}</span>}

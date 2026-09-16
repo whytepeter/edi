@@ -3,10 +3,16 @@ import type {
   ArtifactRef,
   CloudProviderId,
   Settings,
+  VoicePackId,
   VoiceSelection,
   WorkspaceView,
 } from '@edi/contracts';
 import type { AgentService } from '../agent/agent-service';
+import type { TaskService } from '../agent/task-service';
+import type { Scheduler } from '../agent/scheduler';
+import type { ApprovalRules } from '../agent/approval-rules';
+import type { ConnectorManager } from '../connectors/manager';
+import type { SkillLibrary } from '../skills/library';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
@@ -22,6 +28,27 @@ interface CommandDependencies {
   pet: BrowserWindow;
   settings: SettingsStore;
   agent: AgentService;
+  tasks: TaskService;
+  scheduler: Scheduler;
+  approvalRules: ApprovalRules;
+  connectors: ConnectorManager;
+  skills: SkillLibrary;
+  /** Documents › Edi › Skills in Finder, created if missing. */
+  openSkillsFolder(): Promise<void>;
+  /** Skills › Add Skill…: the folder picker, then the same check as every skill. */
+  addSkill(): Promise<void>;
+  /** Settings → Privacy: choose an app Edi never looks at. */
+  addPrivateApp(): Promise<void>;
+  /** A quiet suggestion beside the character: taken up, or waved away. */
+  suggestions: { accept(): void; dismiss(): void };
+  /** Settings → Memory: the person's own edits to what Edi remembers. */
+  memory: {
+    edit(id: string, text: string): void;
+    remove(id: string): void;
+    clear(): void;
+  };
+  /** One of the person's skills, selected in Finder. */
+  revealSkill(name: string): void;
   placement: WindowPlacement;
   petDrag: PetDrag;
   character: CharacterActions;
@@ -31,8 +58,14 @@ interface CommandDependencies {
   revealLibraryItem(id: string): void;
   /** Show an artifact in its own window beside the card. */
   openArtifact(ref: ArtifactRef): void;
-  /** Copy, save a copy of, or reveal shown content; main resolves everything from the ref. */
-  artifactAction(action: 'copy' | 'download' | 'reveal', ref: ArtifactRef): Promise<void>;
+  /** Copy or reveal shown content; main resolves everything from the ref. */
+  artifactAction(action: 'copy' | 'reveal', ref: ArtifactRef): Promise<void>;
+  /** Show the most recent export in Finder. */
+  revealExport(): void;
+  /** The hidden export page finished drawing (and hands back a diagram's picture). */
+  exportReady(result: { svg?: string; png?: string; failed?: boolean }): void;
+  /** The person drew a mark on their own screen, in that display's own pixels. */
+  annotationDrawn(box: { x: number; y: number; width: number; height: number }): void;
   closeArtifact(): void;
   /** Open a validated http(s) link from a reply in the default browser. */
   openLink(url: string): Promise<void>;
@@ -40,8 +73,18 @@ interface CommandDependencies {
   setVoiceKey(provider: CloudProviderId, apiKey: string | null): Promise<void>;
   /** Settings → Voice: play a short sample of a voice. */
   previewVoice(selection: VoiceSelection): Promise<void>;
+  /** Settings → Voice: move an added voice's recording to the Trash. */
+  removePersonalVoice(id: string): Promise<void>;
+  /** Settings → Voice: download (or resume), pause or remove an on-device voice pack. */
+  voicePack(action: 'download' | 'pause' | 'remove', id: VoicePackId): Promise<void> | void;
   /** Library Delete: move a note or generated item to the Trash; confirmed in the card. */
   deleteLibraryItem(id: string): Promise<void>;
+  /** Library Rename, Pin and Regenerate; the person's click is the consent. */
+  renameLibraryItem(id: string, title: string): Promise<void>;
+  pinLibraryItem(id: string, pinned: boolean): void;
+  regenerateLibraryItem(id: string): Promise<void>;
+  /** A diagram that can't be drawn: Edi fixes it in place; the click is the request. */
+  fixArtifact(ref: ArtifactRef, problem: string): Promise<void>;
   reportView(view: WorkspaceView): void;
   /** Built-in and installed characters. */
   characters: CharacterLibrary;
@@ -58,6 +101,17 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     pet,
     settings,
     agent,
+    tasks,
+    scheduler,
+    approvalRules,
+    connectors,
+    skills,
+    openSkillsFolder,
+    addSkill,
+    addPrivateApp,
+    memory,
+    suggestions,
+    revealSkill,
     placement,
     petDrag,
     character,
@@ -66,11 +120,20 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     revealLibraryItem,
     openArtifact,
     artifactAction,
+    revealExport,
+    exportReady,
+    annotationDrawn,
     closeArtifact,
     openLink,
     previewVoice,
+    removePersonalVoice,
+    voicePack,
     setVoiceKey,
     deleteLibraryItem,
+    renameLibraryItem,
+    pinLibraryItem,
+    regenerateLibraryItem,
+    fixArtifact,
     reportView,
     characters,
   } = deps;
@@ -119,11 +182,14 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromPet,
       handle: ({ generation, event }) => voice.clientEvent(generation, event),
     },
-    'voice-audio': {
+    'voice-pcm': {
       from: fromPet,
-      handle: ({ generation, pcm }) => void voice.audio(generation, pcm),
+      handle: ({ generation, pcm, speaking }) => voice.pcm(generation, pcm, speaking),
     },
-    'voice-played': { from: fromPet, handle: ({ generation }) => voice.played(generation) },
+    'voice-played': {
+      from: fromPet,
+      handle: ({ generation, turn }) => voice.played(generation, turn),
+    },
     'pet-hit-test': {
       from: fromPet,
       handle: ({ interactive }) => {
@@ -169,6 +235,46 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ speakReplies: enabled }),
     },
+    'remove-personal-voice': {
+      from: fromWorkspace,
+      handle: ({ id }) => removePersonalVoice(id),
+    },
+    'voice-pack': {
+      from: fromWorkspace,
+      handle: ({ action, id }) => voicePack(action, id),
+    },
+    'set-voice-delivery': {
+      from: fromWorkspace,
+      handle: ({ delivery }) => settings.update({ voiceDelivery: delivery }),
+    },
+    'set-voice-words': {
+      from: fromWorkspace,
+      handle: ({ words }) => settings.update({ voiceWords: words }),
+    },
+    'set-voice-input': {
+      from: fromWorkspace,
+      handle: ({ input }) => settings.update({ voiceInput: input }),
+    },
+    'set-share-desktop-context': {
+      from: fromWorkspace,
+      handle: ({ enabled }) => settings.update({ shareDesktopContext: enabled }),
+    },
+    'set-privacy': {
+      from: fromWorkspace,
+      handle: ({ paused, pauseWhenSharing }) =>
+        settings.update({
+          ...(paused !== undefined ? { privacyPaused: paused } : {}),
+          ...(pauseWhenSharing !== undefined ? { pauseWhenSharing } : {}),
+        }),
+    },
+    'add-private-app': { from: fromWorkspace, handle: () => addPrivateApp() },
+    'remove-private-app': {
+      from: fromWorkspace,
+      handle: ({ bundleId }) =>
+        settings.update({
+          privateApps: settings.current.privateApps.filter(app => app.bundleId !== bundleId),
+        }),
+    },
     'set-pet-scale': {
       from: fromWorkspace,
       handle: ({ scale, commit }) => {
@@ -186,13 +292,28 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     },
     'open-artifact': { from: ['workspace', 'bubble'], handle: ({ ref }) => openArtifact(ref) },
     'artifact-copy': { from: fromArtifact, handle: ({ ref }) => artifactAction('copy', ref) },
-    'artifact-download': {
+    'artifact-fix': {
       from: fromArtifact,
-      handle: ({ ref }) => artifactAction('download', ref),
+      handle: ({ ref, problem }) => fixArtifact(ref, problem),
     },
     'artifact-reveal': { from: fromArtifact, handle: ({ ref }) => artifactAction('reveal', ref) },
+    'reveal-export': { from: ['artifact', 'workspace'], handle: () => revealExport() },
+    'export-ready': {
+      from: ['export'],
+      handle: ({ type: _type, ...result }) => exportReady(result),
+    },
+    'annotation-drawn': {
+      from: ['annotate'],
+      handle: ({ type: _type, ...box }) => annotationDrawn(box),
+    },
     'close-artifact': { from: fromArtifact, handle: () => closeArtifact() },
     'library-delete': { from: fromWorkspace, handle: ({ id }) => deleteLibraryItem(id) },
+    'library-rename': {
+      from: fromWorkspace,
+      handle: ({ id, title }) => renameLibraryItem(id, title),
+    },
+    'library-pin': { from: fromWorkspace, handle: ({ id, pinned }) => pinLibraryItem(id, pinned) },
+    'library-regenerate': { from: fromWorkspace, handle: ({ id }) => regenerateLibraryItem(id) },
     'workspace-view': { from: fromWorkspace, handle: ({ view }) => reportView(view) },
     'set-voice-model': {
       from: fromWorkspace,
@@ -226,9 +347,113 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'disconnect-agent': { from: fromWorkspace, handle: () => agent.disconnect() },
     'ask-agent': { from: fromWorkspace, handle: ({ prompt }) => agent.ask(prompt) },
     'stop-agent': { from: fromWorkspace, handle: () => agent.stop() },
+    'new-conversation': { from: fromWorkspace, handle: () => agent.newConversation() },
+    'open-conversation': { from: fromWorkspace, handle: ({ id }) => agent.openConversation(id) },
+    'delete-conversation': {
+      from: fromWorkspace,
+      handle: ({ id }) => agent.deleteConversation(id),
+    },
     'respond-approval': {
       from: ['workspace', 'bubble'],
-      handle: ({ callId, decision }) => agent.respondToApproval(callId, decision),
+      // The conversation's review first; otherwise it belongs to a background task.
+      handle: ({ callId, decision }) =>
+        agent.state.approval?.callId === callId
+          ? agent.respondToApproval(callId, decision)
+          : tasks.respondToApproval(callId, decision),
+    },
+    'start-task': {
+      from: fromWorkspace,
+      handle: ({ prompt, budgetUsd }) => {
+        tasks.start({
+          prompt,
+          budgetUsd: budgetUsd ?? settings.current.taskBudgetUsd,
+          conversationId: null,
+        });
+      },
+    },
+    'stop-task': { from: fromWorkspace, handle: ({ id }) => tasks.stop(id) },
+    'delete-task': { from: fromWorkspace, handle: ({ id }) => tasks.remove(id) },
+    'retry-task': { from: fromWorkspace, handle: ({ id }) => void tasks.retry(id) },
+    'raise-task-budget': {
+      from: fromWorkspace,
+      handle: ({ id, addUsd }) => tasks.raiseBudget(id, addUsd),
+    },
+    'create-schedule': {
+      from: fromWorkspace,
+      handle: ({ prompt, when, notify, budgetUsd }) => {
+        scheduler.create({
+          prompt,
+          when,
+          notify,
+          budgetUsd: budgetUsd ?? settings.current.taskBudgetUsd,
+        });
+      },
+    },
+    'set-schedule-enabled': {
+      from: fromWorkspace,
+      handle: ({ id, enabled }) => scheduler.setEnabled(id, enabled),
+    },
+    'set-schedule-unattended': {
+      from: fromWorkspace,
+      handle: ({ id, unattended }) => scheduler.setUnattended(id, unattended),
+    },
+    'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
+    'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
+    'set-suggestions': {
+      from: fromWorkspace,
+      handle: ({ level }) => settings.update({ suggestions: level }),
+    },
+    'suggestion-accept': { from: ['bubble'], handle: () => suggestions.accept() },
+    'suggestion-dismiss': { from: ['bubble'], handle: () => suggestions.dismiss() },
+    'set-remember': {
+      from: fromWorkspace,
+      handle: ({ enabled }) => settings.update({ remember: enabled }),
+    },
+    'edit-memory': { from: fromWorkspace, handle: ({ id, text }) => memory.edit(id, text) },
+    'remove-memory': { from: fromWorkspace, handle: ({ id }) => memory.remove(id) },
+    'forget-everything': { from: fromWorkspace, handle: () => memory.clear() },
+    'add-connector': {
+      from: fromWorkspace,
+      handle: ({ catalogId, url, local, name }) => {
+        connectors.add({ catalogId, url, local, name });
+      },
+    },
+    // Signing in waits on the browser; progress arrives through the connector list.
+    'connect-connector': {
+      from: fromWorkspace,
+      handle: ({ id }) => {
+        void connectors.connect(id, true);
+      },
+    },
+    'set-connector-enabled': {
+      from: fromWorkspace,
+      handle: ({ id, enabled }) => connectors.setEnabled(id, enabled),
+    },
+    'set-connector-tool': {
+      from: fromWorkspace,
+      handle: ({ id, tool, enabled }) => connectors.setToolEnabled(id, tool, enabled),
+    },
+    'test-connector': { from: fromWorkspace, handle: ({ id }) => connectors.check(id) },
+    'set-skill-enabled': {
+      from: fromWorkspace,
+      handle: ({ name, enabled }) => skills.setEnabled(name, enabled),
+    },
+    'remove-skill': { from: fromWorkspace, handle: ({ name }) => skills.remove(name) },
+    'open-skills-folder': { from: fromWorkspace, handle: () => openSkillsFolder() },
+    'add-skill': { from: fromWorkspace, handle: () => addSkill() },
+    'reveal-skill': { from: fromWorkspace, handle: ({ name }) => revealSkill(name) },
+    'use-recommended-tools': {
+      from: fromWorkspace,
+      handle: ({ id }) => connectors.useRecommendedTools(id),
+    },
+    'remove-connector': { from: fromWorkspace, handle: ({ id }) => connectors.remove(id) },
+    'setup-composio': {
+      from: fromWorkspace,
+      handle: ({ apiKey }) => connectors.setComposioKey(apiKey),
+    },
+    'set-task-budget': {
+      from: fromWorkspace,
+      handle: ({ budgetUsd }) => settings.update({ taskBudgetUsd: budgetUsd }),
     },
   };
 }

@@ -1,17 +1,31 @@
 import { z } from 'zod';
 import {
+  approvalRuleSchema,
+  connectorToolSchema,
+  localServerSchema,
+  providerFailureSchema,
   runStatusSchema,
   toolCallStatusSchema,
+  scheduleNotifySchema,
+  scheduleWhenSchema,
   usageEntrySchema,
   usageKindSchema,
   usageProviderSchema,
   type Activity,
+  type ApprovalRule,
+  type ConnectorTool,
+  type LocalServer,
+  type ProviderFailure,
   type UsageEntry,
   type UsagePeriod,
   type UsageSummary,
   type UsageTotals,
   type RunStatus,
   type ToolCallStatus,
+  type Schedule,
+  maxMemories,
+  memorySchema,
+  type Memory,
   type ToolStep,
 } from '@edi/contracts';
 import { transaction, type Database } from './database';
@@ -41,34 +55,40 @@ const noteRow = z.object({
   path: z.string(),
   bytes: z.number(),
   createdAt: z.number(),
+  pinnedAt: z.number().nullable().optional(),
 });
 export type NoteRecord = z.infer<typeof noteRow>;
 const artifactRow = z.object({
   id: z.string(),
-  kind: z.enum(['document', 'checklist', 'table', 'html']),
+  kind: z.enum(['document', 'checklist', 'table', 'diagram', 'html']),
   title: z.string(),
   content: z.string(),
   path: z.string(),
   bytes: z.number().int().nonnegative(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
+  pinnedAt: z.number().nullable().optional(),
 });
 /** Generated workspace content. `content` is the structured data; `path` is workspace-relative. */
 export interface ArtifactRecord {
   id: string;
-  kind: 'document' | 'checklist' | 'table' | 'html';
+  kind: 'document' | 'checklist' | 'table' | 'diagram' | 'html';
   title: string;
   content: unknown;
   path: string;
   bytes: number;
   createdAt: number;
   updatedAt: number;
+  /** When the person pinned it to the top of the Library. */
+  pinnedAt?: number | null;
 }
 const exchangeRow = z.object({ prompt: z.string(), reply: z.string() });
 export type Exchange = z.infer<typeof exchangeRow>;
 const threadRow = z.object({
   id: z.string(),
   prompt: z.string(),
+  /** Set when Edi started the turn itself; shown instead of the prompt. */
+  note: z.string().nullable(),
   reply: z.string(),
   status: runStatusSchema,
   error: z.string(),
@@ -100,35 +120,92 @@ const parseJson = (text: string | null): unknown => {
   }
 };
 
+/** A turn that was cut off, named back to the person so they can ask for it again. */
+const interruptedRunRow = z.object({
+  id: z.string(),
+  prompt: z.string(),
+  note: z.string().nullable(),
+});
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
-  start(run: { id: string; prompt: string; model: string; screens: number; startedAt: number }) {
+  start(run: {
+    id: string;
+    prompt: string;
+    model: string;
+    screens: number;
+    startedAt: number;
+    threadId?: string | null;
+    taskId?: string | null;
+    note?: string | null;
+  }) {
     this.db
       .prepare(
-        `INSERT INTO runs (id, prompt, model, status, screens, started_at)
-         VALUES (?, ?, ?, 'running', ?, ?)`,
+        `INSERT INTO runs (id, prompt, model, status, screens, started_at, thread_id, task_id, note)
+         VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)`,
       )
-      .run(run.id, run.prompt, run.model, run.screens, run.startedAt);
+      .run(
+        run.id,
+        run.prompt,
+        run.model,
+        run.screens,
+        run.startedAt,
+        run.threadId ?? null,
+        run.taskId ?? null,
+        run.note ?? null,
+      );
+  }
+
+  /**
+   * The turns cut off when Edi last closed, newest first. Recovery stamps every one of them with
+   * the same moment, so this asks for exactly those and nothing older. Reading them re-runs
+   * nothing: it is only so the person can be told what was under way. Turns belonging to a task
+   * are left out, because the task itself says so.
+   */
+  interruptedAt(at: number, limit: number) {
+    return this.db
+      .prepare(
+        `SELECT id, prompt, note FROM runs
+         WHERE status = 'interrupted' AND finished_at = ? AND task_id IS NULL AND prompt != ''
+         ORDER BY started_at DESC LIMIT ?`,
+      )
+      .all(at, limit)
+      .map(row => interruptedRunRow.parse(row));
   }
 
   /**
    * The last completed exchanges, oldest first, as text only: conversation context
    * for the next request. Long turns are clipped to bound tokens.
    */
-  recentExchanges(limit: number, maxChars = { prompt: 2000, reply: 4000 }): Exchange[] {
+  recentExchanges(
+    limit: number,
+    threadId: string | null,
+    maxChars = { prompt: 2000, reply: 4000 },
+  ): Exchange[] {
+    if (threadId === null) return [];
+    // A stopped turn counts too, marked as cut off: "actually, only from Sarah" right after an
+    // interruption needs the request it changes.
     return this.db
       .prepare(
-        `SELECT prompt, text AS reply FROM runs
-         WHERE status = 'done' AND text != ''
+        `SELECT prompt, text AS reply, status FROM runs
+         WHERE thread_id = ? AND prompt != ''
+           AND ((status = 'done' AND text != '') OR status = 'stopped')
          ORDER BY started_at DESC LIMIT ?`,
       )
-      .all(limit)
-      .map(row => exchangeRow.parse(row))
-      .map(turn => ({
-        prompt: turn.prompt.slice(0, maxChars.prompt),
-        reply: turn.reply.slice(0, maxChars.reply),
-      }))
+      .all(threadId, limit)
+      .map(row => exchangeRow.extend({ status: z.string() }).parse(row))
+      .map(turn => {
+        const reply = turn.reply.slice(0, maxChars.reply);
+        return {
+          prompt: turn.prompt.slice(0, maxChars.prompt),
+          reply:
+            turn.status === 'stopped'
+              ? reply.trim()
+                ? `${reply.trim()}\n\n[The user interrupted this reply before it finished.]`
+                : '[The user interrupted before this was answered.]'
+              : reply,
+        };
+      })
       .reverse();
   }
 
@@ -136,14 +213,15 @@ export class RunRepository {
    * Recent finished turns for the chat thread, oldest first. Includes stopped
    * and failed replies so the card remembers what the person already said.
    */
-  thread(limit: number): ThreadTurn[] {
+  thread(limit: number, threadId: string | null): ThreadTurn[] {
+    if (threadId === null) return [];
     return this.db
       .prepare(
-        `SELECT id, prompt, text AS reply, status, error FROM runs
-         WHERE status IN ('done', 'error', 'stopped') AND prompt != ''
+        `SELECT id, prompt, note, text AS reply, status, error FROM runs
+         WHERE status IN ('done', 'error', 'stopped') AND prompt != '' AND thread_id = ?
          ORDER BY started_at DESC LIMIT ?`,
       )
-      .all(limit)
+      .all(threadId, limit)
       .map(row => threadRow.parse(row))
       .map(turn => ({
         ...turn,
@@ -167,8 +245,529 @@ export class RunRepository {
   }
 }
 
+const conversationRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  turns: z.number(),
+});
+export type ConversationRecord = z.infer<typeof conversationRow>;
+
+const matchRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  updatedAt: z.number(),
+  runId: z.string(),
+  at: z.number(),
+  excerpt: z.string(),
+});
+export type ConversationMatch = z.infer<typeof matchRow>;
+
+/**
+ * Words become prefix terms that must all match ("palet warm" finds "warm terracotta palette").
+ * Punctuation and FTS syntax are dropped, so any text is safe to pass. Null when nothing is left.
+ */
+export function ftsQuery(text: string): string | null {
+  const words =
+    text
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.slice(0, 12) ?? [];
+  return words.length ? words.map(word => `"${word}"*`).join(' ') : null;
+}
+
+/** Conversations: each run belongs to one. Deleting one removes its runs and their tool calls. */
+export class ConversationRepository {
+  constructor(private readonly db: Database) {}
+
+  create(conversation: { id: string; title: string; at: number }) {
+    this.db
+      .prepare(`INSERT INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+      .run(conversation.id, conversation.title.slice(0, 80), conversation.at, conversation.at);
+  }
+
+  touch(id: string, at: number) {
+    this.db.prepare(`UPDATE threads SET updated_at = MAX(updated_at, ?) WHERE id = ?`).run(at, id);
+  }
+
+  get(id: string): ConversationRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT t.id, t.title, t.created_at AS createdAt, t.updated_at AS updatedAt,
+                (SELECT COUNT(*) FROM runs r WHERE r.thread_id = t.id) AS turns
+         FROM threads t WHERE t.id = ?`,
+      )
+      .get(id);
+    return row ? conversationRow.parse(row) : undefined;
+  }
+
+  /** Most recently active first; empty conversations are left out. */
+  list(limit: number): ConversationRecord[] {
+    return this.db
+      .prepare(
+        `SELECT t.id, t.title, t.created_at AS createdAt, t.updated_at AS updatedAt,
+                COUNT(r.id) AS turns
+         FROM threads t JOIN runs r ON r.thread_id = t.id
+         GROUP BY t.id ORDER BY t.updated_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => conversationRow.parse(row));
+  }
+
+  /**
+   * Conversations whose title or turns match, best match first, one entry each with the turn
+   * that matched and a short excerpt. `after`/`before` bound the matching turn's time (ms).
+   */
+  search(
+    query: string,
+    options: { limit: number; after?: number; before?: number },
+  ): ConversationMatch[] {
+    const match = ftsQuery(query);
+    if (!match) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.title, t.updated_at AS updatedAt, r.id AS runId, r.started_at AS at,
+                snippet(runs_search, -1, '', '', '…', 14) AS excerpt
+         FROM runs_search
+         JOIN runs r ON r.rowid = runs_search.rowid
+         JOIN threads t ON t.id = r.thread_id
+         WHERE runs_search MATCH ? AND r.started_at >= ? AND r.started_at <= ?
+         ORDER BY bm25(runs_search) LIMIT 200`,
+      )
+      .all(match, options.after ?? 0, options.before ?? Number.MAX_SAFE_INTEGER)
+      .map(row => matchRow.parse(row));
+    const seen = new Set<string>();
+    const best: ConversationMatch[] = [];
+    for (const row of rows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      best.push({ ...row, excerpt: row.excerpt.replace(/\s+/g, ' ').trim().slice(0, 200) });
+      if (best.length >= options.limit) break;
+    }
+    return best;
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
+    if (Number(result.changes) === 0) throw new Error('That conversation no longer exists.');
+  }
+}
+
+const taskRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  prompt: z.string(),
+  status: z.enum([
+    'queued',
+    'running',
+    'waiting',
+    'limited',
+    'done',
+    'failed',
+    'cancelled',
+    'interrupted',
+  ]),
+  conversationId: z.string().nullable(),
+  scheduleId: z.string().nullable(),
+  budgetUsd: z.number(),
+  result: z.string(),
+  error: z.string(),
+  createdAt: z.number(),
+  startedAt: z.number().nullable(),
+  finishedAt: z.number().nullable(),
+  spentUsd: z.number(),
+});
+export type TaskRecord = z.infer<typeof taskRow>;
+const taskColumns = `t.id, t.title, t.prompt, t.status, t.conversation_id AS conversationId,
+  t.schedule_id AS scheduleId,
+  t.budget_usd AS budgetUsd, t.result, t.error, t.created_at AS createdAt,
+  t.started_at AS startedAt, t.finished_at AS finishedAt,
+  COALESCE((SELECT SUM(u.cost_usd) FROM usage u JOIN runs r ON r.id = u.run_id
+            WHERE r.task_id = t.id), 0) AS spentUsd`;
+
+/** Background tasks; what a task spent is the sum of its runs' reported costs. */
+export class TaskRepository {
+  constructor(private readonly db: Database) {}
+
+  create(task: {
+    id: string;
+    title: string;
+    prompt: string;
+    budgetUsd: number;
+    conversationId: string | null;
+    scheduleId?: string | null;
+    at: number;
+  }) {
+    this.db
+      .prepare(
+        `INSERT INTO tasks (id, title, prompt, status, conversation_id, budget_usd, created_at,
+                            schedule_id)
+         VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
+      )
+      .run(
+        task.id,
+        task.title.slice(0, 120),
+        task.prompt,
+        task.conversationId,
+        task.budgetUsd,
+        task.at,
+        task.scheduleId ?? null,
+      );
+  }
+
+  get(id: string): TaskRecord | undefined {
+    const row = this.db.prepare(`SELECT ${taskColumns} FROM tasks t WHERE t.id = ?`).get(id);
+    return row ? taskRow.parse(row) : undefined;
+  }
+
+  /** Unfinished first (oldest first, the order they run in), then the rest newest first. */
+  list(limit: number): TaskRecord[] {
+    return this.db
+      .prepare(
+        `SELECT ${taskColumns} FROM tasks t
+         ORDER BY t.status IN ('queued', 'running', 'waiting', 'limited') DESC,
+                  CASE WHEN t.status IN ('queued', 'running', 'waiting', 'limited')
+                       THEN t.created_at ELSE -t.created_at END
+         LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => taskRow.parse(row));
+  }
+
+  update(
+    id: string,
+    change: {
+      status?: TaskRecord['status'];
+      result?: string;
+      error?: string;
+      startedAt?: number;
+      finishedAt?: number;
+      budgetUsd?: number;
+    },
+  ) {
+    const fields: string[] = [];
+    const values: (string | number)[] = [];
+    const set = (column: string, value: string | number | undefined) => {
+      if (value === undefined) return;
+      fields.push(`${column} = ?`);
+      values.push(value);
+    };
+    set('status', change.status);
+    set('result', change.result?.slice(0, 32000));
+    set('error', change.error?.slice(0, 400));
+    set('started_at', change.startedAt);
+    set('finished_at', change.finishedAt);
+    set('budget_usd', change.budgetUsd);
+    if (!fields.length) return;
+    this.db.prepare(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
+  /** The task's runs, oldest first. */
+  runIds(id: string): string[] {
+    return this.db
+      .prepare(`SELECT id FROM runs WHERE task_id = ? ORDER BY started_at`)
+      .all(id)
+      .map(row => String((row as { id: unknown }).id));
+  }
+
+  /** Every step of the task's runs, in order. */
+  steps(id: string): ToolStep[] {
+    return this.db
+      .prepare(
+        `SELECT c.id AS callId, c.capability, c.title, c.status, c.summary
+         FROM tool_calls c JOIN runs r ON r.id = c.run_id
+         WHERE r.task_id = ? ORDER BY c.created_at`,
+      )
+      .all(id)
+      .map(row => {
+        const step = stepRow.omit({ runId: true }).parse(row);
+        return { ...step, summary: step.summary.slice(0, 400) };
+      });
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM tasks WHERE id = ?`).run(id);
+    if (Number(result.changes) === 0) throw new Error('That task no longer exists.');
+  }
+
+  /** At startup: work that was under way when Edi quit is interrupted, never resumed blindly. */
+  recover(at: number) {
+    return Number(
+      this.db
+        .prepare(
+          `UPDATE tasks SET status = 'interrupted', finished_at = ?
+           WHERE status IN ('running', 'waiting', 'limited')`,
+        )
+        .run(at).changes,
+    );
+  }
+}
+
+const scheduleRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  prompt: z.string(),
+  when: z.string(),
+  notify: scheduleNotifySchema,
+  budgetUsd: z.number(),
+  enabled: z.number(),
+  unattended: z.number(),
+  createdAt: z.number(),
+  lastRunAt: z.number().nullable(),
+  nextRunAt: z.number().nullable(),
+  lastResult: z.string(),
+});
+const scheduleColumns = `id, title, prompt, when_json AS "when", notify, budget_usd AS budgetUsd,
+  enabled, unattended, created_at AS createdAt, last_run_at AS lastRunAt, next_run_at AS nextRunAt,
+  last_result AS lastResult`;
+
+/** Schedules and watches. A row whose rule no longer parses is skipped, never run. */
+/** What Edi remembers about the person, oldest first: the order it reads them back in. */
+export class MemoryRepository {
+  constructor(private readonly db: Database) {}
+
+  list(limit = maxMemories): Memory[] {
+    return this.db
+      .prepare(
+        `SELECT id, kind, text, created_at AS createdAt, updated_at AS updatedAt
+         FROM memories ORDER BY created_at, rowid LIMIT ?`,
+      )
+      .all(limit)
+      .flatMap(row => {
+        const parsed = memorySchema.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      });
+  }
+
+  count() {
+    return z
+      .number()
+      .parse((this.db.prepare(`SELECT count(*) AS n FROM memories`).get() as { n: unknown }).n);
+  }
+
+  add(memory: Memory) {
+    const valid = memorySchema.parse(memory);
+    this.db
+      .prepare(
+        `INSERT INTO memories (id, kind, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(valid.id, valid.kind, valid.text, valid.createdAt, valid.updatedAt);
+  }
+
+  update(id: string, change: { text: string; at: number }) {
+    const text = memorySchema.shape.text.parse(change.text);
+    const result = this.db
+      .prepare(`UPDATE memories SET text = ?, updated_at = ? WHERE id = ?`)
+      .run(text, change.at, id);
+    if (result.changes === 0) throw new Error('Edi doesn’t remember that any more.');
+  }
+
+  remove(id: string) {
+    return this.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id).changes > 0;
+  }
+
+  clear() {
+    return Number(this.db.prepare(`DELETE FROM memories`).run().changes);
+  }
+}
+
+/** Saved "Always allow" choices, newest first. */
+export class ApprovalRuleRepository {
+  constructor(private readonly db: Database) {}
+
+  list(): ApprovalRule[] {
+    return this.db
+      .prepare(
+        `SELECT id, capability_id AS capabilityId, capability_title AS capabilityTitle, kind, value,
+                label, created_at AS createdAt
+         FROM approval_rules ORDER BY created_at DESC, rowid DESC LIMIT 500`,
+      )
+      .all()
+      .flatMap(row => {
+        const parsed = approvalRuleSchema.safeParse({ ...(row as object) });
+        return parsed.success ? [parsed.data] : [];
+      });
+  }
+
+  /** Adds a rule, or keeps the existing one for the same action and scope. */
+  add(rule: ApprovalRule) {
+    const valid = approvalRuleSchema.parse(rule);
+    this.db
+      .prepare(
+        `INSERT INTO approval_rules (id, capability_id, capability_title, kind, value, label, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (capability_id, kind, value) DO NOTHING`,
+      )
+      .run(
+        valid.id,
+        valid.capabilityId,
+        valid.capabilityTitle,
+        valid.kind,
+        valid.value,
+        valid.label,
+        valid.createdAt,
+      );
+  }
+
+  remove(id: string) {
+    return this.db.prepare(`DELETE FROM approval_rules WHERE id = ?`).run(id).changes > 0;
+  }
+}
+
+export class ScheduleRepository {
+  constructor(private readonly db: Database) {}
+
+  private static parse(row: unknown): Schedule | null {
+    const raw = scheduleRow.parse(row);
+    const when = scheduleWhenSchema.safeParse(JSON.parse(raw.when));
+    if (!when.success) return null;
+    return {
+      ...raw,
+      when: when.data,
+      enabled: raw.enabled === 1,
+      unattended: raw.unattended === 1,
+    };
+  }
+
+  create(schedule: Omit<Schedule, 'lastRunAt' | 'lastResult'>) {
+    this.db
+      .prepare(
+        `INSERT INTO schedules (id, title, prompt, when_json, notify, budget_usd, enabled,
+                                unattended, created_at, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        schedule.id,
+        schedule.title.slice(0, 120),
+        schedule.prompt,
+        JSON.stringify(scheduleWhenSchema.parse(schedule.when)),
+        schedule.notify,
+        schedule.budgetUsd,
+        schedule.enabled ? 1 : 0,
+        schedule.unattended ? 1 : 0,
+        schedule.createdAt,
+        schedule.nextRunAt,
+      );
+  }
+
+  get(id: string): Schedule | undefined {
+    const row = this.db.prepare(`SELECT ${scheduleColumns} FROM schedules WHERE id = ?`).get(id);
+    return (row && ScheduleRepository.parse(row)) || undefined;
+  }
+
+  list(limit: number): Schedule[] {
+    return this.db
+      .prepare(
+        `SELECT ${scheduleColumns} FROM schedules
+         ORDER BY enabled DESC, next_run_at IS NULL, next_run_at, created_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => ScheduleRepository.parse(row))
+      .filter((schedule): schedule is Schedule => schedule !== null);
+  }
+
+  /** Enabled schedules whose next run is at or before `now`, earliest first. */
+  due(now: number): Schedule[] {
+    return this.db
+      .prepare(
+        `SELECT ${scheduleColumns} FROM schedules
+         WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+         ORDER BY next_run_at`,
+      )
+      .all(now)
+      .map(row => ScheduleRepository.parse(row))
+      .filter((schedule): schedule is Schedule => schedule !== null);
+  }
+
+  update(
+    id: string,
+    change: {
+      enabled?: boolean;
+      unattended?: boolean;
+      nextRunAt?: number | null;
+      lastRunAt?: number;
+      lastResult?: string;
+    },
+  ) {
+    const fields: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (change.enabled !== undefined) {
+      fields.push('enabled = ?');
+      values.push(change.enabled ? 1 : 0);
+    }
+    if (change.unattended !== undefined) {
+      fields.push('unattended = ?');
+      values.push(change.unattended ? 1 : 0);
+    }
+    if (change.nextRunAt !== undefined) {
+      fields.push('next_run_at = ?');
+      values.push(change.nextRunAt);
+    }
+    if (change.lastRunAt !== undefined) {
+      fields.push('last_run_at = ?');
+      values.push(change.lastRunAt);
+    }
+    if (change.lastResult !== undefined) {
+      fields.push('last_result = ?');
+      values.push(change.lastResult.slice(0, 8000));
+    }
+    if (!fields.length) return;
+    this.db.prepare(`UPDATE schedules SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
+  remove(id: string) {
+    const result = this.db.prepare(`DELETE FROM schedules WHERE id = ?`).run(id);
+    if (Number(result.changes) === 0) throw new Error('That schedule no longer exists.');
+  }
+}
+
+const recordedRow = z.object({
+  id: z.string(),
+  runId: z.string(),
+  capability: z.string(),
+  title: z.string(),
+  effect: z.string(),
+  status: z.string(),
+  summary: z.string().nullable(),
+  input: z.string().nullable(),
+  output: z.string().nullable(),
+  createdAt: z.number(),
+});
+
+const trailRow = z.object({
+  id: z.string(),
+  runId: z.string(),
+  capability: z.string(),
+  title: z.string(),
+  status: z.string(),
+  summary: z.string().nullable(),
+});
+
 export class ToolCallRepository {
   constructor(private readonly db: Database) {}
+
+  /** The request a tool call answered, and its conversation: what Regenerate asks again. */
+  origin(callId: string) {
+    const row = this.db
+      .prepare(
+        `SELECT runs.prompt AS prompt, runs.note AS note, runs.thread_id AS conversationId,
+                runs.task_id AS taskId
+         FROM tool_calls JOIN runs ON runs.id = tool_calls.run_id
+         WHERE tool_calls.id = ?`,
+      )
+      .get(callId);
+    return row
+      ? z
+          .object({
+            prompt: z.string(),
+            note: z.string().nullable(),
+            conversationId: z.string().nullable(),
+            taskId: z.string().nullable(),
+          })
+          .parse(row)
+      : undefined;
+  }
 
   /** Successful calls of the given display capabilities, oldest first. */
   shown(capabilities: readonly string[], filter: { runIds?: string[]; id?: string }): ShownCall[] {
@@ -196,6 +795,59 @@ export class ToolCallRepository {
       .all(...values)
       .map(row => shownRow.parse(row))
       .map(row => ({ ...row, input: parseJson(row.input), output: parseJson(row.output) }));
+  }
+
+  /** Every run's actions, oldest first: the trail under each reply in a conversation. */
+  steps(runIds: readonly string[]) {
+    const byRun = new Map<
+      string,
+      {
+        callId: string;
+        capability: string;
+        title: string;
+        status: ToolCallStatus;
+        summary: string;
+      }[]
+    >();
+    if (!runIds.length) return byRun;
+    const rows = this.db
+      .prepare(
+        `SELECT id, run_id AS runId, capability, title, status, summary FROM tool_calls
+         WHERE run_id IN (${runIds.map(() => '?').join(', ')}) ORDER BY created_at`,
+      )
+      .all(...runIds);
+    for (const raw of rows) {
+      const row = trailRow.parse(raw);
+      const steps = byRun.get(row.runId) ?? [];
+      if (steps.length >= 40) continue;
+      steps.push({
+        callId: row.id,
+        capability: row.capability.slice(0, 80),
+        title: row.title.slice(0, 120) || row.capability.slice(0, 80),
+        status: row.status as ToolCallStatus,
+        summary: (row.summary ?? '').slice(0, 400),
+      });
+      byRun.set(row.runId, steps);
+    }
+    return byRun;
+  }
+
+  /** Recent calls, newest first, with what was asked and what came back (activity and undo). */
+  recent(limit: number) {
+    return this.db
+      .prepare(
+        `SELECT id, run_id AS runId, capability, title, effect, status, summary,
+                input_json AS input, output_json AS output, created_at AS createdAt
+         FROM tool_calls ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(500, limit)))
+      .map(row => recordedRow.parse(row))
+      .map(row => ({
+        ...row,
+        summary: row.summary ?? '',
+        input: parseJson(row.input),
+        output: parseJson(row.output),
+      }));
   }
 
   create(call: {
@@ -248,7 +900,7 @@ export class ToolCallRepository {
 export class NoteRepository {
   constructor(private readonly db: Database) {}
 
-  add(note: NoteRecord & { toolCallId: string | null }) {
+  add(note: Omit<NoteRecord, 'pinnedAt'> & { toolCallId: string | null }) {
     this.db
       .prepare(
         `INSERT INTO notes (id, title, path, bytes, tool_call_id, created_at)
@@ -259,7 +911,10 @@ export class NoteRepository {
 
   get(id: string): NoteRecord | undefined {
     const row = this.db
-      .prepare(`SELECT id, title, path, bytes, created_at AS createdAt FROM notes WHERE id = ?`)
+      .prepare(
+        `SELECT id, title, path, bytes, created_at AS createdAt, pinned_at AS pinnedAt
+         FROM notes WHERE id = ?`,
+      )
       .get(id);
     return row ? noteRow.parse(row) : undefined;
   }
@@ -267,17 +922,23 @@ export class NoteRepository {
   list(limit: number): NoteRecord[] {
     return this.db
       .prepare(
-        `SELECT id, title, path, bytes, created_at AS createdAt
+        `SELECT id, title, path, bytes, created_at AS createdAt, pinned_at AS pinnedAt
          FROM notes ORDER BY created_at DESC LIMIT ?`,
       )
       .all(limit)
       .map(row => noteRow.parse(row));
   }
 
-  update(note: { id: string; title: string; bytes: number }) {
+  /** A new path only when the file was renamed along with the title. */
+  update(note: { id: string; title: string; bytes: number; path?: string }) {
     const result = this.db
-      .prepare(`UPDATE notes SET title = ?, bytes = ? WHERE id = ?`)
-      .run(note.title, note.bytes, note.id);
+      .prepare(`UPDATE notes SET title = ?, bytes = ?, path = coalesce(?, path) WHERE id = ?`)
+      .run(note.title, note.bytes, note.path ?? null, note.id);
+    if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
+  }
+
+  setPinned(id: string, pinnedAt: number | null) {
+    const result = this.db.prepare(`UPDATE notes SET pinned_at = ? WHERE id = ?`).run(pinnedAt, id);
     if (result.changes === 0) throw new Error('That note is no longer in Edi’s history.');
   }
 
@@ -328,7 +989,7 @@ export class ArtifactRepository {
     const row = this.db
       .prepare(
         `SELECT id, kind, title, content_json AS content, path, bytes,
-                created_at AS createdAt, updated_at AS updatedAt
+                created_at AS createdAt, updated_at AS updatedAt, pinned_at AS pinnedAt
          FROM artifacts WHERE id = ?`,
       )
       .get(id);
@@ -340,25 +1001,43 @@ export class ArtifactRepository {
     return this.db
       .prepare(
         `SELECT id, kind, title, content_json AS content, path, bytes,
-                created_at AS createdAt, updated_at AS updatedAt
+                created_at AS createdAt, updated_at AS updatedAt, pinned_at AS pinnedAt
          FROM artifacts ORDER BY updated_at DESC LIMIT ?`,
       )
       .all(limit)
       .map(row => ArtifactRepository.parse(row));
   }
 
+  /** A new path only when the file was renamed along with the title. */
   update(record: {
     id: string;
     title: string;
     content: unknown;
     bytes: number;
     updatedAt: number;
+    path?: string;
   }) {
     const result = this.db
       .prepare(
-        `UPDATE artifacts SET title = ?, content_json = ?, bytes = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE artifacts SET title = ?, content_json = ?, bytes = ?, updated_at = ?,
+                path = coalesce(?, path)
+         WHERE id = ?`,
       )
-      .run(record.title, JSON.stringify(record.content), record.bytes, record.updatedAt, record.id);
+      .run(
+        record.title,
+        JSON.stringify(record.content),
+        record.bytes,
+        record.updatedAt,
+        record.path ?? null,
+        record.id,
+      );
+    if (result.changes === 0) throw new Error('That item is no longer in Edi’s workspace.');
+  }
+
+  setPinned(id: string, pinnedAt: number | null) {
+    const result = this.db
+      .prepare(`UPDATE artifacts SET pinned_at = ? WHERE id = ?`)
+      .run(pinnedAt, id);
     if (result.changes === 0) throw new Error('That item is no longer in Edi’s workspace.');
   }
 
@@ -402,6 +1081,179 @@ const localDay = (at: number) => {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
+
+export interface ConnectorRecord {
+  id: string;
+  name: string;
+  url: string;
+  catalogId: string | null;
+  provider: 'mcp' | 'composio' | 'local';
+  composioConnectionId: string | null;
+  /** How to start a server that runs on this Mac; null for apps reached over the network. */
+  local: LocalServer | null;
+  enabled: boolean;
+  /** The server's tools as last listed, with the person's on/off choice for each. */
+  tools: ConnectorTool[];
+  addedAt: number;
+}
+
+const connectorRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  catalogId: z.string().nullable(),
+  provider: z.enum(['mcp', 'composio', 'local']),
+  composioConnectionId: z.string().nullable(),
+  local: z.string().nullable(),
+  enabled: z.number(),
+  tools: z.string(),
+  addedAt: z.number(),
+});
+
+export class ConnectorRepository {
+  constructor(private readonly db: Database) {}
+
+  private static parse(row: unknown): ConnectorRecord {
+    const raw = connectorRow.parse(row);
+    const tools = z.array(connectorToolSchema).max(200).safeParse(JSON.parse(raw.tools));
+    // An unreadable local line would start the wrong program, so it becomes null and the
+    // server simply won't run until it is added again.
+    const local = raw.local ? localServerSchema.safeParse(JSON.parse(raw.local)) : null;
+    return {
+      ...raw,
+      local: local?.success ? local.data : null,
+      enabled: raw.enabled === 1,
+      tools: tools.success ? tools.data : [],
+    };
+  }
+
+  list(): ConnectorRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, name, url, catalog_id AS catalogId, provider,
+                composio_connection_id AS composioConnectionId, local_json AS local,
+                enabled, tools_json AS tools, added_at AS addedAt
+         FROM connectors ORDER BY added_at, rowid LIMIT 50`,
+      )
+      .all()
+      .map(row => ConnectorRepository.parse(row));
+  }
+
+  get(id: string) {
+    return this.list().find(connector => connector.id === id);
+  }
+
+  add(connector: ConnectorRecord) {
+    this.db
+      .prepare(
+        `INSERT INTO connectors (id, name, url, catalog_id, provider, composio_connection_id,
+                                 local_json, enabled, tools_json, added_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        connector.id,
+        connector.name.slice(0, 60),
+        connector.url,
+        connector.catalogId,
+        connector.provider,
+        connector.composioConnectionId,
+        connector.local ? JSON.stringify(localServerSchema.parse(connector.local)) : null,
+        connector.enabled ? 1 : 0,
+        JSON.stringify(connector.tools),
+        connector.addedAt,
+      );
+  }
+
+  update(
+    id: string,
+    patch: Partial<Pick<ConnectorRecord, 'enabled' | 'tools' | 'name' | 'composioConnectionId'>>,
+  ) {
+    const fields: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (patch.enabled !== undefined) {
+      fields.push('enabled = ?');
+      values.push(patch.enabled ? 1 : 0);
+    }
+    if (patch.tools) {
+      fields.push('tools_json = ?');
+      values.push(JSON.stringify(z.array(connectorToolSchema).max(200).parse(patch.tools)));
+    }
+    if (patch.name) {
+      fields.push('name = ?');
+      values.push(patch.name.slice(0, 60));
+    }
+    if (patch.composioConnectionId !== undefined) {
+      fields.push('composio_connection_id = ?');
+      values.push(patch.composioConnectionId);
+    }
+    if (!fields.length) return;
+    this.db.prepare(`UPDATE connectors SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
+  remove(id: string) {
+    return this.db.prepare(`DELETE FROM connectors WHERE id = ?`).run(id).changes > 0;
+  }
+}
+
+/** Safe summaries of failed model calls, kept to the most recent 500. */
+export class FailureRepository {
+  constructor(private readonly db: Database) {}
+
+  add(
+    failure: ProviderFailure & { runId: string | null; model: string; kind: string },
+    at: number,
+  ) {
+    const valid = providerFailureSchema.parse({
+      ...(failure.status === undefined ? {} : { status: failure.status }),
+      ...(failure.provider ? { provider: failure.provider } : {}),
+      ...(failure.code ? { code: failure.code } : {}),
+      ...(failure.message ? { message: failure.message } : {}),
+      step: failure.step,
+    });
+    transaction(this.db, () => {
+      this.db
+        .prepare(
+          `INSERT INTO failures (at, run_id, model, kind, status, provider, code, message, step)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          at,
+          failure.runId,
+          failure.model.slice(0, 160),
+          failure.kind.slice(0, 40),
+          valid.status ?? null,
+          valid.provider ?? null,
+          valid.code ?? null,
+          valid.message ?? null,
+          valid.step,
+        );
+      this.db
+        .prepare(
+          `DELETE FROM failures WHERE id NOT IN (SELECT id FROM failures ORDER BY id DESC LIMIT 500)`,
+        )
+        .run();
+    });
+  }
+
+  recent(limit: number) {
+    return this.db
+      .prepare(
+        `SELECT at, run_id AS runId, model, kind, status, provider, code, message, step
+         FROM failures ORDER BY id DESC LIMIT ?`,
+      )
+      .all(limit) as {
+      at: number;
+      runId: string | null;
+      model: string;
+      kind: string;
+      status: number | null;
+      provider: string | null;
+      code: string | null;
+      message: string | null;
+      step: number;
+    }[];
+  }
+}
 
 export class UsageRepository {
   constructor(private readonly db: Database) {}
@@ -456,7 +1308,7 @@ export class UsageRepository {
     const voice = new Map<'cartesia' | 'elevenlabs', { replies: number; characters: number }>();
     for (const row of rows) {
       if (row.kind === 'voice') {
-        if (row.provider === 'openrouter') continue;
+        if (row.provider !== 'cartesia' && row.provider !== 'elevenlabs') continue;
         const entry = voice.get(row.provider) ?? { replies: 0, characters: 0 };
         entry.replies += 1;
         entry.characters += row.characters;
@@ -493,6 +1345,13 @@ export interface Repositories {
   notes: NoteRepository;
   artifacts: ArtifactRepository;
   usage: UsageRepository;
+  failures: FailureRepository;
+  connectors: ConnectorRepository;
+  conversations: ConversationRepository;
+  tasks: TaskRepository;
+  schedules: ScheduleRepository;
+  approvalRules: ApprovalRuleRepository;
+  memories: MemoryRepository;
   /** Recent runs with their tool steps, newest first. */
   activity(limit: number): Activity;
   /**
@@ -510,6 +1369,13 @@ export function createRepositories(db: Database): Repositories {
     notes: new NoteRepository(db),
     artifacts: new ArtifactRepository(db),
     usage: new UsageRepository(db),
+    failures: new FailureRepository(db),
+    connectors: new ConnectorRepository(db),
+    conversations: new ConversationRepository(db),
+    tasks: new TaskRepository(db),
+    schedules: new ScheduleRepository(db),
+    approvalRules: new ApprovalRuleRepository(db),
+    memories: new MemoryRepository(db),
 
     activity(limit) {
       const runs = db

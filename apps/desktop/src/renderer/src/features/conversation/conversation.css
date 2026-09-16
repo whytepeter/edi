@@ -39,6 +39,15 @@
   gap: 8px;
   max-width: 86%;
 }
+/* A line from Edi itself between turns, e.g. "Todoist is connected. Continuing your request." */
+.agent-note {
+  align-self: center;
+  max-width: 90%;
+  margin: 0;
+  font: var(--text-caption);
+  color: var(--label-tertiary);
+  text-align: center;
+}
 .agent-turn[data-role='user'] {
   align-self: end;
   justify-items: end;
@@ -197,4 +206,143 @@
   .agent-caret {
     animation: none;
   }
+}
+
+/* The conversation's own toolbar: history, its title, and a new conversation. */
+.conversation-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 12px 6px;
+}
+.conversation-bar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-callout);
+  font-weight: 600;
+  color: var(--label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+.conversation-bar .ds-icon-button {
+  flex: none;
+  color: var(--label-secondary);
+}
+
+.conversation-list {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 16px 18px;
+  scrollbar-width: thin;
+}
+.conversation-list > .ds-button {
+  justify-self: start;
+  gap: 6px;
+}
+.conversation-items {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  overflow: hidden;
+}
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+}
+.conversation-item + .conversation-item {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+.conversation-item[data-current] {
+  background: var(--accent-softer);
+}
+.conversation-open {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  text-align: left;
+}
+.conversation-open:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.conversation-open:disabled {
+  opacity: 0.55;
+}
+.conversation-title {
+  overflow: hidden;
+  font: var(--text-body);
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.conversation-detail {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.conversation-delete.ds-icon-button {
+  flex: none;
+  color: var(--label-tertiary);
+}
+.conversation-delete.ds-icon-button:hover {
+  color: var(--label);
+}
+.conversation-confirm {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 8px var(--space-2) 8px var(--space-4);
+}
+.conversation-confirm .ds-callout {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.conversation-confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.agent-retry {
+  justify-self: start;
+}
+
+/* Content Edi made, in the flow of the reply: as wide as a reply, a two-line glimpse. */
+.agent-turn .artifact-card {
+  max-width: 420px;
+  border-radius: 12px;
+}
+.agent-turn .artifact-card-preview {
+  -webkit-line-clamp: 2;
+}
+
+.conversation-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.conversation-no-match {
+  margin: 0;
+  padding: var(--space-2) var(--space-1);
 }

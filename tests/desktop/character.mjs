@@ -47,7 +47,7 @@ try {
     .poll(() => app.windows().some(page => page.url().includes('surface=voice-status')))
     .toBe(true);
   const bubble = app.windows().find(page => page.url().includes('surface=voice-status'));
-  await expect(bubble.getByText('voice coming soon')).toBeVisible();
+  await expect(bubble.getByText('Set up voice in Settings')).toBeVisible();
   await expect(bubble.locator('.listening-bars')).toHaveCount(0);
   expect(await visible('workspace')).toBe(false);
   await bubble.screenshot({ path: join(profile, 'voice-unavailable.png') });
@@ -130,14 +130,15 @@ try {
     win.webContents.send('edi:voice', {
       type: 'pcm',
       generation: 999,
+      turn: 1,
       rate: 24000,
       samples: new Float32Array(2400),
     });
   });
   expect(await pet.evaluate(() => window.__pcm)).toEqual({ typed: true, length: 2400 });
-  // A recording goes the other way as bytes; an idle session ignores it without error.
+  // Microphone audio goes the other way as bytes; an idle session ignores it without error.
   const accepted = await pet.evaluate(() =>
-    window.edi.command({ type: 'voice-audio', generation: 0, pcm: new Uint8Array(3200) }).then(
+    window.edi.command({ type: 'voice-pcm', generation: 0, pcm: new Uint8Array(3200) }).then(
       () => true,
       () => false,
     ),

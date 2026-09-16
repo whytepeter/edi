@@ -1,4 +1,4 @@
-// Recorded synthetic speech → WebM decode → PCM stdin → local VAD/transcription.
+// Synthetic speech → live 16 kHz PCM capture → local VAD/transcription.
 import { _electron as electron } from '@playwright/test';
 import { readFile, mkdtemp } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -19,7 +19,7 @@ const runtime = {
   vadModel: join(runtimeRoot, 'ggml-silero-v6.2.0.bin'),
 };
 let compiled = '';
-for (const name of ['MicrophoneCapture', 'DecodeRecording']) {
+for (const name of ['PcmCapture']) {
   const text = await readFile(`apps/desktop/src/renderer/src/features/voice/${name}.ts`, 'utf8');
   compiled += ts.transpileModule(text.replaceAll('export ', ''), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
@@ -36,9 +36,7 @@ try {
     args: [resolve('apps/desktop'), `--user-data-dir=${profile}`],
   });
   const page = await app.firstWindow();
-  await page.evaluate(
-    `${compiled}\nglobalThis.testCapture = openMicrophone; globalThis.testDecode = decodeRecording;`,
-  );
+  await page.evaluate(`${compiled}\nglobalThis.testCapture = openPcmCapture;`);
   const audio = await page.evaluate(
     async bytes => {
       const context = new AudioContext();
@@ -49,21 +47,31 @@ try {
       source.connect(stream); // No speaker or physical microphone connection.
       const controller = new AbortController();
       try {
-        const turn = await globalThis.testCapture(controller.signal, {
-          getUserMedia: async () => stream.stream,
-          createRecorder: media => new MediaRecorder(media, { mimeType: 'audio/webm;codecs=opus' }),
-        });
+        const chunks = [];
+        const capture = await globalThis.testCapture(
+          controller.signal,
+          pcm => chunks.push(new Uint8Array(pcm.buffer.slice(0))),
+          () => {},
+          {
+            getUserMedia: async () => stream.stream,
+            createContext: () => new AudioContext({ sampleRate: 16000 }),
+          },
+        );
         await new Promise(resolve => {
           source.onended = resolve;
           source.start();
         });
         await new Promise(resolve => setTimeout(resolve, 150));
-        turn.finish();
-        const blob = await turn.result;
-        const pcm = await globalThis.testDecode(blob, controller.signal);
+        capture.stop();
+        const pcm = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+        let offset = 0;
+        for (const chunk of chunks) {
+          pcm.set(chunk, offset);
+          offset += chunk.length;
+        }
         return {
           pcm: [...pcm],
-          recordedBytes: blob.size,
+          recordedBytes: pcm.length,
           tracksEnded: stream.stream.getTracks().every(track => track.readyState === 'ended'),
         };
       } finally {

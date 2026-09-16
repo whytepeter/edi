@@ -33,6 +33,15 @@ function asApproval(value: unknown): ApprovalRequest | null {
   return value as ApprovalRequest;
 }
 
+/** A suggestion is one line and one action; the bubble shows nothing it can't check. */
+function asSuggestion(value: unknown): { text: string; label: string } | null {
+  if (!value || typeof value !== 'object') return null;
+  const offer = value as Record<string, unknown>;
+  const action = offer.action as Record<string, unknown> | undefined;
+  if (!stringWithin(offer.text, 160) || !action || !stringWithin(action.label, 40)) return null;
+  return { text: String(offer.text), label: String(action.label) };
+}
+
 /** The bubble can only review the current approval or reveal its full context. */
 contextBridge.exposeInMainWorld('ediBubble', {
   async approval() {
@@ -46,8 +55,25 @@ contextBridge.exposeInMainWorld('ediBubble', {
     ipcRenderer.on('edi:bubble-approval', listener);
     return () => ipcRenderer.removeListener('edi:bubble-approval', listener);
   },
-  async respond(callId: string, decision: 'approve' | 'deny') {
-    if (!uuid.test(callId) || (decision !== 'approve' && decision !== 'deny')) {
+  /** The quiet offer this bubble shows, and the person's answer to it. */
+  async suggestion() {
+    return asSuggestion(await ipcRenderer.invoke('edi:bubble-suggestion:get'));
+  },
+  subscribeSuggestion(callback: (suggestion: { text: string; label: string }) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const suggestion = asSuggestion(value);
+      if (suggestion) callback(suggestion);
+    };
+    ipcRenderer.on('edi:bubble-suggestion', listener);
+    return () => ipcRenderer.removeListener('edi:bubble-suggestion', listener);
+  },
+  async respondSuggestion(accept: boolean) {
+    await ipcRenderer.invoke('edi:command', {
+      type: accept === true ? 'suggestion-accept' : 'suggestion-dismiss',
+    });
+  },
+  async respond(callId: string, decision: 'approve' | 'approve-always' | 'deny') {
+    if (!uuid.test(callId) || !['approve', 'approve-always', 'deny'].includes(decision)) {
       throw new Error('Invalid approval response.');
     }
     await ipcRenderer.invoke('edi:command', { type: 'respond-approval', callId, decision });

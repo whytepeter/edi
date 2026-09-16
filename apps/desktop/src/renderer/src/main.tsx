@@ -1,8 +1,17 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/index.css';
-import { artifactParams, bubbleParams, menuParams, pointerParams, surface } from './app/surface';
+import {
+  annotateParams,
+  artifactParams,
+  bubbleParams,
+  exportParams,
+  menuParams,
+  pointerParams,
+  surface,
+} from './app/surface';
 import { ArtifactWindow } from './components/artifacts/Artifact';
+import { ExportPage } from './components/artifacts/ExportPage';
 import { WorkspaceCard } from './app/WorkspaceCard';
 import { PetSurface } from './features/pet/PetSurface';
 import { CharacterMenu } from './features/pet/CharacterMenu';
@@ -10,6 +19,7 @@ import { StatusBubble } from './features/pet/StatusBubble';
 import { startVoiceClient } from './features/voice/VoiceClient';
 import { cueStore } from './features/pet/cue-store';
 import { PointerSurface } from './features/pointer/PointerSurface';
+import { AnnotateSurface } from './features/annotate/AnnotateSurface';
 
 document.documentElement.dataset.surface = surface;
 // Menus and bubbles are native glass windows; their CSS stays clear so the blur shows through.
@@ -37,10 +47,12 @@ if (surface === 'pet' && window.edi)
 const view = {
   workspace: <WorkspaceCard />,
   artifact: <ArtifactWindow {...artifactParams} />,
+  export: <ExportPage {...exportParams} />,
   pet: <PetSurface />,
   'character-menu': <CharacterMenu {...menuParams} />,
   'voice-status': <StatusBubble {...bubbleParams} />,
   pointer: <PointerSurface {...pointerParams} />,
+  annotate: <AnnotateSurface {...annotateParams} />,
 }[surface];
 
 createRoot(document.getElementById('root')!).render(<StrictMode>{view}</StrictMode>);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   isCloudVoiceModel,
   voiceCatalog,
@@ -6,7 +6,10 @@ import {
   type CloudProviderId,
   type SystemInfo,
   type VoiceChoices,
+  type VoiceDelivery,
+  type VoiceInput,
   type VoiceModelId,
+  type VoicePackStatus,
   type VoiceSelection,
 } from '@edi/contracts';
 import {
@@ -21,23 +24,31 @@ import {
 } from '../../components/ui';
 import './settings.css';
 import { useAssistantName } from '../../hooks/useAssistantName';
+import { commandMessage } from '../../lib/command-message';
 
 interface VoiceSettingsProps {
   system: SystemInfo | null;
   voiceModel: VoiceModelId;
   voices: VoiceChoices;
   speakReplies: boolean;
+  voiceInput: VoiceInput;
+  voiceWords: string[];
+  /** How Chatterbox reads, whichever of its voices is chosen. */
+  voiceDelivery: VoiceDelivery;
   onVoiceModel(model: VoiceModelId): void;
+  onVoiceInput(input: VoiceInput): void;
+  onVoiceDelivery(delivery: VoiceDelivery): void;
+  onVoiceWords(words: string[]): void;
   onVoice(selection: VoiceSelection): void;
   onPreview(selection: VoiceSelection): Promise<void>;
   onSpeakReplies(enabled: boolean): void;
-  /** A key was saved or removed, so model availability changed. */
+  /** A key or an added voice changed, so what Settings → Voice offers changed. */
   onKeysChanged(): void;
 }
 
 const modelHelp = (assistant: string): Record<VoiceModelId, string> => ({
   kokoro: `Choose who ${assistant} sounds like. Play a sample before you pick.`,
-  'chatterbox-turbo': `Calm is steadier and softer; Expressive is livelier. Both can laugh or sigh when ${assistant} means to.`,
+  chatterbox: `Chatterbox speaks in a voice you record, and can laugh or sigh when ${assistant} means to. Add a recording below, then choose how it reads.`,
   cartesia: 'Voices on your Cartesia account: ones you created, cloned or saved there.',
   elevenlabs: 'Voices on your ElevenLabs account: ones you created, cloned or saved there.',
 });
@@ -61,6 +72,12 @@ const providerInfo: Record<CloudProviderId, { about: string; keyUrl: string; voi
     },
   };
 
+const listeningLabels = ['This Mac', 'Cartesia'] as const;
+type ListeningLabel = (typeof listeningLabels)[number];
+
+const deliveryLabels = ['Calm', 'Expressive'] as const;
+type DeliveryLabel = (typeof deliveryLabels)[number];
+
 type VoiceType = 'Female' | 'Male';
 const voiceTypes: readonly VoiceType[] = ['Female', 'Male'];
 
@@ -81,7 +98,13 @@ export function VoiceSettings({
   voiceModel,
   voices,
   speakReplies,
+  voiceInput,
+  voiceWords,
+  voiceDelivery,
   onVoiceModel,
+  onVoiceInput,
+  onVoiceDelivery,
+  onVoiceWords,
   onVoice,
   onPreview,
   onSpeakReplies,
@@ -98,6 +121,34 @@ export function VoiceSettings({
     null,
   );
   const [cloudError, setCloudError] = useState('');
+  // Adding a voice from a recording (Chatterbox), and the voice waiting for Remove confirmation.
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [addedName, setAddedName] = useState('');
+  const [removing, setRemoving] = useState<string | null>(null);
+  // Edited as text; saved as a list when the field is left or Return is pressed.
+  const [wordsDraft, setWordsDraft] = useState(voiceWords.join(', '));
+  const [shownWords, setShownWords] = useState(voiceWords);
+  if (shownWords !== voiceWords) {
+    // Saved elsewhere (or just saved): show the stored list.
+    setShownWords(voiceWords);
+    setWordsDraft(voiceWords.join(', '));
+  }
+  const saveWords = () => {
+    const words = [
+      ...new Set(
+        wordsDraft
+          .split(/[,\n]/)
+          .map(word => word.trim().slice(0, 40))
+          .filter(Boolean),
+      ),
+    ].slice(0, 50);
+    if (words.join('\n') !== voiceWords.join('\n')) onVoiceWords(words);
+    setWordsDraft(words.join(', '));
+  };
   // Bumped by "Check again" after the person adds a voice on the provider's site.
   const [cloudReload, setCloudReload] = useState(0);
   const [apiKey, setApiKey] = useState('');
@@ -110,6 +161,18 @@ export function VoiceSettings({
   const model = models.find(entry => entry.id === viewing);
   const provider = isCloudVoiceModel(viewing) ? viewing : null;
   const hasKey = Boolean(provider && model?.available);
+  const cartesiaKey = Boolean(models.find(entry => entry.id === 'cartesia')?.available);
+  const listeningPack = system?.voice.packs.find(pack => pack.id === 'listening');
+  const speakingPack = system?.voice.packs.find(pack => pack.id === 'speaking');
+  const listensHere =
+    listeningPack?.state === 'installed' || listeningPack?.state === 'development';
+  const downloading = system?.voice.packs.some(pack => pack.state === 'downloading') ?? false;
+  // Progress lives in main; read it again while a download runs.
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setInterval(onKeysChanged, 500);
+    return () => clearInterval(timer);
+  }, [downloading, onKeysChanged]);
 
   useEffect(() => {
     if (!provider || !hasKey || !window.edi) return;
@@ -135,14 +198,26 @@ export function VoiceSettings({
     };
   }, [provider, hasKey, cloudReload]);
 
+  // Voices the person added from recordings on this Mac (Chatterbox only).
+  const personal = model?.personalVoices ?? [];
   const local: ListedVoice[] = provider
     ? []
-    : voiceCatalog[viewing].map(voice => ({
-        id: voice.id,
-        name: voice.name,
-        detail: voice.accent,
-        gender: voice.gender,
-      }));
+    : [
+        ...voiceCatalog[viewing].map(voice => ({
+          id: voice.id,
+          name: voice.name,
+          detail: voice.accent,
+          gender: voice.gender,
+        })),
+        ...(viewing === 'chatterbox'
+          ? personal.map(voice => ({
+              id: voice.id,
+              name: voice.name,
+              detail: 'Your voice · on this Mac',
+              gender: null,
+            }))
+          : []),
+      ];
   const chosen = voiceModel === viewing ? voices[viewing] : null;
   // Cloud lists hold only the account's own voices, so all of them are offered.
   const cloudVoices = cloud?.provider === provider ? cloud.voices : [];
@@ -155,6 +230,32 @@ export function VoiceSettings({
     .filter(voice => !splitByType || voice.gender === voiceType || voice.gender === null)
     .filter(voice => !query || voice.name.toLowerCase().includes(query.trim().toLowerCase()));
   const select = (voice: string) => voiceSelectionSchema.parse({ model: viewing, voice });
+
+  function closeAdd() {
+    setAdding(false);
+    setNewName('');
+    setConsent(false);
+    setAddError('');
+  }
+
+  async function addVoice() {
+    const name = newName.trim();
+    if (!name || !consent || choosing || !window.edi) return;
+    setChoosing(true);
+    setAddError('');
+    try {
+      const result = await window.edi.addPersonalVoice({ name, consent: true });
+      if (!result) return; // the file picker was cancelled
+      if (!result.ok) return setAddError(result.error);
+      closeAdd();
+      setAddedName(result.voice.name);
+      onKeysChanged();
+    } catch {
+      setAddError('That recording couldn’t be used.');
+    } finally {
+      setChoosing(false);
+    }
+  }
 
   function chooseModel(next: VoiceModelId) {
     const cloudModel = isCloudVoiceModel(next);
@@ -177,8 +278,14 @@ export function VoiceSettings({
     setMessage('');
     try {
       await onPreview(select(voice));
-    } catch {
-      setMessage(`Couldn’t play that sample. Try again when ${assistant} isn’t speaking.`);
+    } catch (error) {
+      // Main says why (a cloud voice's account problem, or Edi busy speaking).
+      setMessage(
+        commandMessage(
+          error,
+          `Couldn’t play that sample. Try again when ${assistant} isn’t speaking.`,
+        ),
+      );
     } finally {
       setPreviewing(null);
     }
@@ -212,7 +319,7 @@ export function VoiceSettings({
     <div className="settings-page">
       <GroupedList
         title="Speech model"
-        footer={`Local models run on this Mac. Cloud voices use your own account and receive only the words ${assistant} speaks.`}
+        footer={`Local models run on this Mac and never send anything anywhere. Cloud voices use your own account and receive only the words ${assistant} speaks.`}
       >
         <div className="voice-model-list" role="radiogroup" aria-label="Speech model">
           {models.map(entry => {
@@ -330,6 +437,7 @@ export function VoiceSettings({
           })}
           {system === null && <p className="settings-prose">Checking voices…</p>}
         </div>
+        {speakingPack && <VoicePackRow pack={speakingPack} onChanged={onKeysChanged} />}
       </GroupedList>
 
       {model && (model.available || provider) && (!provider || hasKey) && (
@@ -337,6 +445,22 @@ export function VoiceSettings({
           title={`${model.name} voice`}
           footer={message || cloudError || modelHelp(assistant)[viewing]}
         >
+          {viewing === 'chatterbox' && (
+            <GroupedRow
+              title="Delivery"
+              detail="Calm is steadier and softer; Expressive is livelier. Applies to every Chatterbox voice."
+              control={
+                <SegmentedControl<DeliveryLabel>
+                  label="Delivery"
+                  options={deliveryLabels}
+                  value={voiceDelivery === 'expressive' ? 'Expressive' : 'Calm'}
+                  onChange={label =>
+                    onVoiceDelivery(label === 'Expressive' ? 'expressive' : 'calm')
+                  }
+                />
+              }
+            />
+          )}
           {(splitByType || all.length > 12) && (
             <div className="voice-filter">
               {splitByType && (
@@ -385,7 +509,12 @@ export function VoiceSettings({
               </span>
             </div>
           )}
-          <div className="voice-list" role="radiogroup" aria-label={`${model.name} voice`}>
+          <div
+            // A long list (Kokoro has 27) scrolls inside the card instead of stretching it.
+            className={`voice-list${shown.length > 6 ? ' voice-list-scroll' : ''}`}
+            role="radiogroup"
+            aria-label={`${model.name} voice`}
+          >
             {shown.map(option => (
               <div
                 key={option.id}
@@ -407,21 +536,161 @@ export function VoiceSettings({
                     <span>{option.detail}</span>
                   </span>
                 </button>
-                <IconButton
-                  icon="play"
-                  label={
-                    previewing === option.id ? `Playing ${option.name}` : `Preview ${option.name}`
-                  }
-                  className="voice-preview"
-                  data-playing={previewing === option.id || undefined}
-                  disabled={previewing !== null}
-                  onClick={() => void preview(option.id)}
-                />
+                {removing === option.id ? (
+                  <span className="settings-actions voice-remove-confirm">
+                    <Button size="small" variant="plain" onClick={() => setRemoving(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="prominent"
+                      onClick={() => {
+                        setRemoving(null);
+                        void window.edi
+                          ?.command({ type: 'remove-personal-voice', id: option.id })
+                          .then(onKeysChanged);
+                      }}
+                    >
+                      Move to Trash
+                    </Button>
+                  </span>
+                ) : (
+                  <>
+                    <IconButton
+                      icon="play"
+                      label={
+                        previewing === option.id
+                          ? `Playing ${option.name}`
+                          : `Preview ${option.name}`
+                      }
+                      className="voice-preview"
+                      data-playing={previewing === option.id || undefined}
+                      disabled={previewing !== null}
+                      onClick={() => void preview(option.id)}
+                    />
+                    {personal.some(voice => voice.id === option.id) && (
+                      <IconButton
+                        icon="trash"
+                        label={`Remove ${option.name}`}
+                        className="voice-preview"
+                        onClick={() => setRemoving(option.id)}
+                      />
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>
+          {viewing === 'chatterbox' && model.personalVoices !== undefined && (
+            <div className="voice-add">
+              {adding ? (
+                <form
+                  className="voice-add-form"
+                  onSubmit={event => {
+                    event.preventDefault();
+                    void addVoice();
+                  }}
+                >
+                  <TextField
+                    label="Voice name"
+                    placeholder="Name, like Edi"
+                    maxLength={40}
+                    autoFocus
+                    value={newName}
+                    onChange={event => setNewName(event.target.value)}
+                  />
+                  <label className="voice-consent">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={event => setConsent(event.target.checked)}
+                    />
+                    This is my voice, or the person speaking agreed to {assistant} using it.
+                  </label>
+                  <p className="settings-prose">
+                    Choose at least 6 seconds of clear speech with no music. The recording stays on
+                    this Mac.
+                  </p>
+                  {addError && (
+                    <p className="voice-add-error" role="alert">
+                      {addError}
+                    </p>
+                  )}
+                  <span className="settings-actions">
+                    <Button size="small" variant="plain" type="button" onClick={closeAdd}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="prominent"
+                      type="submit"
+                      disabled={!newName.trim() || !consent || choosing}
+                    >
+                      {choosing ? 'Adding…' : 'Choose Recording…'}
+                    </Button>
+                  </span>
+                </form>
+              ) : (
+                <span className="settings-actions">
+                  <Button size="small" onClick={() => setAdding(true)}>
+                    Add Voice…
+                  </Button>
+                  {addedName && (
+                    <span className="voice-added">
+                      Added {addedName}. {assistant} speaks with it now.
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
         </GroupedList>
       )}
+
+      <GroupedList
+        title="Listening"
+        footer={
+          cartesiaKey && voiceInput === 'cartesia'
+            ? `While you talk, your microphone audio goes to Cartesia to be turned into words, billed to your account.${listensHere ? ' If Cartesia can’t be reached, this Mac takes over.' : ''}`
+            : listensHere
+              ? `Your voice is turned into words on this Mac and never leaves it.${cartesiaKey ? '' : ' Add a Cartesia key above to use Cartesia’s faster live transcription instead.'}`
+              : cartesiaKey
+                ? `Download the listening model to hear you on this Mac. Until then, Cartesia listens.`
+                : `Download the listening model so ${assistant} can hear you on this Mac, or add a Cartesia key above.`
+        }
+      >
+        <GroupedRow
+          title="Speech recognition"
+          control={
+            <SegmentedControl<ListeningLabel>
+              label="Speech recognition"
+              options={cartesiaKey ? listeningLabels : [listeningLabels[0]]}
+              value={cartesiaKey && voiceInput === 'cartesia' ? 'Cartesia' : 'This Mac'}
+              onChange={label => onVoiceInput(label === 'Cartesia' ? 'cartesia' : 'local')}
+            />
+          }
+        />
+        {listeningPack && <VoicePackRow pack={listeningPack} onChanged={onKeysChanged} />}
+      </GroupedList>
+
+      <GroupedList
+        title="Words to recognize"
+        footer={`Names of people, companies and projects you mention, separated by commas. ${assistant} listens for them on this Mac${voiceInput === 'cartesia' && cartesiaKey ? ' (Cartesia recognition doesn’t use this list)' : ''}.`}
+      >
+        <div className="voice-words">
+          <TextField
+            label="Words to recognize"
+            hideLabel
+            placeholder="Skaletek, Glown, Sarah"
+            value={wordsDraft}
+            onChange={event => setWordsDraft(event.target.value)}
+            onBlur={saveWords}
+            onKeyDown={event => {
+              if (event.key === 'Enter') saveWords();
+            }}
+          />
+        </div>
+      </GroupedList>
 
       <GroupedList footer="When this is off, answers to spoken questions show up in Conversations instead of being read aloud.">
         <GroupedRow
@@ -433,4 +702,75 @@ export function VoiceSettings({
       </GroupedList>
     </div>
   );
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
+
+/**
+ * An on-device pack in Settings → Voice: its size, then Download, progress with Pause, Resume,
+ * Try Again, or Remove (asked once more, since it is hundreds of megabytes to fetch again).
+ */
+function VoicePackRow({ pack, onChanged }: { pack: VoicePackStatus; onChanged(): void }) {
+  const [confirming, setConfirming] = useState(false);
+  const act = (action: 'download' | 'pause' | 'remove') =>
+    void window.edi
+      ?.command({ type: 'voice-pack', action, id: pack.id })
+      .catch(() => {})
+      .finally(() => {
+        setConfirming(false);
+        onChanged();
+      });
+  const size = megabytes(pack.bytes);
+  const progress = `${megabytes(pack.received)} of ${size}`;
+  const button = (label: string, action: 'download' | 'pause' | 'remove', prominent = false) => (
+    <Button size="small" variant={prominent ? 'prominent' : 'glass'} onClick={() => act(action)}>
+      {label}
+    </Button>
+  );
+  if (pack.state === 'installed' && confirming)
+    return (
+      <GroupedRow
+        title={`Remove ${pack.name.toLowerCase()}?`}
+        detail={`You can download it again (${size}).`}
+        control={
+          <span className="settings-actions">
+            <Button size="small" variant="plain" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            {button('Remove', 'remove')}
+          </span>
+        }
+      />
+    );
+  const rows: Record<VoicePackStatus['state'], { detail: ReactNode; control: ReactNode }> = {
+    missing: { detail: `On this Mac · ${size}`, control: button('Download', 'download', true) },
+    development: {
+      detail: 'Using the development copy',
+      control: button('Download', 'download'),
+    },
+    downloading: {
+      detail: (
+        <span className="voice-pack-progress">
+          <progress max={pack.bytes} value={pack.received} aria-label="Download progress" />
+          <span>{progress}</span>
+        </span>
+      ),
+      control: button('Pause', 'pause'),
+    },
+    paused: { detail: `Paused at ${progress}`, control: button('Resume', 'download', true) },
+    failed: {
+      detail: pack.error ?? 'The download stopped.',
+      control: button('Try Again', 'download'),
+    },
+    installed: {
+      detail: `On this Mac · ${size}`,
+      control: (
+        <Button size="small" variant="plain" onClick={() => setConfirming(true)}>
+          Remove…
+        </Button>
+      ),
+    },
+  };
+  const row = rows[pack.state];
+  return <GroupedRow title={pack.name} detail={row.detail} control={row.control} />;
 }

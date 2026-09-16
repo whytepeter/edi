@@ -5,6 +5,7 @@ import {
   cloudProviderSchema,
   cloudVoiceListSchema,
   artifactSchema,
+  exportFormatSchema,
   agentStateSchema,
   characterExpressionSchema,
   characterInspectionSchema,
@@ -19,10 +20,19 @@ import {
   fileAccessActionSchema,
   fileAccessSchema,
   usagePeriodSchema,
+  conversationListSchema,
+  taskListSchema,
+  scheduleListSchema,
+  approvalRulesSchema,
+  privacyStateSchema,
+  memoryListSchema,
+  connectorListSchema,
+  skillsStateSchema,
   usageSummarySchema,
   workspaceViewSchema,
   voiceHostEventSchema,
   type DesktopBridge,
+  personalVoiceAddResultSchema,
 } from '@edi/contracts';
 
 const bridge: DesktopBridge = {
@@ -46,6 +56,16 @@ const bridge: DesktopBridge = {
     artifactSchema.parse(
       await ipcRenderer.invoke('edi:artifact:get', artifactRefSchema.parse(ref)),
     ),
+  exportArtifact: async (ref, format, choose = false) => {
+    const result: unknown = await ipcRenderer.invoke('edi:artifact:export', {
+      ref: artifactRefSchema.parse(ref),
+      format: exportFormatSchema.parse(format),
+      choose: choose === true,
+    });
+    return result && typeof result === 'object' && 'name' in result
+      ? { name: String(result.name).slice(0, 200) }
+      : null;
+  },
   permissions: async () =>
     permissionSnapshotSchema.parse(await ipcRenderer.invoke('edi:permissions:get')),
   fileAccess: async () => fileAccessSchema.parse(await ipcRenderer.invoke('edi:file-access:get')),
@@ -53,6 +73,74 @@ const bridge: DesktopBridge = {
     fileAccessSchema.parse(
       await ipcRenderer.invoke('edi:file-access:act', fileAccessActionSchema.parse(action)),
     ),
+  tasks: async () => taskListSchema.parse(await ipcRenderer.invoke('edi:tasks:get')),
+  schedules: async () => scheduleListSchema.parse(await ipcRenderer.invoke('edi:schedules:get')),
+  approvalRules: async () =>
+    approvalRulesSchema.parse(await ipcRenderer.invoke('edi:approval-rules:get')),
+  connectors: async () => connectorListSchema.parse(await ipcRenderer.invoke('edi:connectors:get')),
+  skills: async () => skillsStateSchema.parse(await ipcRenderer.invoke('edi:skills:get')),
+  onSkills: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = skillsStateSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:skills', listener);
+    return () => ipcRenderer.removeListener('edi:skills', listener);
+  },
+  composioConfigured: async () => {
+    const result = await ipcRenderer.invoke('edi:composio-configured:get');
+    return result === true;
+  },
+  onConnectors: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = connectorListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:connectors', listener);
+    return () => ipcRenderer.removeListener('edi:connectors', listener);
+  },
+  memories: async () => memoryListSchema.parse(await ipcRenderer.invoke('edi:memories:get')),
+  onMemories: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = memoryListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:memories', listener);
+    return () => ipcRenderer.removeListener('edi:memories', listener);
+  },
+  privacy: async () => privacyStateSchema.parse(await ipcRenderer.invoke('edi:privacy:get')),
+  onPrivacy: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = privacyStateSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:privacy', listener);
+    return () => ipcRenderer.removeListener('edi:privacy', listener);
+  },
+  onApprovalRules: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = approvalRulesSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:approval-rules', listener);
+    return () => ipcRenderer.removeListener('edi:approval-rules', listener);
+  },
+  onSchedules: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = scheduleListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:schedules', listener);
+    return () => ipcRenderer.removeListener('edi:schedules', listener);
+  },
+  onTasks: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = taskListSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:tasks', listener);
+    return () => ipcRenderer.removeListener('edi:tasks', listener);
+  },
   onPermissions: callback => {
     const listener = (_event: Electron.IpcRendererEvent, status: unknown) => {
       const parsed = permissionSnapshotSchema.safeParse(status);
@@ -70,6 +158,8 @@ const bridge: DesktopBridge = {
     cloudVoiceListSchema.parse(
       await ipcRenderer.invoke('edi:cloud-voices:get', cloudProviderSchema.parse(provider)),
     ),
+  conversations: async query =>
+    conversationListSchema.parse(await ipcRenderer.invoke('edi:conversations:get', query ?? '')),
   usage: async days =>
     usageSummarySchema.parse(
       await ipcRenderer.invoke('edi:usage:get', usagePeriodSchema.parse(days)),
@@ -129,6 +219,8 @@ const bridge: DesktopBridge = {
   },
   pickCharacterPackage: async () =>
     characterInspectionSchema.nullable().parse(await ipcRenderer.invoke('edi:characters:pick')),
+  addPersonalVoice: async input =>
+    personalVoiceAddResultSchema.parse(await ipcRenderer.invoke('edi:personal-voices:add', input)),
   // The renderer never sees file paths; only this preload turns a dropped File into one.
   inspectCharacterFile: async file =>
     characterInspectionSchema.parse(

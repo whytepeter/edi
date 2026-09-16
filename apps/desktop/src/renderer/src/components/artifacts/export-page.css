@@ -1,0 +1,53 @@
+/*
+ * The hidden export page: content on white, page-width, in light colors whatever the Mac's
+ * appearance, so an exported PDF reads on paper. Tokens are pinned to their light values here.
+ */
+:root[data-surface='export'],
+:root[data-surface='export'] body {
+  color-scheme: light;
+  background: #ffffff;
+}
+.export-page {
+  --label: #1c1e26;
+  --label-secondary: #565b69;
+  --label-tertiary: #767b89;
+  --fill-hover: rgb(118 124 142 / 0.12);
+  --separator: rgb(60 66 84 / 0.18);
+  --accent-strong: #2f5bb7;
+  --accent-soft: rgb(47 91 183 / 0.18);
+
+  box-sizing: border-box;
+  max-width: 760px;
+  padding: 8px 4px;
+  color: var(--label);
+}
+.export-title {
+  margin: 0 0 var(--space-4);
+  font: 700 22px/1.25 var(--font-display);
+  letter-spacing: -0.015em;
+}
+.export-page .md {
+  line-height: 1.6;
+}
+.export-page .md pre {
+  overflow: visible;
+  white-space: pre-wrap;
+}
+.export-page .md-table {
+  overflow: visible;
+}
+/* Keep rows, items and headings with what follows across page breaks. */
+.export-page :is(tr, li, pre, blockquote) {
+  break-inside: avoid;
+}
+.export-page :is(h1, h2, h3, h4) {
+  break-after: avoid;
+}
+.export-page .artifact-diagram {
+  display: flex;
+  justify-content: center;
+}
+.export-page .artifact-diagram svg {
+  max-width: 100%;
+  height: auto;
+}

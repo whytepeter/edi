@@ -13,9 +13,6 @@ const float32 = z.custom<Float32Array>(
 );
 const bytes = z.custom<Uint8Array>(value => value instanceof Uint8Array, 'Expected Uint8Array');
 
-/** 16 kHz mono PCM16, at most 61 s: the transcription boundary. */
-export const maxVoicePcmBytes = 16_000 * 2 * 61;
-
 /** Expression tags the character performs in time with the voice. Other tags are only heard. */
 export const speechCueSchema = z.enum(['laugh', 'chuckle', 'sigh', 'gasp', 'groan', 'sniff']);
 export type SpeechCue = z.infer<typeof speechCueSchema>;
@@ -66,19 +63,43 @@ export function cueSegments(text: string): CueSegment[] {
 }
 
 /** Main → pet renderer. */
+/**
+ * Who finds speech in a hands-free conversation: main (Silero and loudness, so the pet streams
+ * every frame) or the pet itself (loudness only, streaming just the speech). Defaults to the pet.
+ */
+const speechDetection = z.enum(['main', 'pet']);
+
 export const voiceHostEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('open'), generation }).strict(),
+  z
+    .object({
+      type: z.literal('open'),
+      generation,
+      mode: z.enum(['push-to-talk', 'conversation']),
+      detect: speechDetection.optional(),
+    })
+    .strict(),
+  /** A push-to-talk tap became a hands-free conversation on the same open microphone. */
+  z
+    .object({ type: z.literal('converse'), generation, detect: speechDetection.optional() })
+    .strict(),
+  /** Push-to-talk released: send what is left of the recording, then `captured`. */
   z.object({ type: z.literal('finish'), generation }).strict(),
   z.object({ type: z.literal('cancel'), generation }).strict(),
+  /** Main took the utterance: stop sending it and wait for new speech. */
+  z.object({ type: z.literal('utterance-done'), generation }).strict(),
   z
     .object({
       type: z.literal('pcm'),
       generation,
+      turn: generation,
       rate: z.number().int().min(8000).max(48000),
       samples: float32.refine(samples => samples.length > 0 && samples.length <= 48000),
     })
     .strict(),
   z.object({ type: z.literal('stop-audio') }).strict(),
+  /** Hold or continue the reply's audio while the person talks over it. */
+  z.object({ type: z.literal('pause-audio') }).strict(),
+  z.object({ type: z.literal('resume-audio') }).strict(),
   /**
    * Perform a laugh or chuckle in time with speech: `next` when the next audio chunk starts,
    * `end` shortly before the audio queued so far finishes.
@@ -87,6 +108,7 @@ export const voiceHostEventSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('cue'),
       generation,
+      turn: generation,
       cue: speechCueSchema,
       at: z.enum(['next', 'end']),
     })
@@ -94,26 +116,43 @@ export const voiceHostEventSchema = z.discriminatedUnion('type', [
 ]);
 export type VoiceHostEvent = z.infer<typeof voiceHostEventSchema>;
 
+/** Microphone audio streams to main as 16 kHz PCM16 chunks of at most one second. */
+export const maxVoiceChunkBytes = 16_000 * 2;
+
 /** Pet renderer → main, carried by the command channel. */
 export const voiceCommandSchemas = [
   z
     .object({
       type: z.literal('voice-event'),
       generation,
-      event: z.enum(['capture-ready', 'speech-detected', 'failed']),
+      /**
+       * `speech-detected` each time speech starts or resumes; `pause` and `long-pause` after
+       * it stops; `captured` once a released push-to-talk recording has been sent in full.
+       */
+      event: z.enum([
+        'capture-ready',
+        'speech-detected',
+        'pause',
+        'long-pause',
+        'captured',
+        'failed',
+      ]),
     })
     .strict(),
   z
     .object({
-      type: z.literal('voice-audio'),
+      type: z.literal('voice-pcm'),
       generation,
+      /** Edi's voice was audible while this was recorded (her echo must not count as speech). */
+      speaking: z.boolean().optional(),
       pcm: bytes.refine(
-        pcm => pcm.byteLength > 0 && pcm.byteLength % 2 === 0 && pcm.byteLength <= maxVoicePcmBytes,
+        pcm =>
+          pcm.byteLength > 0 && pcm.byteLength % 2 === 0 && pcm.byteLength <= maxVoiceChunkBytes,
       ),
     })
     .strict(),
   /** One PCM chunk was accepted by the player: main may send the next (backpressure). */
-  z.object({ type: z.literal('voice-played'), generation }).strict(),
+  z.object({ type: z.literal('voice-played'), generation, turn: generation }).strict(),
 ] as const;
 
 /** Short notices shown in the character's bubble, e.g. "I didn’t catch that". */

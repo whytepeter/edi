@@ -35,7 +35,19 @@ function tokenDetail(totals: UsageTotals) {
 }
 
 /** Settings → Usage: what Edi spent on OpenRouter and sent to cloud voices, from its own records. */
-export function UsageSettings({ refreshKey }: { refreshKey: string }) {
+const capPresets = ['$0.25', '$0.50', '$1', '$2', '$5'] as const;
+type CapPreset = (typeof capPresets)[number];
+const capValue = (preset: CapPreset) => Number(preset.slice(1));
+
+export function UsageSettings({
+  refreshKey,
+  taskBudgetUsd,
+  onTaskBudget,
+}: {
+  refreshKey: string;
+  taskBudgetUsd: number;
+  onTaskBudget(budgetUsd: number): void;
+}) {
   const [period, setPeriod] = useState<PeriodLabel>('7 days');
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [failed, setFailed] = useState(false);
@@ -162,6 +174,25 @@ export function UsageSettings({ refreshKey }: { refreshKey: string }) {
           )}
         </GroupedList>
       )}
+
+      <GroupedList
+        title="Background tasks"
+        footer={`Each task stops to ask before spending more than this. You can set a different cap when you start a task, or allow more when one reaches its cap.${
+          capPresets.some(preset => capValue(preset) === taskBudgetUsd)
+            ? ''
+            : ` Current default: ${formatCost(taskBudgetUsd)}.`
+        }`}
+      >
+        <li className="usage-cap">
+          <span className="usage-cap-label">Default spending cap</span>
+          <SegmentedControl<CapPreset>
+            label="Default spending cap per task"
+            options={capPresets}
+            value={capPresets.find(preset => capValue(preset) === taskBudgetUsd) ?? '$0.50'}
+            onChange={preset => onTaskBudget(capValue(preset))}
+          />
+        </li>
+      </GroupedList>
 
       {current?.account && (
         <GroupedList title="OpenRouter key">

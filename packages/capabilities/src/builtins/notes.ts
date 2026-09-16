@@ -24,7 +24,8 @@ export interface NoteStore {
   }): void;
   get(id: string): ListedNote | undefined;
   list(limit: number): ListedNote[];
-  update(note: { id: string; title: string; bytes: number }): void;
+  /** `path` only when a rename moved the file. */
+  update(note: { id: string; title: string; bytes: number; path?: string }): void;
   remove(id: string): void;
 }
 
@@ -57,7 +58,7 @@ async function exists(path: string) {
 }
 
 /** The first free `slug.md`, `slug-2.md`, … — existing notes are never overwritten. */
-async function freePath(directory: string, slug: string) {
+export async function freePath(directory: string, slug: string) {
   for (let n = 1; n <= 100; n++) {
     const path = join(directory, n === 1 ? `${slug}.md` : `${slug}-${n}.md`);
     if (!(await exists(path))) return path;
@@ -65,17 +66,17 @@ async function freePath(directory: string, slug: string) {
   throw new Error('Too many notes share this title. Try a different title.');
 }
 
-function formatBytes(bytes: number) {
+export function formatBytes(bytes: number) {
   return bytes < 1024 ? `${bytes} bytes` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-const noteId = z.string().uuid().describe('Id from notes.list or notes.read');
+const noteId = z.string().uuid().describe('Id from workspace.search');
 const MAX_NOTE_READ_BYTES = 64 * 1024;
 
 /** A note record and its file, confined to the notes folder. Shared with workspace tools. */
 export function locate(store: NoteStore, directory: () => string, id: string) {
   const note = store.get(id);
-  if (!note) throw new Error('Edi has no saved note with that id. List notes first.');
+  if (!note) throw new Error('Edi has no saved note with that id. Search the workspace first.');
   const folder = resolve(directory());
   const path = resolve(note.path);
   if (dirname(path) !== folder) {
@@ -84,7 +85,7 @@ export function locate(store: NoteStore, directory: () => string, id: string) {
   return { note, folder, path };
 }
 
-function noteContent(title: string, body: string) {
+export function noteContent(title: string, body: string) {
   return `# ${title}\n\n${body}\n`;
 }
 
@@ -109,7 +110,11 @@ export async function readLibraryNote(store: NoteStore, directory: () => string,
     return { note, markdown: await readNote(path) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error('That note’s file is gone.', { cause: error });
+      throw new Error(
+        'This note’s file was moved or deleted. Put it back in Documents › Edi › Notes, or delete ' +
+          'the note from Library.',
+        { cause: error },
+      );
     }
     throw error;
   }
@@ -167,6 +172,40 @@ export async function writeNewNote(
   return { id, path };
 }
 
+/**
+ * Replace an existing note's title and body in place, confined to the notes folder. Used by the
+ * reviewed `workspace.update`; the file path never changes.
+ */
+export async function replaceNote(
+  store: NoteStore,
+  directory: () => string,
+  note: { id: string; title: string; body: string },
+) {
+  const { folder, path } = locate(store, directory, note.id);
+  if (!(await exists(path))) throw new Error('That note’s file is gone. Nothing was changed.');
+  const content = noteContent(note.title, note.body);
+  const bytes = Buffer.byteLength(content);
+  const temp = join(folder, `.edi-${randomUUID()}.tmp`);
+  await writeFile(temp, content, { flag: 'wx', mode: 0o644 });
+  try {
+    await rename(temp, path);
+  } catch (error) {
+    await unlink(temp).catch(() => {});
+    throw error;
+  }
+  try {
+    store.update({ id: note.id, title: note.title, bytes });
+  } catch {
+    throw new OutcomeUnknownError(`Updated ${path}, but Edi could not record it in its history.`);
+  }
+  return { path, bytes, content };
+}
+
+/**
+ * Notes are what the person asked Edi to keep. Saving one is its own reviewed step; finding,
+ * reading, editing and deleting notes go through the workspace tools like everything else in
+ * the Library.
+ */
 export function notesCapabilities({ directory, store, now = Date.now, shown }: NotesDependencies) {
   const save = defineCapability({
     id: 'notes.save',
@@ -209,177 +248,11 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
     },
   });
 
-  const list = defineCapability({
-    id: 'notes.list',
-    title: 'Look through notes',
-    description:
-      'List notes Edi has saved for the user, newest first, with their ids, titles and file paths.',
-    effect: 'read',
-    timeoutMs: 5_000,
-    input: z.object({ limit: z.number().int().min(1).max(50).default(10) }).strict(),
-    prepare({ limit }) {
-      return {
-        preview: {
-          title: 'Look through notes',
-          action: 'Read Notes',
-          summary: `Read up to ${limit} saved notes.`,
-          fields: [],
-        },
-        async execute() {
-          const notes = store.list(limit).map(note => ({
-            id: note.id,
-            title: note.title,
-            path: note.path,
-            savedAt: new Date(note.createdAt).toISOString(),
-          }));
-          const count = notes.length;
-          return {
-            summary: count
-              ? `Found ${count} saved note${count === 1 ? '' : 's'}.`
-              : 'No saved notes yet.',
-            output: { notes },
-          };
-        },
-      };
-    },
-  });
-
-  const read = defineCapability({
-    id: 'notes.read',
-    title: 'Read a note',
-    description:
-      'Read the full Markdown of a note Edi has saved. Pass the id from notes.list. ' +
-      'Use this before editing, or when the user asks what a note says.',
-    effect: 'read',
-    timeoutMs: 5_000,
-    input: z.object({ id: noteId }).strict(),
-    prepare({ id }) {
-      const { note, path } = locate(store, directory, id);
-      return {
-        preview: {
-          title: 'Read a note',
-          action: 'Read Note',
-          summary: `Read “${note.title}”.`,
-          fields: [],
-        },
-        async execute() {
-          let body: string;
-          try {
-            body = await readNote(path);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-              throw new Error('That note’s file is gone. Nothing was read.', { cause: error });
-            }
-            throw error;
-          }
-          return {
-            summary: `Read “${note.title}”.`,
-            output: { id: note.id, title: note.title, path, body },
-          };
-        },
-      };
-    },
-  });
-
-  const edit = defineCapability({
-    id: 'notes.edit',
-    title: 'Edit a note',
-    description:
-      'Replace the title and body of an existing note. The file path does not change. ' +
-      'The user reviews the new content before anything is written. Pass the id from notes.list.',
-    effect: 'write',
-    timeoutMs: 10_000,
-    input: z
-      .object({
-        id: noteId,
-        title: z.string().trim().min(1).max(120).describe('Short, descriptive title'),
-        body: z.string().trim().min(1).max(20_000).describe('Replacement content in Markdown'),
-      })
-      .strict(),
-    prepare({ id, title, body }) {
-      const { note, folder, path } = locate(store, directory, id);
-      const content = noteContent(title, body);
-      const bytes = Buffer.byteLength(content);
-      return {
-        preview: {
-          title: 'Edit a note',
-          action: 'Update Note',
-          summary: 'Replace this note’s content. The file path stays the same.',
-          fields: [
-            { label: 'Title', value: title === note.title ? title : `${note.title} → ${title}` },
-            { label: 'Location', value: path },
-            { label: 'Size', value: formatBytes(bytes) },
-          ],
-          body: content.slice(0, 4000),
-        },
-        async execute() {
-          if (!(await exists(path))) {
-            throw new Error('That note’s file is gone. Nothing was changed.');
-          }
-          const temp = join(folder, `.edi-${randomUUID()}.tmp`);
-          await writeFile(temp, content, { flag: 'wx', mode: 0o644 });
-          try {
-            await rename(temp, path);
-          } catch (error) {
-            await unlink(temp).catch(() => {});
-            throw error;
-          }
-          try {
-            store.update({ id: note.id, title, bytes });
-          } catch {
-            throw new OutcomeUnknownError(
-              `Updated ${path}, but Edi could not record it in its history.`,
-            );
-          }
-          return { summary: `Updated “${title}” at ${path}`, output: { path } };
-        },
-      };
-    },
-  });
-
-  const remove = defineCapability({
-    id: 'notes.delete',
-    title: 'Delete a note',
-    description:
-      'Delete a note Edi saved: the Markdown file and Edi’s record of it. The user reviews ' +
-      'the exact file before anything is removed. Pass the id from notes.list.',
-    effect: 'write',
-    timeoutMs: 10_000,
-    input: z.object({ id: noteId }).strict(),
-    prepare({ id }) {
-      const { note, path } = locate(store, directory, id);
-      return {
-        preview: {
-          title: 'Delete a note',
-          action: 'Delete Note',
-          summary: 'Permanently delete this Markdown file.',
-          fields: [
-            { label: 'Title', value: note.title },
-            { label: 'Location', value: path },
-          ],
-        },
-        async execute() {
-          try {
-            await unlink(path);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-          }
-          try {
-            store.remove(note.id);
-          } catch {
-            throw new OutcomeUnknownError(`Removed ${path}, but Edi could not update its history.`);
-          }
-          return { summary: `Deleted “${note.title}” at ${path}`, output: { path } };
-        },
-      };
-    },
-  });
-
   const show = defineCapability({
     id: 'notes.show',
     title: 'Show a note',
     description:
-      'Display a saved note in Edi’s card. Use this, not notes.read, when the user asks to see, ' +
+      'Display a saved note in Edi’s card. Use this, not workspace.read, when the user asks to see, ' +
       'show, open or pull up a note. Reply in one short sentence; never read the note out.',
     effect: 'read',
     timeoutMs: 5_000,
@@ -412,5 +285,5 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
     },
   });
 
-  return [save, list, read, edit, remove, show] as const;
+  return [save, show] as const;
 }

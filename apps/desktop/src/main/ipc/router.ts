@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import {
   commandSchema,
@@ -5,12 +6,23 @@ import {
   type Artifact,
   type ArtifactRef,
   artifactRefSchema,
+  exportFormatSchema,
+  type ExportFormat,
   cloudProviderSchema,
   usagePeriodSchema,
   fileAccessActionSchema,
   type CloudProviderId,
   type CloudVoiceOption,
   type UsagePeriod,
+  type ConversationSummary,
+  type Task,
+  type Schedule,
+  type ApprovalRule,
+  type PrivacyState,
+  type Memory,
+  type Suggestion,
+  type Connector,
+  type SkillsState,
   type UsageSummary,
   type AgentState,
   type Command,
@@ -23,10 +35,12 @@ import {
   type FileAccessAction,
   type CharacterDescriptor,
   type CharacterInspection,
+  personalVoiceNameSchema,
+  type PersonalVoiceAddResult,
 } from '@edi/contracts';
 
 /** Every renderer surface is identified; route allowlists still grant each command explicitly. */
-export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact';
+export type Caller = 'workspace' | 'pet' | 'menu' | 'bubble' | 'artifact' | 'export' | 'annotate';
 
 type CommandOf<T extends Command['type']> = Extract<Command, { type: T }>;
 interface Route<T extends Command['type']> {
@@ -47,13 +61,30 @@ interface IpcDependencies {
   models(): Promise<ModelOption[]>;
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   usage(days: UsagePeriod): Promise<UsageSummary>;
+  conversations(query: string): ConversationSummary[];
+  tasks(): Task[];
+  schedules(): Schedule[];
+  approvalRules(): ApprovalRule[];
+  privacy(): PrivacyState;
+  memories(): Memory[];
+  /** The quiet offer the bubble is showing, if any. */
+  openSuggestion(): Suggestion | null;
+  connectors(): Connector[];
+  skills(): Promise<SkillsState>;
+  composioConfigured(): boolean;
   artifact(ref: ArtifactRef): Promise<Artifact>;
+  exportArtifact(
+    ref: ArtifactRef,
+    format: ExportFormat,
+    choose: boolean,
+  ): Promise<{ name: string } | null>;
   permissions(): PermissionSnapshot;
   fileAccess(): FileAccess;
   fileAccessAction(action: FileAccessAction): Promise<FileAccess>;
   characters(): CharacterDescriptor[];
   pickCharacterPackage(): Promise<CharacterInspection | null>;
   inspectCharacterFile(path: string): Promise<CharacterInspection>;
+  addPersonalVoice(name: string): Promise<PersonalVoiceAddResult>;
 }
 
 export function registerIpc({
@@ -67,13 +98,25 @@ export function registerIpc({
   models,
   cloudVoices,
   usage,
+  conversations,
+  tasks,
+  schedules,
+  approvalRules,
+  privacy,
+  memories,
+  openSuggestion,
+  connectors,
+  skills,
+  composioConfigured,
   artifact,
+  exportArtifact,
   permissions,
   fileAccess,
   fileAccessAction,
   characters,
   pickCharacterPackage,
   inspectCharacterFile,
+  addPersonalVoice,
 }: IpcDependencies) {
   const callerOf = (event: IpcMainInvokeEvent) => {
     // Subframes never inherit their window's privileges.
@@ -107,8 +150,18 @@ export function registerIpc({
     return system();
   });
   ipcMain.handle('edi:artifact:get', (event, ref: unknown) => {
-    authorize(callerOf(event), ['artifact']);
+    // The hidden export page reads the content it draws for a PDF or picture.
+    authorize(callerOf(event), ['artifact', 'export']);
     return artifact(artifactRefSchema.parse(ref));
+  });
+  ipcMain.handle('edi:artifact:export', (event, raw: unknown) => {
+    // From the artifact window's Export menu, or a Library row's.
+    authorize(callerOf(event), ['artifact', 'workspace']);
+    const input = z
+      .object({ ref: artifactRefSchema, format: exportFormatSchema, choose: z.boolean() })
+      .strict()
+      .parse(raw);
+    return exportArtifact(input.ref, input.format, input.choose);
   });
   ipcMain.handle('edi:models:get', event => {
     authorize(callerOf(event), ['workspace']);
@@ -117,6 +170,42 @@ export function registerIpc({
   ipcMain.handle('edi:cloud-voices:get', (event, provider: unknown) => {
     authorize(callerOf(event), ['workspace']);
     return cloudVoices(cloudProviderSchema.parse(provider));
+  });
+  ipcMain.handle('edi:skills:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return skills();
+  });
+  ipcMain.handle('edi:connectors:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return connectors();
+  });
+  ipcMain.handle('edi:composio-configured:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return composioConfigured();
+  });
+  ipcMain.handle('edi:approval-rules:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return approvalRules();
+  });
+  ipcMain.handle('edi:privacy:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return privacy();
+  });
+  ipcMain.handle('edi:memories:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return memories();
+  });
+  ipcMain.handle('edi:schedules:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return schedules();
+  });
+  ipcMain.handle('edi:tasks:get', event => {
+    authorize(callerOf(event), ['workspace']);
+    return tasks();
+  });
+  ipcMain.handle('edi:conversations:get', (event, query: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return conversations(z.string().max(200).optional().parse(query) ?? '');
   });
   ipcMain.handle('edi:usage:get', (event, days: unknown) => {
     authorize(callerOf(event), ['workspace']);
@@ -138,6 +227,10 @@ export function registerIpc({
     authorize(callerOf(event), ['bubble']);
     return agentState().approval;
   });
+  ipcMain.handle('edi:bubble-suggestion:get', event => {
+    authorize(callerOf(event), ['bubble']);
+    return openSuggestion();
+  });
   ipcMain.handle('edi:characters:get', event => {
     authorize(callerOf(event), ['workspace', 'pet', 'artifact']);
     return characters();
@@ -150,6 +243,14 @@ export function registerIpc({
     authorize(callerOf(event), ['workspace']);
     if (typeof path !== 'string' || path.length > 4096) throw new Error('Invalid file');
     return inspectCharacterFile(path);
+  });
+  ipcMain.handle('edi:personal-voices:add', (event, raw: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    const input = z
+      .object({ name: personalVoiceNameSchema, consent: z.literal(true) })
+      .strict()
+      .parse(raw);
+    return addPersonalVoice(input.name);
   });
   ipcMain.handle('edi:command', async (event, raw: unknown) => {
     const caller = callerOf(event);

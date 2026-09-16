@@ -14,7 +14,10 @@ parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument("--voice")
 parser.add_argument("--model", required=True)
 parser.add_argument("--engine", required=True)
+parser.add_argument("--reference", action="append", default=[])
 args = parser.parse_args()
+# Personal voices the host passed as id=path; the real worker prepares each from its recording.
+personal = {item.partition("=")[0] for item in args.reference}
 # The "wrong-engine" model simulates a worker running another engine.
 ready = {"type": "ready", "rate": 24000,
          "engine": "other" if args.model == "wrong-engine" else args.engine}
@@ -30,6 +33,8 @@ while True:
     mode = request["text"]
     if request.get("voice") == "bad-voice":
         sys.exit(4)
+    if request.get("voice") == "edi" and "edi" not in personal:
+        sys.exit(5)
     served += 1
     if mode == "crash":
         sys.exit(2)

@@ -1,0 +1,443 @@
+/* Connectors: connected apps with expandable tool lists, a searchable catalog, and custom servers. */
+.connectors-page {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* ── Connected app row ── */
+.connector-item {
+  display: grid;
+}
+.connector-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: none;
+  font: var(--text-body);
+  color: var(--label);
+  text-align: left;
+  cursor: pointer;
+}
+.connector-header:hover {
+  background: var(--fill-hover);
+}
+.connector-header:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.connector-header-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.connector-header-title {
+  font: var(--text-body);
+  font-weight: 500;
+}
+.connector-header-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-caption);
+  color: var(--label-secondary);
+}
+
+/* Status dots */
+.connector-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.connector-dot-ok {
+  background: #34c759;
+}
+.connector-dot-busy {
+  background: #ff9f0a;
+}
+.connector-dot-warn {
+  background: #ff9f0a;
+}
+.connector-dot-error {
+  background: #ff3b30;
+}
+
+/* ── Expanded panel ── */
+.connector-expanded {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-3);
+  border-top: 1px solid var(--separator);
+}
+
+.connector-section {
+  padding: var(--space-2) 0;
+}
+.connector-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Tool list (grouped by read/write) ── */
+.connector-tools {
+  display: grid;
+  gap: var(--space-2);
+}
+/*
+ * Long tool lists (Gmail has 20+) scroll inside the card instead of stretching it. The edges fade
+ * only where there is more to scroll to, driven by the list's own scroll position.
+ */
+@property --tools-fade-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --tools-fade-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+.connector-tools-scroll {
+  max-height: min(340px, 45vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: calc(-1 * var(--space-2));
+  padding-right: var(--space-2);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--tools-fade-top),
+    #000 calc(100% - var(--tools-fade-bottom)),
+    transparent
+  );
+  animation: connector-tools-fade linear both;
+  animation-timeline: scroll(self);
+}
+@keyframes connector-tools-fade {
+  0% {
+    --tools-fade-top: 0px;
+    --tools-fade-bottom: 28px;
+  }
+  6% {
+    --tools-fade-top: 28px;
+  }
+  94% {
+    --tools-fade-bottom: 28px;
+  }
+  100% {
+    --tools-fade-top: 28px;
+    --tools-fade-bottom: 0px;
+  }
+}
+.connector-tool-section {
+  display: grid;
+}
+.connector-tool-heading {
+  font: var(--text-caption);
+  font-weight: 600;
+  color: var(--label-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: var(--space-2) 0 var(--space-1);
+}
+.connector-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.connector-tool + .connector-tool {
+  border-top: 1px solid var(--separator);
+}
+.connector-tool-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.connector-tool-name {
+  font: var(--text-body);
+  font-size: 13px;
+}
+.connector-tool-desc {
+  font: var(--text-caption);
+  color: var(--label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Footer actions (reconnect, remove) ── */
+.connector-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--separator);
+}
+
+.connector-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: var(--text-footnote);
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+.connector-link:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.connector-link-danger {
+  color: #c4372d;
+}
+.connector-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.connector-remove {
+  color: #c4372d;
+}
+
+/* ── Catalog section ── */
+.connector-catalog {
+  display: grid;
+  gap: var(--space-4);
+}
+.connector-catalog .ds-field {
+  padding: 0 var(--space-1);
+}
+
+.connector-catalog-header {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+.connector-catalog-header .ds-group-title {
+  flex: 1;
+  margin: 0;
+}
+.connector-catalog-header-actions {
+  flex-shrink: 0;
+}
+.connector-add-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: var(--text-footnote);
+  color: var(--accent-strong);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.connector-add-btn:hover {
+  background: var(--fill-hover);
+}
+.connector-add-btn:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.connector-empty {
+  text-align: center;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  padding: var(--space-4);
+}
+
+/* ── Custom server popover ── */
+.connector-popover-anchor {
+  position: relative;
+}
+.connector-popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 100;
+  width: min(320px, calc(100vw - 32px));
+  padding: var(--space-4);
+  border-radius: 14px;
+  /*
+   * Thick glass: the sheen and highlight of a menu, but the fill of a floating window. The card
+   * is a native glass window, so the in-page blur alone lets the list read through the form.
+   */
+  background: var(--glass-sheen), var(--glass-thick-fill);
+  backdrop-filter: var(--glass-blur-dense);
+  box-shadow:
+    var(--shadow-floating),
+    0 12px 32px rgb(0 0 0 / 0.18),
+    inset 0 1px 0 var(--glass-inner-highlight),
+    inset 0 0 0 0.5px var(--hairline);
+}
+.connector-popover-error {
+  font: var(--text-caption);
+  color: #ff3b30;
+  margin: 0;
+}
+
+/* Where a new server runs: on the web, or here. Two plain choices, not a switch. */
+.connector-where {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.connector-where-choice {
+  flex: 1;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+  cursor: pointer;
+}
+.connector-where-choice[aria-pressed='true'] {
+  background: var(--glass-thick-fill);
+  color: var(--label);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+.connector-where-choice:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+}
+
+/* A plain labelled control, for the one field a TextField can't be. */
+.connector-field {
+  display: grid;
+  gap: var(--space-1);
+}
+.connector-field-label {
+  font: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.connector-select {
+  padding: 6px 8px;
+  border: 0.5px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--fill);
+  font: var(--text-body);
+  color: var(--label);
+}
+
+.connector-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.connector-form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ── Composio key ── */
+.connector-composio {
+  display: grid;
+  gap: var(--space-3);
+}
+.connector-composio .ds-group-title {
+  margin: 0;
+}
+.connector-composio .ds-footnote {
+  margin: 0;
+  padding: 0 var(--space-1);
+}
+.connector-row-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ── Connected app: problem notice, provider line ── */
+.connector-via {
+  color: var(--label-tertiary);
+}
+.connector-notice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: 10px;
+  background: rgb(255 159 10 / 0.12);
+  color: var(--label);
+}
+.connector-notice .ds-icon {
+  margin-top: 1px;
+  color: #ff9f0a;
+}
+.connector-notice p {
+  margin: 0;
+  font: var(--text-footnote);
+  overflow-wrap: anywhere;
+}
+.connector-notice .ds-button {
+  grid-column: 2;
+  justify-self: start;
+}
+.connector-notice-error {
+  background: rgb(255 59 48 / 0.12);
+}
+.connector-notice-error .ds-icon {
+  color: #ff453a;
+}
+.connector-setting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+.connector-setting-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  font: var(--text-body);
+}
+.connector-setting-detail {
+  font: var(--text-caption);
+  color: var(--label-secondary);
+}
+.connector-inline-error {
+  margin: var(--space-2) 0 0;
+  padding: 0 var(--space-1);
+  font: var(--text-footnote);
+  color: #ff453a;
+}
+.connector-tools-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) 0 var(--space-2);
+  font: var(--text-caption);
+  color: var(--label-secondary);
+}
+.connector-checked {
+  font: var(--text-footnote);
+  color: #34c759;
+}
+.connector-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

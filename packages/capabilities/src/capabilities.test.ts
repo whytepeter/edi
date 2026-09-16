@@ -4,11 +4,13 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { artifactExport, type ArtifactSummary } from '@edi/contracts';
 import {
   CapabilityBroker,
   defineCapability,
   ediSetupCapabilities,
   notesCapabilities,
+  renameWorkspaceItem,
   slugify,
   workspaceCapabilities,
   writeWorkspaceArtifact,
@@ -111,6 +113,7 @@ function memoryStore(seed: ListedNote[] = []): NoteStore & { records: ListedNote
       const current = records.find(entry => entry.id === note.id);
       if (!current) throw new Error('missing');
       current.title = note.title;
+      if (note.path) current.path = note.path;
     },
     remove(id) {
       const index = records.findIndex(entry => entry.id === id);
@@ -246,7 +249,7 @@ test('manifest exposes model-safe names and JSON schemas', () => {
   const manifest = broker.manifest();
   assert.deepEqual(
     manifest.map(entry => entry.name),
-    ['notes_save', 'notes_list', 'notes_read', 'notes_edit', 'notes_delete', 'notes_show'],
+    ['notes_save', 'notes_show'],
   );
   assert.ok(manifest[0]);
   assert.equal((manifest[0].inputSchema as { type: string }).type, 'object');
@@ -291,29 +294,64 @@ test('notes.save previews the exact path, writes it, and never overwrites', asyn
   );
 });
 
-test('notes.read returns the file; notes.edit replaces it; notes.delete removes it', async () => {
+/** Workspace tools over a notes folder, recording what was shown and trashed. */
+function notesWorkspace(folder: string, store: NoteStore) {
+  const shown: ArtifactSummary[] = [];
+  const trashed: string[] = [];
+  const tools = workspaceCapabilities({
+    directory: () => folder,
+    shown: artifact => {
+      shown.push(artifact);
+    },
+    artifacts: memoryArtifacts(),
+    notes: { store, directory: () => folder },
+    trash: async path => {
+      trashed.push(path);
+      await rm(path);
+    },
+  });
+  const [, , read, update, remove] = tools;
+  return { read, update, remove, shown, trashed };
+}
+
+test('saved notes are read, edited and trashed through the workspace tools', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
   const path = join(folder, 'ideas.md');
   await writeFile(path, '# Ideas\n\nold\n');
   const store = memoryStore([{ id: noteId, title: 'Ideas', path, createdAt: 1 }]);
-  const [, , read, edit, remove] = notesCapabilities({ directory: () => folder, store });
+  const { read, update, remove, shown, trashed } = notesWorkspace(folder, store);
   const context = { callId: '00000000-0000-4000-8000-000000000011', runId: run };
 
-  const shown = await read.prepare({ id: noteId }, context);
-  assert.deepEqual(await shown.execute(live()), {
-    summary: 'Read “Ideas”.',
-    output: { id: noteId, title: 'Ideas', path, body: '# Ideas\n\nold\n' },
+  const reading = await read.prepare({ id: noteId }, context);
+  assert.deepEqual((await reading.execute(live())).output, {
+    id: noteId,
+    kind: 'note',
+    title: 'Ideas',
+    text: '# Ideas\n\nold\n',
   });
 
-  const update = await edit.prepare({ id: noteId, title: 'Plans', body: 'new' }, context);
-  assert.equal(update.preview.fields.find(field => field.label === 'Location')?.value, path);
-  await update.execute(live());
+  const editing = await update.prepare(
+    { id: noteId, kind: 'note', title: 'Plans', markdown: 'new' },
+    context,
+  );
+  assert.equal(editing.preview.fields.find(field => field.label === 'Location')?.value, path);
+  assert.equal(editing.preview.fields[0]?.value, 'Ideas → Plans');
+  await editing.execute(live());
   assert.equal(await readFile(path, 'utf8'), '# Plans\n\nnew\n');
   assert.equal(store.records[0]?.title, 'Plans');
+  assert.deepEqual(
+    shown.map(item => [item.kind, item.title, item.noteId]),
+    [['note', 'Plans', noteId]],
+  );
+  // A note is edited as a note, never turned into a checklist.
+  await assert.rejects(
+    async () => update.prepare({ id: noteId, kind: 'checklist', title: 'X', items: [] }, context),
+    /That item is a note/,
+  );
 
-  const gone = await remove.prepare({ id: noteId }, context);
-  await gone.execute(live());
-  await assert.rejects(() => readFile(path));
+  const trashing = await remove.prepare({ id: noteId }, context);
+  await trashing.execute(live());
+  assert.deepEqual(trashed, [path]);
   assert.deepEqual(store.records, []);
   assert.equal(
     (await readdir(folder)).some(name => name.endsWith('.tmp')),
@@ -321,40 +359,48 @@ test('notes.read returns the file; notes.edit replaces it; notes.delete removes 
   );
 });
 
-test('notes.edit and notes.delete refuse paths outside the notes folder', async () => {
+test('workspace tools refuse notes outside the notes folder', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
   const outside = join(tmpdir(), `edi-notes-outside-${noteId}.md`);
   await writeFile(outside, 'secret');
   const store = memoryStore([{ id: noteId, title: 'Secret', path: outside, createdAt: 1 }]);
-  const [, , read, edit, remove] = notesCapabilities({ directory: () => folder, store });
+  const { read, update, remove } = notesWorkspace(folder, store);
   const context = { callId: '00000000-0000-4000-8000-000000000012', runId: run };
 
-  assert.throws(() => read.prepare({ id: noteId }, context), /outside the notes folder/);
-  assert.throws(
-    () => edit.prepare({ id: noteId, title: 'X', body: 'y' }, context),
+  const reading = await read.prepare({ id: noteId }, context);
+  await assert.rejects(reading.execute(live()), /outside the notes folder/);
+  await assert.rejects(
+    async () => update.prepare({ id: noteId, kind: 'note', title: 'X', markdown: 'y' }, context),
     /outside the notes folder/,
   );
-  assert.throws(() => remove.prepare({ id: noteId }, context), /outside the notes folder/);
+  await assert.rejects(
+    async () => remove.prepare({ id: noteId }, context),
+    /outside the notes folder/,
+  );
   assert.equal(await readFile(outside, 'utf8'), 'secret');
 });
 
-test('notes.read refuses replacement links and oversized files', async () => {
+test('reading a note refuses replacement links and oversized files', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-notes-'));
   const outside = join(folder, '..', `edi-secret-${noteId}.md`);
   const linked = join(folder, 'linked.md');
   await writeFile(outside, 'secret');
   await symlink(outside, linked);
-  const linkedStore = memoryStore([{ id: noteId, title: 'Linked', path: linked, createdAt: 1 }]);
-  const [, , linkedRead] = notesCapabilities({ directory: () => folder, store: linkedStore });
   const context = { callId: '00000000-0000-4000-8000-000000000013', runId: run };
-  const linkedAction = await linkedRead.prepare({ id: noteId }, context);
+  const linkedTools = notesWorkspace(
+    folder,
+    memoryStore([{ id: noteId, title: 'Linked', path: linked, createdAt: 1 }]),
+  );
+  const linkedAction = await linkedTools.read.prepare({ id: noteId }, context);
   await assert.rejects(() => linkedAction.execute(live()));
 
   const large = join(folder, 'large.md');
   await writeFile(large, 'x'.repeat(64 * 1024 + 1));
-  const largeStore = memoryStore([{ id: noteId, title: 'Large', path: large, createdAt: 1 }]);
-  const [, , largeRead] = notesCapabilities({ directory: () => folder, store: largeStore });
-  const largeAction = await largeRead.prepare({ id: noteId }, context);
+  const largeTools = notesWorkspace(
+    folder,
+    memoryStore([{ id: noteId, title: 'Large', path: large, createdAt: 1 }]),
+  );
+  const largeAction = await largeTools.read.prepare({ id: noteId }, context);
   await assert.rejects(() => largeAction.execute(live()), /too large/);
 });
 
@@ -364,13 +410,66 @@ test('notes.show displays a note without returning its text to the model', async
   await writeFile(path, '# Groceries\n\n- milk\n- eggs\n');
   const store = memoryStore([{ id: noteId, title: 'Groceries', path, createdAt: 1 }]);
   const shown: unknown[] = [];
-  const show = notesCapabilities({ directory: () => folder, store, shown: a => shown.push(a) })[5];
+  const show = notesCapabilities({ directory: () => folder, store, shown: a => shown.push(a) })[1];
   const callId = '00000000-0000-4000-8000-000000000020';
   const result = await (await show.prepare({ id: noteId }, { callId, runId: run })).execute(live());
   assert.deepEqual(result.output, { shown: true, title: 'Groceries' });
   assert.deepEqual(shown, [
     { id: callId, kind: 'note', title: 'Groceries', preview: 'Groceries\n• milk\n• eggs', noteId },
   ]);
+});
+
+test('a diagram is Mermaid: shown, saved as .mmd, previewed, copied as a fence, updated in place', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-workspace-'));
+  const shown: ArtifactSummary[] = [];
+  const artifacts = memoryArtifacts();
+  const [show, , , update] = workspaceCapabilities({
+    directory: () => folder,
+    shown: artifact => {
+      shown.push(artifact);
+    },
+    artifacts,
+    notes: { store: emptyStore(), directory: () => join(folder, 'Notes') },
+    trash: async () => {},
+    now: () => 5,
+  });
+  const context = { callId: '00000000-0000-4000-8000-000000000031', runId: run };
+  const mermaid = 'flowchart LR\n  app[Edi] --> api[API]\n  api --> db[(Database)]';
+  const result = await (
+    await show.prepare({ kind: 'diagram', title: 'Architecture', mermaid }, context)
+  ).execute(live());
+  const path = join('Artifacts', 'Diagrams', 'architecture.mmd');
+  assert.equal((result.output as { path: string }).path, path);
+  assert.equal(await readFile(join(folder, path), 'utf8'), `${mermaid}\n`);
+  assert.equal(shown[0]?.preview, 'Flowchart: Edi → API → Database');
+  assert.equal(
+    artifactExport({ kind: 'diagram', title: 'A', mermaid }).copy,
+    `\`\`\`mermaid\n${mermaid}\n\`\`\`\n`,
+  );
+  assert.throws(
+    () => show.prepare({ kind: 'diagram', title: 'Empty' }, context),
+    /needs its Mermaid source/,
+  );
+
+  // “Add the MCP layer” replaces the same diagram rather than making a new one.
+  const next = `${mermaid}\n  app --> mcp[MCP servers]`;
+  await (
+    await update.prepare(
+      { id: context.callId, kind: 'diagram', title: 'Architecture', mermaid: next },
+      context,
+    )
+  ).execute(live());
+  assert.equal(await readFile(join(folder, path), 'utf8'), `${next}\n`);
+  assert.equal(artifacts.records.length, 1);
+  assert.match(shown.at(-1)?.preview ?? '', /MCP servers/);
+  assert.throws(
+    () =>
+      update.prepare(
+        { id: context.callId, kind: 'table', title: 'X', columns: ['a'], rows: [['1']] },
+        context,
+      ),
+    /is a diagram/,
+  );
 });
 
 test('workspace.show validates content by kind and is exposed as a plain object schema', async () => {
@@ -497,10 +596,9 @@ test('Edi searches, reads, updates and trashes workspace items, confined to its 
 
   // Update keeps the place and kind, replaces the file, and reopens the content.
   const context = { callId: run, runId: run };
-  assert.throws(
-    () => update.prepare({ id: noteId, kind: 'document', title: 'x', markdown: 'y' }, context),
-    /notes\.edit/,
-  );
+  // A saved note is edited as a note, with its own review of the new Markdown.
+  const noteEdit = update.prepare({ id: noteId, kind: 'note', title: 'x', markdown: 'y' }, context);
+  assert.equal((noteEdit as Awaited<typeof noteEdit>).preview.title, 'Edit a note');
   assert.throws(
     () => update.prepare({ id: listId, kind: 'document', title: 'x', markdown: 'y' }, context),
     /Keep the kind/,
@@ -548,6 +646,117 @@ test('Edi searches, reads, updates and trashes workspace items, confined to its 
   assert.throws(() => remove.prepare({ id: listId }, context), /outside the Edi workspace/);
 });
 
+test('Edi exports workspace items through the host, in formats that suit their kind', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-export-'));
+  const notesFolder = join(folder, 'Notes');
+  const exported: unknown[] = [];
+  const deps = {
+    directory: () => folder,
+    shown: () => {},
+    artifacts: memoryArtifacts(),
+    notes: {
+      store: memoryStore([{ id: noteId, title: 'Palette', path: join(notesFolder, 'p.md'), createdAt: 1 }]),
+      directory: () => notesFolder,
+    },
+    trash: async () => {},
+    exportItem: async (ref: unknown, format: string) => {
+      exported.push({ ref, format });
+      return { path: join(folder, 'Exports', `Plan.${format}`), name: `Plan.${format}`, bytes: 10 };
+    },
+  };
+  const [show, , , , , exportTool] = workspaceCapabilities(deps);
+  assert.ok(exportTool);
+  // Exporting writes only a new file inside Edi's own workspace, so it runs without review.
+  assert.equal(exportTool.effect, 'read');
+  const tableId = '00000000-0000-4000-8000-000000000041';
+  const context = { callId: run, runId: run };
+  await (
+    await show.prepare(
+      { kind: 'table', title: 'Plan', columns: ['Step'], rows: [['Ship']] },
+      { callId: tableId, runId: run },
+    )
+  ).execute(live());
+
+  const done = await (await exportTool.prepare({ id: tableId, format: 'pdf' }, context)).execute(
+    live(),
+  );
+  assert.match(done.summary, /Plan\.pdf in Documents\/Edi\/Exports/);
+  await (await exportTool.prepare({ id: noteId, format: 'md' }, context)).execute(live());
+  assert.deepEqual(exported, [
+    { ref: { callId: tableId }, format: 'pdf' },
+    { ref: { noteId }, format: 'md' },
+  ]);
+  assert.throws(() => exportTool.prepare({ id: tableId, format: 'png' }, context), /csv, pdf, md/);
+  assert.throws(
+    () => exportTool.prepare({ id: '00000000-0000-4000-8000-00000000dead', format: 'pdf' }, context),
+    /Search the workspace first/,
+  );
+  // A host that can't draw exports offers no export tool at all.
+  const { exportItem: _unused, ...withoutExport } = deps;
+  assert.equal(
+    workspaceCapabilities(withoutExport).some(tool => tool.id === 'workspace.export'),
+    false,
+  );
+});
+
+test('Library rename gives items and their files a new name, never replacing another file', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-rename-'));
+  const notesFolder = join(folder, 'Notes');
+  await mkdir(notesFolder, { recursive: true });
+  const notePath = join(notesFolder, 'palette.md');
+  await writeFile(notePath, '# Palette\n\nWarm clay and sage.\n');
+  const notes = memoryStore([{ id: noteId, title: 'Palette', path: notePath, createdAt: 1 }]);
+  const artifacts = memoryArtifacts();
+  const deps = {
+    directory: () => folder,
+    shown: () => {},
+    artifacts,
+    notes: { store: notes, directory: () => notesFolder },
+    trash: async () => {},
+    now: () => 50,
+  };
+  const [show] = workspaceCapabilities(deps);
+  const listId = '00000000-0000-4000-8000-000000000051';
+  await (
+    await show.prepare(
+      { kind: 'checklist', title: 'Packing', items: [{ text: 'Passport', done: false }] },
+      { callId: listId, runId: run },
+    )
+  ).execute(live());
+  const checklists = join(folder, 'Artifacts', 'Checklists');
+  // Another file already has the name the new title wants.
+  await writeFile(join(checklists, 'trip.md'), 'someone else');
+
+  const renamed = await renameWorkspaceItem(deps, listId, '  Trip  ');
+  assert.equal(renamed.path, join(checklists, 'trip-2.md'));
+  assert.deepEqual((await readdir(checklists)).sort(), ['trip-2.md', 'trip.md']);
+  assert.equal(await readFile(join(checklists, 'trip.md'), 'utf8'), 'someone else');
+  assert.equal(await readFile(renamed.path, 'utf8'), '# Trip\n\n- [ ] Passport\n');
+  const record = artifacts.get(listId)!;
+  assert.deepEqual([record.title, record.path, record.updatedAt], [
+    'Trip',
+    join('Artifacts', 'Checklists', 'trip-2.md'),
+    50,
+  ]);
+  assert.equal((record.content as { title: string }).title, 'Trip');
+
+  // A note keeps everything after its heading; the file follows the title.
+  const note = await renameWorkspaceItem(deps, noteId, 'Colours');
+  assert.equal(note.path, join(notesFolder, 'colours.md'));
+  assert.equal(await readFile(note.path, 'utf8'), '# Colours\n\nWarm clay and sage.\n');
+  assert.deepEqual(await readdir(notesFolder), ['colours.md']);
+  assert.equal(notes.get(noteId)?.title, 'Colours');
+  // Same name, new casing: the file stays put and only its heading changes.
+  assert.equal((await renameWorkspaceItem(deps, noteId, 'COLOURS')).path, note.path);
+  assert.match(await readFile(note.path, 'utf8'), /^# COLOURS\n/);
+
+  await assert.rejects(renameWorkspaceItem(deps, noteId, '   '), /1 to 120 characters/);
+  await assert.rejects(
+    renameWorkspaceItem(deps, '00000000-0000-4000-8000-00000000dead', 'x'),
+    /no saved note|nothing in its workspace/,
+  );
+});
+
 test('workspace artifacts use semantic file formats and never overwrite a generated file', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-artifacts-'));
   const content = {
@@ -577,6 +786,8 @@ test('Edi can open every page, including Settings itself, and change only its ow
     open: page => opened.push(page),
     change: patch => void changes.push(patch),
     window: () => {},
+    models: async () => [],
+    chooseModel: async () => {},
   });
   const context = { callId: '00000000-0000-4000-8000-000000000022', runId: run };
   for (const page of ['settings', 'home', 'library', 'settings.about'])
@@ -589,4 +800,54 @@ test('Edi can open every page, including Settings itself, and change only its ow
   assert.equal(change.input.safeParse({}).success, false);
   assert.equal(change.input.safeParse({ apiKey: 'x' }).success, false);
   assert.equal(change.input.safeParse({ size: 3 }).success, false);
+});
+
+test('workspace search includes matching conversations and understands date ranges', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'edi-search-'));
+  const asked: { query: string; after?: number; before?: number }[] = [];
+  const [, search] = workspaceCapabilities({
+    directory: () => folder,
+    shown: () => {},
+    artifacts: memoryArtifacts(),
+    notes: { store: emptyStore(), directory: () => join(folder, 'Notes') },
+    trash: async () => {},
+    conversations: {
+      search: (query, options) => {
+        asked.push({ query, after: options.after, before: options.before });
+        return [
+          {
+            id: 'c1',
+            title: 'Brand colors',
+            at: new Date(2026, 8, 9, 15).getTime(),
+            excerpt: '…five terracotta and sand swatches…',
+          },
+        ];
+      },
+    },
+  });
+  const run = async (input: Record<string, unknown>) =>
+    (await (await search.prepare(input as never, { callId: runId, runId })).execute(live())) as {
+      summary: string;
+      output: { conversations?: { conversation: string; excerpt: string }[] };
+    };
+  const runId = '00000000-0000-4000-8000-000000000041';
+  const result = await run({ query: 'palette', after: '2026-09-07', before: '2026-09-13' });
+  assert.equal(result.summary, 'Found 0 items and 1 conversation.');
+  assert.deepEqual(result.output.conversations?.[0], {
+    conversation: 'Brand colors',
+    when: new Date(2026, 8, 9, 15).toISOString(),
+    excerpt: '…five terracotta and sand swatches…',
+  });
+  assert.deepEqual(asked, [
+    {
+      query: 'palette',
+      after: new Date(2026, 8, 7).getTime(),
+      before: new Date(2026, 8, 13, 23, 59, 59, 999).getTime(),
+    },
+  ]);
+  // Listing recent items or asking for one kind leaves conversations out.
+  assert.equal((await run({})).output.conversations, undefined);
+  assert.equal((await run({ query: 'palette', kind: 'note' })).output.conversations, undefined);
+  // Dates come as YYYY-MM-DD; the broker refuses anything else before the tool runs.
+  assert.equal(search.input.safeParse({ query: 'x', after: 'last week' }).success, false);
 });

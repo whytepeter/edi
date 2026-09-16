@@ -5,8 +5,38 @@ import { z } from 'zod';
  * Edi sounds like within it. Settings stores one chosen voice per model, so switching models
  * back and forth keeps each choice.
  */
-export const voiceModelSchema = z.enum(['kokoro', 'chatterbox-turbo', 'cartesia', 'elevenlabs']);
+export const voiceModelSchema = z.enum(['kokoro', 'chatterbox', 'cartesia', 'elevenlabs']);
+/** Speech recognition: local whisper, or Cartesia's realtime transcription. */
+export const voiceInputSchema = z.enum(['local', 'cartesia']);
+export type VoiceInput = z.infer<typeof voiceInputSchema>;
+/** Words for speech recognition (Settings → Voice): a few dozen names, each short. */
+export const voiceWordsSchema = z
+  .array(z.string().trim().min(1).max(40))
+  .max(50)
+  .transform(words => [...new Set(words)]);
 export type VoiceModelId = z.infer<typeof voiceModelSchema>;
+
+/**
+ * Downloadable on-device packs (Settings → Voice): whisper's model for hearing, Kokoro and its
+ * voices for speaking.
+ */
+export const voicePackIdSchema = z.enum(['listening', 'speaking']);
+export type VoicePackId = z.infer<typeof voicePackIdSchema>;
+/**
+ * A pack as Settings shows it. `development` means it is not downloaded but this development
+ * copy of Edi already has it from the benchmarks cache.
+ */
+export const voicePackStatusSchema = z
+  .object({
+    id: voicePackIdSchema,
+    name: z.string().max(60),
+    bytes: z.number().int().nonnegative(),
+    received: z.number().int().nonnegative(),
+    state: z.enum(['missing', 'downloading', 'paused', 'installed', 'failed', 'development']),
+    error: z.string().max(160).optional(),
+  })
+  .strict();
+export type VoicePackStatus = z.infer<typeof voicePackStatusSchema>;
 
 /**
  * Cloud speech with the person's own key. Only voices on their account are offered (ones they
@@ -70,11 +100,12 @@ export const kokoroVoices = [
 export const voiceCatalog = {
   kokoro: kokoroVoices,
   // Chatterbox Turbo's built-in voice, delivered two ways: Calm samples conservatively for a
-  // steadier, softer read; Expressive is the model's default liveliness. Cloning comes later.
-  'chatterbox-turbo': [
-    { id: 'calm', name: 'Calm', accent: 'American', gender: 'Female' },
-    { id: 'turbo', name: 'Expressive', accent: 'American', gender: 'Female' },
-  ],
+  // steadier, softer read; Expressive is the model's default liveliness. Voices the person adds
+  // from their own recordings are listed at runtime (`personalVoiceSchema`).
+  // Chatterbox speaks only from a recording: Edi ships one as its built-in voice, and voices
+  // the person adds are listed at runtime (`personalVoiceSchema`). The delivery below is how
+  // it reads any of them.
+  chatterbox: [{ id: 'built-in', name: 'Edi', accent: 'American', gender: 'Female' }],
   // Cloud voices are listed from the person's account at runtime.
   cartesia: [],
   elevenlabs: [],
@@ -84,11 +115,51 @@ const ids = <T extends readonly { id: string }[]>(voices: T) =>
   voices.map(voice => voice.id) as unknown as [T[number]['id'], ...T[number]['id'][]];
 
 export const kokoroVoiceSchema = z.enum(ids(voiceCatalog.kokoro));
-export const chatterboxVoiceSchema = z.enum(ids(voiceCatalog['chatterbox-turbo']));
+/**
+ * A Chatterbox voice the person added from a recording on this Mac. Ids are short lowercase
+ * words ("edi"), so they can never be a path; the recording and its name stay on this Mac.
+ */
+export const personalVoiceIdSchema = z
+  .string()
+  .regex(/^[a-z]{2,20}$/)
+  // Never the built-in voice's id, nor the delivery names two older versions saved as voices.
+  .refine(id => !['built-in', 'calm', 'turbo'].includes(id));
+export const personalVoiceNameSchema = z.string().trim().min(1).max(40);
+export const personalVoiceSchema = z
+  .object({
+    id: personalVoiceIdSchema,
+    name: personalVoiceNameSchema,
+    addedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PersonalVoice = z.infer<typeof personalVoiceSchema>;
+export const personalVoiceListSchema = z.array(personalVoiceSchema).max(20);
+/** Adding a voice: the saved voice, or why it could not be used. Null when the picker was cancelled. */
+export const personalVoiceAddResultSchema = z
+  .discriminatedUnion('ok', [
+    z.object({ ok: z.literal(true), voice: personalVoiceSchema }).strict(),
+    z.object({ ok: z.literal(false), error: z.string().max(200) }).strict(),
+  ])
+  .nullable();
+export type PersonalVoiceAddResult = z.infer<typeof personalVoiceAddResultSchema>;
+
+/** Chatterbox's own voice, or one the person added from a recording. */
+export const chatterboxVoiceSchema = z.union([
+  z.enum(ids(voiceCatalog.chatterbox)),
+  personalVoiceIdSchema,
+]);
+
+/**
+ * How Chatterbox reads, whichever voice it speaks in: Calm is steadier and softer, Expressive
+ * is livelier. Both use the model's own expression controls; earlier versions listed these as
+ * two separate voices and left the controls off.
+ */
+export const voiceDeliverySchema = z.enum(['calm', 'expressive']);
+export type VoiceDelivery = z.infer<typeof voiceDeliverySchema>;
 
 export const defaultVoices = {
   kokoro: 'af_heart',
-  'chatterbox-turbo': 'calm',
+  chatterbox: 'built-in',
   cartesia: null,
   elevenlabs: null,
 } as const;
@@ -97,9 +168,9 @@ export const defaultVoices = {
 export const voiceChoicesSchema = z
   .object({
     kokoro: kokoroVoiceSchema.catch(defaultVoices.kokoro).default(defaultVoices.kokoro),
-    'chatterbox-turbo': chatterboxVoiceSchema
-      .catch(defaultVoices['chatterbox-turbo'])
-      .default(defaultVoices['chatterbox-turbo']),
+    chatterbox: chatterboxVoiceSchema
+      .catch(defaultVoices.chatterbox)
+      .default(defaultVoices.chatterbox),
     cartesia: cloudVoiceIdSchema.nullable().catch(null).default(null),
     elevenlabs: cloudVoiceIdSchema.nullable().catch(null).default(null),
   })
@@ -109,7 +180,7 @@ export type VoiceChoices = z.infer<typeof voiceChoicesSchema>;
 /** A model and one of its own voices; a voice from another model is rejected. */
 export const voiceSelectionSchema = z.discriminatedUnion('model', [
   z.object({ model: z.literal('kokoro'), voice: kokoroVoiceSchema }).strict(),
-  z.object({ model: z.literal('chatterbox-turbo'), voice: chatterboxVoiceSchema }).strict(),
+  z.object({ model: z.literal('chatterbox'), voice: chatterboxVoiceSchema }).strict(),
   z.object({ model: z.literal('cartesia'), voice: cloudVoiceIdSchema }).strict(),
   z.object({ model: z.literal('elevenlabs'), voice: cloudVoiceIdSchema }).strict(),
 ]);

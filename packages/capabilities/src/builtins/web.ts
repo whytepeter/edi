@@ -342,10 +342,41 @@ export function htmlToText(html: string, base: string) {
 const site = (url: URL) => url.hostname.replace(/^www\./, '');
 
 /** A page, or a redirect to another site that the model must decide to follow. */
+/**
+ * Google Docs, Sheets and Slides send a script-only editor to tools. The same document's plain
+ * export has its text when the document is shared by link; it is served from googleusercontent.
+ */
+export function readableAddress(url: URL): { url: URL; google: boolean } {
+  const match =
+    url.hostname === 'docs.google.com' &&
+    /^\/(document|spreadsheets|presentation)\/d\/([\w-]{20,})/.exec(url.pathname);
+  if (!match) return { url, google: false };
+  const [, kind, id] = match;
+  const path =
+    kind === 'document'
+      ? `document/d/${id}/export?format=txt`
+      : kind === 'spreadsheets'
+        ? `spreadsheets/d/${id}/export?format=csv`
+        : `presentation/d/${id}/export/txt`;
+  return { url: new URL(`https://docs.google.com/${path}`), google: true };
+}
+
+/** A page whose text is only a notice that it needs a browser, JavaScript or a sign-in. */
+export function unreadableShell(text: string) {
+  return (
+    text.length < 800 &&
+    /enable javascript|javascript is (required|disabled)|browser (version )?is (no longer|not) supported|upgrade to a supported browser|sign in to (continue|view)|log ?in to (continue|view)/i.test(
+      text,
+    )
+  );
+}
+
 export async function fetchPage(
   address: string,
   signal: AbortSignal,
   deps: WebFetchDependencies = {},
+  /** Another site this request may be redirected to, e.g. a document export's file host. */
+  mayRedirectTo?: (next: URL) => boolean,
 ): Promise<FetchedPage | { redirect: string }> {
   const allowed = deps.isAllowedAddress ?? isPublicAddress;
   let url = parseUrl(address);
@@ -359,7 +390,7 @@ export async function fetchPage(
       response.message.resume();
       if (hop >= MAX_REDIRECTS) throw new Error('That page redirects too many times.');
       const next = parseUrl(new URL(location, url).href);
-      if (site(next) !== origin) return { redirect: next.href };
+      if (site(next) !== origin && !mayRedirectTo?.(next)) return { redirect: next.href };
       url = next;
       continue;
     }
@@ -530,7 +561,18 @@ export function webCapabilities(deps: WebFetchDependencies = {}) {
                     `${target.hostname} asks automated tools not to read that page (robots.txt).`,
                   );
               }
-              const result = await fetchPage(target.href, limit, deps);
+              const readable = readableAddress(target);
+              const result = await fetchPage(readable.url.href, limit, deps, next =>
+                readable.google ? next.hostname.endsWith('.googleusercontent.com') : false,
+              );
+              if (readable.google && 'redirect' in result)
+                throw new Error(
+                  'That Google document is not shared by link, so Edi can’t read it. The user can share it with “Anyone with the link” or paste the part they need.',
+                );
+              if (!('redirect' in result) && unreadableShell(result.text))
+                throw new Error(
+                  `${target.hostname} only shows that page in a signed-in browser, so Edi couldn’t read its content.`,
+                );
               if ('redirect' in result)
                 return {
                   summary: `${target.hostname} redirects to ${new URL(result.redirect).hostname}.`,

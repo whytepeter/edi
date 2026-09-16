@@ -112,8 +112,9 @@ export function ModelPicker({ value, saved, disabled, onChange }: ModelPickerPro
     fast: 'Fast and affordable',
     balanced: 'Balanced',
     best: 'Most capable',
+    free: 'Free',
   } as const;
-  const recommended = (['fast', 'balanced', 'best'] as const).flatMap(role =>
+  const recommended = (['fast', 'balanced', 'best', 'free'] as const).flatMap(role =>
     models.filter(model => model.recommended === role),
   );
   const option = (model: ModelOption, label?: string) => (

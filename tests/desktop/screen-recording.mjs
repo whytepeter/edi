@@ -34,11 +34,16 @@ try {
   const permissions = await workspace.evaluate(() => window.edi.permissions());
   expect(permissions.active).toBeNull();
   expect(permissions.permissions.map(item => item.id).sort()).toEqual([
+    'accessibility',
+    'calendar',
     'microphone',
+    'reminders',
     'screen-recording',
   ]);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
-  await expect(workspace.getByRole('heading', { name: /A little space/ })).toBeVisible();
+  await expect(
+    workspace.getByRole('heading', { name: /^(Good (morning|afternoon|evening)\.|Still up\?)$/ }),
+  ).toBeVisible();
   await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   expect(errors).toEqual([]);
   console.log(

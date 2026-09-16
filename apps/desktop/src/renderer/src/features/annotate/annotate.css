@@ -1,0 +1,23 @@
+/* The person's own marks, over their whole display: ink they can see through. */
+.annotate-surface {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.annotate-ink {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+/* A soft dark edge keeps the ink visible on light and dark windows alike. */
+.annotate-shadow {
+  fill: none;
+  stroke: rgb(0 0 0 / 0.25);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

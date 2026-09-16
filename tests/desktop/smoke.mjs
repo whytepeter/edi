@@ -74,9 +74,14 @@ async function launch() {
   // Permissions are requested by the feature that needs them, never at launch.
   await expect.poll(cardVisible).toBe(false);
   await workspace.evaluate(() => window.edi.command({ type: 'show-workspace' }));
-  // Home is where the card opens; without an AI connection it offers setup, not a composer.
+  // Home is where the card opens; without an AI connection it offers the setup list, not a composer.
   await expect(workspace.getByRole('heading', { name: /^(Good|Still up)/ })).toBeVisible();
   await expect(workspace.getByRole('textbox', { name: 'Ask Edi' })).toHaveCount(0);
+  // The setup list: what is left to do, and a count. (Voice may already be done from the
+  // development copy of the models, so only the steps that cannot be are asserted here.)
+  await expect(workspace.getByRole('heading', { name: 'Set up' })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: /a brain/ })).toBeVisible();
+  await expect(workspace.getByText(/of 2 done/)).toBeVisible();
   await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   return { workspace, pet };
 }
@@ -102,7 +107,7 @@ try {
   // Edi is the default character.
   await expect(pet.getByRole('img', { name: /^Edi avatar/ })).toBeVisible();
   await checkGeometry(pet, 'edi');
-  await workspace.getByRole('button', { name: /^Set up AI/ }).click();
+  await workspace.getByRole('button', { name: /a brain/ }).click();
   await expect(workspace.getByLabel('OpenRouter API key')).toHaveAttribute('type', 'password');
   // Without the online catalog the picker falls back to typing a model ID.
   await expect(workspace.getByLabel('OpenRouter model ID')).toBeVisible();
@@ -170,7 +175,7 @@ try {
   await workspace.getByRole('menuitem', { name: /Library/ }).click();
   await expect(workspace.getByRole('heading', { name: 'Nothing saved yet.' })).toBeVisible();
   // Generated content opens in its own glass window beside the card, like an artifact panel:
-  // title, Copy, Download, Show in Finder and Close, no Back and no Save to Library footer.
+  // title, Copy, Export, Show in Finder and Close, no Back and no Save to Library footer.
   // The artifact IPC is replaced only inside this isolated test process.
   const artifactId = '00000000-0000-4000-8000-000000000099';
   await instance.evaluate(
@@ -200,18 +205,11 @@ try {
   await expect(artifactPage.getByText('Large information lives here.')).toBeVisible();
   await expect(artifactPage.locator('hr')).toHaveCount(1);
   await expect(artifactPage.getByRole('button', { name: 'Copy' })).toBeVisible();
-  await expect(artifactPage.getByRole('button', { name: 'Download' })).toBeVisible();
+  await expect(artifactPage.getByRole('button', { name: 'Export' })).toBeVisible();
   await expect(artifactPage.getByRole('button', { name: 'Close' })).toBeVisible();
   await expect(artifactPage.getByRole('button', { name: /Back/ })).toHaveCount(0);
   await expect(artifactPage.getByRole('button', { name: /Save to Library/ })).toHaveCount(0);
-  // Copy uses the real system clipboard; put the person's clipboard back afterwards.
-  const savedClipboard = await instance.evaluate(({ clipboard }) => clipboard.readText());
-  await artifactPage.getByRole('button', { name: 'Copy' }).click();
-  await expect(artifactPage.getByRole('button', { name: 'Copied' })).toBeVisible();
-  expect(await instance.evaluate(({ clipboard }) => clipboard.readText())).toContain(
-    'Large information lives here.',
-  );
-  await instance.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard);
+  // Copy reads the saved record, so it is exercised in tests/desktop/artifacts.mjs, where one exists.
   // The page underneath stays where it was; the artifact does not replace it.
   expect(
     await workspace.evaluate(() => document.querySelector('.workspace-card')?.dataset.view),
@@ -237,7 +235,7 @@ try {
   await workspace.getByRole('menuitem', { name: /Settings/ }).click();
   await workspace.getByRole('button', { name: /^Voice/ }).click();
   // Speech model first (voices are offline in tests, so each shows as not installed).
-  for (const model of [/^Kokoro/, /^Chatterbox Turbo/])
+  for (const model of [/^Kokoro/, /^Chatterbox/])
     await expect(workspace.getByRole('radio', { name: model })).toBeVisible();
   // A cloud voice opens its key panel in place and closes again on a second tap.
   const cartesia = workspace.getByRole('radio', { name: /^Cartesia/ });
@@ -255,6 +253,36 @@ try {
   await workspace.getByRole('button', { name: /^Activity/ }).click();
   await expect(workspace.getByRole('heading', { name: 'A quiet beginning.' })).toBeVisible();
   await workspace.getByRole('button', { name: 'Back to Privacy & Permissions' }).click();
+  // Tasks: an empty list explains itself, and a task can't start without words or a valid cap.
+  await workspace.evaluate(() => window.edi.command({ type: 'show-workspace', view: 'tasks' }));
+  await expect(workspace.getByRole('heading', { name: 'Hand Edi longer work.' })).toBeVisible();
+  const startTask = workspace.getByRole('button', { name: 'Start task' });
+  await expect(startTask).toBeDisabled();
+  await workspace
+    .getByPlaceholder('What should Edi work on in the background?')
+    .fill('Plan my week');
+  await expect(startTask).toBeEnabled();
+  await workspace.getByLabel('Spending cap in dollars').fill('99');
+  await expect(startTask).toBeDisabled();
+  expect(await workspace.evaluate(() => window.edi.tasks())).toEqual([]);
+  // A weekday watch is created from the composer, shown with its rhythm, paused and removed.
+  await workspace.getByLabel('Spending cap in dollars').fill('0.25');
+  await workspace
+    .getByPlaceholder('What should Edi work on in the background?')
+    .fill('Check the MacBook Air price');
+  await workspace.getByRole('combobox').selectOption('weekdays');
+  await workspace.getByLabel('Time').fill('08:30');
+  await workspace.getByLabel('Only tell me when it changes').check();
+  await workspace.getByRole('button', { name: 'Start watch' }).click();
+  await expect(workspace.getByText(/Every weekday at 08:30 · Next/)).toBeVisible();
+  const [watch] = await workspace.evaluate(() => window.edi.schedules());
+  expect([watch.notify, watch.budgetUsd, watch.enabled]).toEqual(['on-change', 0.25, true]);
+  await workspace.getByRole('switch', { name: /Pause Check the MacBook Air price/ }).click();
+  await expect(workspace.getByText(/Every weekday at 08:30 · Paused/)).toBeVisible();
+  await workspace.getByRole('button', { name: /Remove Check the MacBook Air price/ }).click();
+  await workspace.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect.poll(() => workspace.evaluate(() => window.edi.schedules())).toEqual([]);
+  expect(await workspace.evaluate(() => window.edi.tasks())).toEqual([]);
   // Edi's own navigation reaches nested pages through the closed destination list.
   await workspace.evaluate(() =>
     window.edi.command({ type: 'show-workspace', view: 'settings.keyboard' }),
@@ -271,8 +299,15 @@ try {
     'page',
   );
   await sidebar.getByRole('button', { name: 'Skills' }).click();
-  // Built-in abilities work under the hood; Skills lists only add-ons, and there are none yet.
-  await expect(workspace.getByRole('heading', { name: 'No skills yet.' })).toBeVisible();
+  // Skills by Fewerlabs are listed by category; each opens to its own page with its switch.
+  await expect(workspace.getByRole('radio', { name: 'Fewerlabs' })).toBeChecked();
+  await expect(workspace.getByRole('heading', { name: 'Your day' })).toBeVisible();
+  await workspace.getByRole('button', { name: /^Daily Brief/ }).click();
+  await expect(workspace.getByRole('heading', { name: 'Daily Brief' })).toBeVisible();
+  await expect(workspace.getByRole('switch', { name: 'Use Daily Brief' })).toBeChecked();
+  await workspace.locator('.skill-back').click();
+  await workspace.getByRole('radio', { name: 'Yours' }).click();
+  await expect(workspace.getByRole('button', { name: 'Open Folder' })).toBeVisible();
   await expect(workspace.getByText('Edi setup guide')).toHaveCount(0);
   await workspace.screenshot({ path: 'tests/desktop/workspace-expanded.png' });
   await sidebar.getByRole('button', { name: 'Conversations' }).click();

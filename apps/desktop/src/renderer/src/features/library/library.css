@@ -1,4 +1,9 @@
-/* A Library row: the whole row opens the item; Delete sits at the trailing edge beside it. */
+/* Pinned, then a group per stretch of time (Today, Previous 7 Days, July), with room between. */
+.library-view .ds-group-section + .ds-group-section {
+  margin-top: var(--space-4);
+}
+
+/* A Library row: the whole row opens the item; More sits at the trailing edge beside it. */
 .library-row {
   position: relative;
   display: flex;
@@ -7,25 +12,102 @@
 .library-row > .ds-group-row {
   padding-right: 48px;
 }
-.library-delete.ds-icon-button {
+.library-row[data-busy] {
+  opacity: 0.6;
+}
+.library-more.ds-icon-button {
   position: absolute;
   right: 8px;
   color: var(--label-tertiary);
   opacity: 0;
   transition: opacity 120ms ease-out;
 }
-/* Shown on hover and for keyboard focus, so rows stay calm while scanning. */
-.library-row:hover .library-delete,
-.library-delete:focus-visible {
+/* Shown on hover, for keyboard focus and while its menu is open, so rows stay calm to scan. */
+.library-row:hover .library-more,
+.library-more:focus-visible,
+.library-more[data-open] {
   opacity: 1;
 }
-.library-delete.ds-icon-button:hover {
-  color: #c2452d;
-}
 @media (hover: none) {
-  .library-delete.ds-icon-button {
+  .library-more.ds-icon-button {
     opacity: 1;
   }
+}
+
+/* A row's actions float over the card, under its More button. */
+.library-menu-dismiss {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+.library-menu {
+  position: fixed;
+  z-index: 6;
+  min-width: 210px;
+  /* Placed once measured (see LibraryView), then shown. */
+  visibility: hidden;
+  animation: library-menu-in var(--spring-fast) var(--spring) both;
+}
+.library-menu > .ds-menu {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+@keyframes library-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* Rename in place: the title becomes a field with Cancel and Rename. */
+.library-rename form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px var(--space-3);
+}
+.library-rename .ds-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+}
+
+/* What an export wrote, with a way to find it. */
+.library-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  font: var(--text-footnote);
+  color: var(--label);
+}
+.library-status > svg {
+  flex: none;
+  color: var(--accent-strong);
+}
+.library-status > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.library-status button {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  font: inherit;
+  font-weight: 600;
+  color: var(--label);
+  cursor: pointer;
 }
 
 .library-confirm {
@@ -43,8 +125,8 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
-@media (prefers-color-scheme: dark) {
-  .library-delete.ds-icon-button:hover {
-    color: #f2a283;
+@media (prefers-reduced-motion: reduce) {
+  .library-menu {
+    animation: none;
   }
 }

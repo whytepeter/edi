@@ -17,7 +17,11 @@ const aborted = () => new DOMException('Approval cancelled', 'AbortError');
 export class ApprovalQueue implements ApprovalGate {
   private readonly entries: Entry[] = [];
 
-  constructor(private readonly onChange: (head: ApprovalRequest | null) => void) {}
+  constructor(
+    private readonly onChange: (head: ApprovalRequest | null) => void,
+    /** Actions the person already allowed for this conversation skip review. */
+    private readonly preapproved: (request: ApprovalRequest) => boolean = () => false,
+  ) {}
 
   get current(): ApprovalRequest | null {
     return this.entries[0]?.request ?? null;
@@ -26,6 +30,7 @@ export class ApprovalQueue implements ApprovalGate {
   request(request: ApprovalRequest, signal: AbortSignal): Promise<Decision> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) return reject(aborted());
+      if (this.preapproved(request)) return resolve('approved');
       const onAbort = () => {
         this.remove(entry);
         reject(aborted());
@@ -43,12 +48,32 @@ export class ApprovalQueue implements ApprovalGate {
     });
   }
 
-  respond(callId: string, decision: Decision) {
+  /**
+   * `alsoQueued` approves waiting reviews too: `true` for the same kind in the same run, or a
+   * test for each waiting review (a saved rule that covers it).
+   */
+  respond(
+    callId: string,
+    decision: Decision,
+    alsoQueued: boolean | ((request: ApprovalRequest) => boolean) = false,
+  ) {
     const head = this.entries[0];
     if (!head || head.request.callId !== callId)
       throw new Error('That approval is no longer pending.');
     this.entries.shift();
     head.settle(decision);
+    if (alsoQueued && decision === 'approved') {
+      const same = this.entries.filter(entry =>
+        typeof alsoQueued === 'function'
+          ? alsoQueued(entry.request)
+          : entry.request.runId === head.request.runId &&
+            entry.request.capability.id === head.request.capability.id,
+      );
+      for (const entry of same) {
+        this.entries.splice(this.entries.indexOf(entry), 1);
+        entry.settle('approved');
+      }
+    }
     this.onChange(this.current);
   }
 

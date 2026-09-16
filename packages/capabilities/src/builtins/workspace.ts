@@ -1,16 +1,30 @@
 import { randomUUID } from 'node:crypto';
 import { access, link, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
   artifactContentSchema,
   artifactExport,
   artifactPreview,
+  exportFormatLabel,
+  exportFormatSchema,
+  exportFormats,
   type ArtifactContent,
+  type ArtifactRef,
   type ArtifactSummary,
+  type ExportFormat,
 } from '@edi/contracts';
 import { defineCapability, OutcomeUnknownError } from '../types';
-import { locate, readLibraryNote, slugify, type NoteStore } from './notes';
+import {
+  formatBytes,
+  freePath,
+  locate,
+  noteContent,
+  readLibraryNote,
+  replaceNote,
+  slugify,
+  type NoteStore,
+} from './notes';
 
 /**
  * Tool providers need a plain object at the root of an input schema, so the discriminated
@@ -19,9 +33,10 @@ import { locate, readLibraryNote, slugify, type NoteStore } from './notes';
 const showInput = z
   .object({
     kind: z
-      .enum(['document', 'checklist', 'table', 'html'])
+      .enum(['document', 'checklist', 'table', 'diagram', 'html'])
       .describe(
         'document: Markdown text · checklist: items to tick · table: rows and columns · ' +
+          'diagram: a flowchart, architecture, sequence, timeline or mind map in Mermaid · ' +
           'html: an interactive page, only when the others cannot express it',
       ),
     title: z.string().trim().min(1).max(120).describe('Short title'),
@@ -37,6 +52,14 @@ const showInput = z
       .max(100)
       .optional()
       .describe('For table'),
+    mermaid: z
+      .string()
+      .max(20_000)
+      .optional()
+      .describe(
+        'For diagram: Mermaid source, e.g. "flowchart LR\n  app[Edi] --> api[API]". Short ' +
+          'labels, left-to-right for flows; quote labels with punctuation.',
+      ),
     html: z
       .string()
       .max(120_000)
@@ -56,8 +79,10 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
       : input.kind === 'checklist'
         ? { kind: input.kind, title: input.title, items: input.items }
         : input.kind === 'html'
-          ? { kind: input.kind, title: input.title, html: input.html }
-          : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
+          ? { kind: input.kind, title: input.title, html: input.html ?? input.markdown }
+          : input.kind === 'diagram'
+            ? { kind: input.kind, title: input.title, mermaid: input.mermaid ?? input.markdown }
+            : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
   const parsed = artifactContentSchema.safeParse(candidate);
   if (!parsed.success)
     throw new Error(
@@ -66,9 +91,23 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
         : input.kind === 'checklist'
           ? 'A checklist needs at least one item.'
           : input.kind === 'html'
-            ? 'An interactive page needs its HTML.'
-            : 'A table needs columns and at least one row.',
+            ? 'An interactive page needs the whole page, in `html`.'
+            : input.kind === 'diagram'
+              ? 'A diagram needs its Mermaid source, in `mermaid`.'
+              : 'A table needs columns and at least one row.',
     );
+  if (parsed.data.kind === 'html') {
+    const external =
+      /<(?:script|link|iframe|img|source|audio|video)\b[^>]*\s(?:src|href)\s*=\s*["']?https?:|@import\s+(?:url\()?["']?https?:|\bimport\s[^;]*["']https?:|\bfetch\(\s*["']https?:/i.exec(
+        parsed.data.html,
+      );
+    if (external)
+      throw new Error(
+        `Interactive pages have no network, so ${external[0].slice(0, 40)}… never loads and the ` +
+          'page comes up empty. Write the code inline instead: no CDN libraries (Three.js, React, ' +
+          'D3), no web fonts, no fetch.',
+      );
+  }
   return parsed.data;
 }
 
@@ -76,6 +115,7 @@ const artifactFolder = {
   document: 'Reports',
   checklist: 'Checklists',
   table: 'Tables',
+  diagram: 'Diagrams',
   html: 'Interactive',
 } as const;
 
@@ -137,12 +177,14 @@ export interface ArtifactStore {
   add(record: WorkspaceArtifact): void;
   get(id: string): WorkspaceArtifact | undefined;
   list(limit: number): WorkspaceArtifact[];
+  /** `path` (relative to the workspace) only when a rename moved the file. */
   update(record: {
     id: string;
     title: string;
     content: unknown;
     bytes: number;
     updatedAt: number;
+    path?: string;
   }): void;
   remove(id: string): void;
 }
@@ -155,6 +197,21 @@ export interface WorkspaceDependencies {
   notes: { store: NoteStore; directory: () => string };
   /** Move a file to the system Trash (recoverable), never unlink it. */
   trash(path: string): Promise<void>;
+  /** Past conversations, searched alongside the workspace; absent in hosts without history. */
+  conversations?: {
+    search(
+      query: string,
+      options: { limit: number; after?: number; before?: number },
+    ): { id: string; title: string; at: number; excerpt: string }[];
+  };
+  /**
+   * Write an item as a file to hand to someone (PDF, Markdown, CSV, pictures) into
+   * Documents/Edi/Exports under a new name; absent in hosts that cannot draw PDFs.
+   */
+  exportItem?(
+    ref: ArtifactRef,
+    format: ExportFormat,
+  ): Promise<{ path: string; name: string; bytes: number }>;
   now?: () => number;
 }
 
@@ -226,6 +283,86 @@ export async function deleteWorkspaceItem(deps: WorkspaceDependencies, id: strin
   return { title: target.title, path: target.path, kind: target.kind };
 }
 
+/** Write a new file under the first free `slug.ext`, `slug-2.ext`… in `folder`; never replaces. */
+async function writeFree(folder: string, slug: string, extension: string, body: string) {
+  await mkdir(folder, { recursive: true });
+  const temp = join(folder, `.edi-${randomUUID()}.tmp`);
+  await writeFile(temp, body, { flag: 'wx', mode: 0o644 });
+  try {
+    for (let n = 1; n <= 100; n++) {
+      const path = join(folder, `${slug}${n === 1 ? '' : `-${n}`}${extension}`);
+      try {
+        await link(temp, path);
+        return path;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
+  } finally {
+    await unlink(temp).catch(() => {});
+  }
+  throw new Error('Too many items share this title. Try a different title.');
+}
+
+/** Does this file's name already come from `slug` (`slug.md`, `slug-2.md`)? */
+const namedFor = (path: string, slug: string) =>
+  new RegExp(`^${slug.replace(/[-]/g, '\\-')}(-\\d{1,3})?$`).test(basename(path, extname(path)));
+
+/**
+ * Give a workspace item a new title, and its file a matching name in the same folder. The Library's
+ * own Rename; the new file is written before the old one goes, so nothing is ever half-renamed.
+ */
+export async function renameWorkspaceItem(deps: WorkspaceDependencies, id: string, raw: string) {
+  const title = raw.replace(/\s+/g, ' ').trim();
+  if (!title || title.length > 120) throw new Error('A title needs 1 to 120 characters.');
+  const slug = slugify(title) || 'untitled';
+  const record = deps.artifacts.get(id);
+  if (record) {
+    const old = artifactFilePath(deps.directory, record.path);
+    const content = { ...contentOf(record), title };
+    const { file } = artifactExport(content);
+    const path = namedFor(old, slug)
+      ? (await replaceFile(old, file), old)
+      : await writeFree(dirname(old), slug, extname(old), file);
+    try {
+      deps.artifacts.update({
+        id,
+        title,
+        content,
+        bytes: Buffer.byteLength(file),
+        // A rename isn't a change to the content, so the item keeps its place in the Library.
+        updatedAt: record.updatedAt,
+        path: relative(resolve(deps.directory()), path),
+      });
+    } catch (error) {
+      if (path !== old) await unlink(path).catch(() => {});
+      throw error;
+    }
+    if (path !== old) await unlink(old).catch(() => {});
+    return { kind: content.kind, title, path };
+  }
+  const { note, markdown } = await readLibraryNote(deps.notes.store, deps.notes.directory, id);
+  const { folder, path: old } = locate(deps.notes.store, deps.notes.directory, id);
+  // The note's own heading is its title; everything after it stays exactly as it was.
+  const body = markdown.replace(/^\s*#[^\n]*\n+/, '').replace(/\n+$/, '');
+  if (namedFor(old, slug))
+    await replaceNote(deps.notes.store, deps.notes.directory, { id, title, body });
+  else {
+    const content = noteContent(title, body);
+    const path = await freePath(folder, slug);
+    await writeFile(path, content, { flag: 'wx', mode: 0o644 });
+    try {
+      deps.notes.store.update({ id, title, bytes: Buffer.byteLength(content), path });
+    } catch (error) {
+      await unlink(path).catch(() => {});
+      throw error;
+    }
+    await unlink(old).catch(() => {});
+    return { kind: 'note' as const, title, path, previous: note.title };
+  }
+  return { kind: 'note' as const, title, path: old, previous: note.title };
+}
+
 /** Full text of a workspace item, for the model to read. */
 export async function readWorkspaceItem(deps: WorkspaceDependencies, id: string) {
   const record = deps.artifacts.get(id);
@@ -245,7 +382,13 @@ export async function readWorkspaceItem(deps: WorkspaceDependencies, id: string)
 /** Every query word must appear in the title or content; newest first. */
 export async function searchWorkspace(
   deps: WorkspaceDependencies,
-  options: { query?: string; kind?: WorkspaceKind | 'note'; limit: number },
+  options: {
+    query?: string;
+    kind?: WorkspaceKind | 'note';
+    limit: number;
+    after?: number;
+    before?: number;
+  },
 ) {
   const terms = (options.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
   const candidates = [
@@ -277,6 +420,7 @@ export async function searchWorkspace(
     })),
   ]
     .filter(item => !options.kind || item.kind === options.kind)
+    .filter(item => item.at >= (options.after ?? 0) && item.at <= (options.before ?? Infinity))
     .sort((a, b) => b.at - a.at);
 
   const results: { id: string; kind: string; title: string; updated: string; snippet: string }[] =
@@ -310,7 +454,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     title: 'Show content',
     description:
       'Display content in Edi’s card instead of putting it in the reply: a document (Markdown), a ' +
-      'checklist, or a table. Use whenever the user asks to see, show, draft, write, list, plan, ' +
+      'checklist, a table, or a diagram (Mermaid) for flows, architecture, sequences and timelines. Use whenever the user asks to see, show, draft, write, list, plan, ' +
       'compare or organize something, and for anything longer than a few sentences. After showing ' +
       'it, reply in one short sentence and do not repeat or read out the content. Edi automatically ' +
       'places the generated file under Documents/Edi/Artifacts; do not ask the user to save it.',
@@ -372,9 +516,11 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     title: 'Search the workspace',
     description:
       'Find things in the Edi workspace (Documents/Edi): saved notes and generated documents, ' +
-      'checklists, tables and interactive pages. Matches every word of the query in the title or ' +
-      'content; with no query, lists the most recent items. Returns ids for workspace.read, ' +
-      'workspace.update, workspace.delete, notes.edit and notes.show.',
+      'checklists, tables and interactive pages, plus past conversations that mention the words. ' +
+      'Matches every word of the query in the title or content; with no query, lists the most ' +
+      'recent items. For “last week” or “in March”, pass after/before dates. Returns ids for ' +
+      'workspace.read, workspace.update, workspace.delete and (for notes) notes.show; for a ' +
+      'conversation, tell the user its title and when, and quote what was said.',
     effect: 'read',
     timeoutMs: 10_000,
     input: z
@@ -385,9 +531,19 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           .optional()
           .describe('Only this kind'),
         limit: z.number().int().min(1).max(50).optional().describe('At most this many (20)'),
+        after: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Only from this date on (YYYY-MM-DD, local)'),
+        before: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Only up to and including this date (YYYY-MM-DD, local)'),
       })
       .strict(),
-    prepare({ query, kind, limit }) {
+    prepare({ query, kind, limit, after, before }) {
       return {
         preview: {
           title: 'Search the workspace',
@@ -396,10 +552,36 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           fields: [],
         },
         async execute() {
-          const results = await searchWorkspace(deps, { query, kind, limit: limit ?? 20 });
+          const day = (value: string | undefined, end: boolean) => {
+            if (!value) return undefined;
+            const [year, month, date] = value.split('-').map(Number) as [number, number, number];
+            return end
+              ? new Date(year, month - 1, date, 23, 59, 59, 999).getTime()
+              : new Date(year, month - 1, date).getTime();
+          };
+          const range = { after: day(after, false), before: day(before, true) };
+          const results = await searchWorkspace(deps, {
+            query,
+            kind,
+            limit: limit ?? 20,
+            ...range,
+          });
+          const conversations =
+            query && !kind && deps.conversations
+              ? deps.conversations.search(query, { limit: 5, ...range }).map(match => ({
+                  conversation: match.title,
+                  when: new Date(match.at).toISOString(),
+                  excerpt: match.excerpt,
+                }))
+              : [];
+          const found = results.length + conversations.length;
           return {
-            summary: results.length === 1 ? 'Found 1 item.' : `Found ${results.length} items.`,
-            output: { results },
+            summary:
+              (results.length === 1 ? 'Found 1 item' : `Found ${results.length} items`) +
+              (conversations.length
+                ? ` and ${conversations.length} ${conversations.length === 1 ? 'conversation' : 'conversations'}.`
+                : '.'),
+            output: { results, ...(conversations.length ? { conversations } : {}), found },
           };
         },
       };
@@ -434,24 +616,34 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
 
   const update = defineCapability({
     id: 'workspace.update',
-    title: 'Update generated content',
+    title: 'Update workspace content',
     description:
-      'Replace a generated document, checklist, table or interactive page with a new version, ' +
-      'keeping its place in the workspace. Pass its id from workspace.search and the complete new ' +
-      'content with the same kind. The user reviews the change first, and Edi opens the result. ' +
-      'For saved notes use notes.edit.',
+      'Replace a workspace item with a new version, keeping its place: a generated document, ' +
+      'checklist, table, diagram or interactive page (same kind; for a diagram, the whole new ' +
+      'Mermaid), or a saved note (kind note, with the ' +
+      'new title and the complete Markdown). Pass its id from workspace.search. The user reviews ' +
+      'the change first, and Edi opens the result.',
     effect: 'write',
     timeoutMs: 10_000,
-    input: showInput.extend({ id: itemId }),
-    prepare(input) {
+    input: showInput.extend({
+      id: itemId,
+      kind: z
+        .enum(['document', 'checklist', 'table', 'diagram', 'html', 'note'])
+        .describe('The item’s kind, unchanged; note for a saved note (use markdown)'),
+    }),
+    prepare(input, { callId }) {
       const record = deps.artifacts.get(input.id);
       if (!record) {
-        if (deps.notes.store.get(input.id))
-          throw new Error('That is a note. Use notes.edit instead.');
-        throw new Error('Edi has no generated content with that id. Search the workspace first.');
+        const note = deps.notes.store.get(input.id);
+        if (!note)
+          throw new Error(
+            'Edi has nothing in its workspace with that id. Search the workspace first.',
+          );
+        return updateNote(note.title, input, callId);
       }
+      if (input.kind === 'note') throw new Error(`That item is a ${record.kind}, not a note.`);
       const { id, ...fields } = input;
-      const content = toArtifactContent(fields);
+      const content = toArtifactContent({ ...fields, kind: input.kind });
       if (content.kind !== record.kind)
         throw new Error(
           `That item is a ${record.kind}. Keep the kind, or show new content instead.`,
@@ -495,6 +687,55 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     },
   });
 
+  /** A saved note keeps its file; only its title and Markdown change, after review. */
+  function updateNote(
+    previousTitle: string,
+    input: { id: string; kind: string; title: string; markdown?: string },
+    callId: string,
+  ) {
+    if (input.kind !== 'note' && input.kind !== 'document')
+      throw new Error('That item is a note. Pass kind note with its new Markdown.');
+    const body = input.markdown?.trim();
+    if (!body) throw new Error('A note needs its complete new Markdown.');
+    const { path } = locate(deps.notes.store, deps.notes.directory, input.id);
+    const content = noteContent(input.title, body);
+    return {
+      preview: {
+        title: 'Edit a note',
+        action: 'Update Note',
+        summary: 'Replace this note’s content. The file path stays the same.',
+        fields: [
+          {
+            label: 'Title',
+            value:
+              input.title === previousTitle ? input.title : `${previousTitle} → ${input.title}`,
+          },
+          { label: 'Location', value: path },
+          { label: 'Size', value: formatBytes(Buffer.byteLength(content)) },
+        ],
+        body: content.slice(0, 4000),
+      },
+      async execute() {
+        const saved = await replaceNote(deps.notes.store, deps.notes.directory, {
+          id: input.id,
+          title: input.title,
+          body,
+        });
+        await deps.shown({
+          id: callId,
+          kind: 'note',
+          title: input.title,
+          preview: artifactPreview({ kind: 'note', markdown: saved.content }),
+          noteId: input.id,
+        });
+        return {
+          summary: `Updated “${input.title}” at ${saved.path}.`,
+          output: { id: input.id, path: saved.path },
+        };
+      },
+    };
+  }
+
   const remove = defineCapability({
     id: 'workspace.delete',
     title: 'Delete from the workspace',
@@ -528,5 +769,51 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     },
   });
 
-  return [show, search, read, update, remove] as const;
+  const exportItem = deps.exportItem;
+  const exported = defineCapability({
+    id: 'workspace.export',
+    title: 'Export from the workspace',
+    description:
+      'Export a workspace item as a file the user can send or print, into Documents/Edi/Exports: ' +
+      'documents, notes and checklists as pdf or md; tables as csv, pdf or md; diagrams as png, ' +
+      'svg, pdf or mmd; interactive pages as html. Use when the user asks to export, save as or ' +
+      'send as a PDF, spreadsheet or image. Pass its id from workspace.search (or the item just ' +
+      'shown). Never replaces an earlier export. Tell the user the file name; do not attach it.',
+    // Like show: it only adds a new file inside Edi's own workspace and touches nothing else.
+    effect: 'read',
+    timeoutMs: 45_000,
+    input: z
+      .object({
+        id: itemId,
+        format: exportFormatSchema.describe('pdf, md, csv, png, svg, mmd or html'),
+      })
+      .strict(),
+    prepare({ id, format }) {
+      if (!exportItem) throw new Error('Exporting isn’t available here.');
+      const target = locateWorkspaceItem(deps, id);
+      const formats = exportFormats[target.kind];
+      if (!formats.includes(format))
+        throw new Error(
+          `A ${target.kind} exports as ${formats.join(', ')}, not ${format}. Pick one of those.`,
+        );
+      const ref: ArtifactRef = target.kind === 'note' ? { noteId: id } : { callId: id };
+      return {
+        preview: {
+          title: 'Export',
+          action: 'Export',
+          summary: `Export “${target.title}” as ${exportFormatLabel[format]}.`,
+          fields: [],
+        },
+        async execute() {
+          const file = await exportItem(ref, format);
+          return {
+            summary: `Exported “${target.title}” as ${file.name} in Documents/Edi/Exports.`,
+            output: { name: file.name, path: file.path, bytes: file.bytes },
+          };
+        },
+      };
+    },
+  });
+
+  return [show, search, read, update, remove, ...(exportItem ? [exported] : [])] as const;
 }

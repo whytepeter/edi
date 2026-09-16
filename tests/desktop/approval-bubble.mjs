@@ -30,8 +30,9 @@ try {
   const opened = new Promise(resolvePage => app.once('window', resolvePage));
   await app.evaluate(({ BrowserWindow }) => {
     const preview = new BrowserWindow({
-      width: 340,
-      height: 220,
+      // The approval bubble's window size (factory.ts statusBubbleSize.approval, tail included).
+      width: 320,
+      height: 199,
       show: true,
       transparent: true,
       frame: false,
@@ -45,6 +46,7 @@ try {
     const approval = {
       callId: '00000000-0000-4000-8000-000000000010',
       runId: '00000000-0000-4000-8000-000000000001',
+      capability: { id: 'notes.save', title: 'Save a note' },
       preview: {
         title: 'Save a note',
         action: 'Save Note',
@@ -69,18 +71,29 @@ try {
   });
   await page.goto(renderer.href);
 
-  await expect(page.getByRole('heading', { name: 'Save a note' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'View details' })).toBeVisible();
+  // Notification-style: where it's from, the question and one detail line; Always allow; buttons.
+  await expect(page.getByText('Notes', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Save this note for later.' })).toBeVisible();
+  await expect(
+    // The detail line reads from the home folder; the full path is in Details.
+    page.getByText('~/Documents/Edi/Notes/project-direction.md'),
+  ).toBeVisible();
+  for (const name of ['Deny', 'Details'])
+    await expect(page.getByRole('button', { name })).toBeVisible();
+  const always = page.getByRole('checkbox', { name: 'Always allow in this chat' });
+  await expect(always).not.toBeChecked();
   const approve = page.getByRole('button', { name: 'Save Note' });
   await expect(approve).toBeDisabled();
   await expect(approve).toBeEnabled({ timeout: 2_000 });
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight))
     .toBe(true);
-  await approve.click();
-  await expect.poll(() => page.evaluate(() => window.__approvalAction)).toBe('approve');
+  // Ticking Always allow turns the action into an approval for the rest of the chat.
   const screenshot = join(profile, 'approval-bubble.png');
   await page.screenshot({ path: screenshot, omitBackground: true });
+  await always.check();
+  await approve.click();
+  await expect.poll(() => page.evaluate(() => window.__approvalAction)).toBe('approve-always');
   console.log(`PASS: compact approval bubble fits and responds. Screenshot: ${screenshot}`);
 } finally {
   await app?.close();
