@@ -31,6 +31,7 @@ export * from './permissions';
 export * from './desktop-context';
 export * from './local-models';
 export * from './screen-intent';
+export * from './library-groups';
 export * from './voice';
 export * from './voice-session';
 export * from './voice-turns';

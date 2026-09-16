@@ -2,8 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import {
   exportFormatLabel,
   exportFormats,
+  groupLibraryByDate,
+  libraryWhenFor,
   type ArtifactRef,
   type ExportFormat,
+  type GroupWhen,
   type LibraryItem,
 } from '@edi/contracts';
 import {
@@ -36,7 +39,30 @@ const label = {
   html: 'Interactive',
 } as const;
 
-const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+/*
+ * Rows sit under a heading that already says roughly when ("Today", "Previous 7 Days", "July"),
+ * so each one only has to add what the heading leaves out.
+ */
+const clock = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
+const day = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const dayWithYear = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+/** A full date and time for the title attribute, so the exact moment is always one hover away. */
+const exact = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' });
+
+function whenLabel(createdAt: number, when: GroupWhen, now: number) {
+  const how = when === 'mixed' ? libraryWhenFor(createdAt, now) : when;
+  if (how === 'time') return clock.format(createdAt);
+  if (how === 'weekday') return weekday.format(createdAt);
+  const format =
+    new Date(createdAt).getFullYear() === new Date(now).getFullYear() ? day : dayWithYear;
+  return format.format(createdAt);
+}
+
 const size = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 const refOf = (item: LibraryItem): ArtifactRef =>
@@ -65,6 +91,8 @@ export function LibraryView({
   const assistant = useAssistantName();
   // Outside Electron there is nothing saved to load.
   const [items, setItems] = useState<LibraryItem[] | null>(() => (window.edi ? null : []));
+  // Read once per load, so "Today" and "Previous 7 Days" can't shift under the reader mid-scroll.
+  const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState('');
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   // Delete asks inline before anything moves; the confirmation is the person's consent.
@@ -104,7 +132,11 @@ export function LibraryView({
     let alive = true;
     window.edi
       .library()
-      .then(value => alive && setItems(value))
+      .then(value => {
+        if (!alive) return;
+        setNow(Date.now());
+        setItems(value);
+      })
       .catch(() => alive && setError('Couldn’t load your Library.'));
     return () => {
       alive = false;
@@ -245,7 +277,7 @@ export function LibraryView({
     ];
   }
 
-  function row(item: LibraryItem) {
+  function row(item: LibraryItem, when: GroupWhen) {
     if (confirming === item.id)
       return (
         <li key={item.id} className="library-confirm" role="group" aria-label="Confirm delete">
@@ -311,8 +343,8 @@ export function LibraryView({
           </span>
           <span className="ds-group-row-text">
             <span className="ds-group-row-title">{item.title}</span>
-            <span className="ds-group-row-detail">
-              {label[item.kind]} · {date.format(item.createdAt)} · {size(item.bytes)}
+            <span className="ds-group-row-detail" title={exact.format(item.createdAt)}>
+              {label[item.kind]} · {whenLabel(item.createdAt, when, now)} · {size(item.bytes)}
             </span>
           </span>
         </button>
@@ -329,8 +361,7 @@ export function LibraryView({
     );
   }
 
-  const pinned = items?.filter(item => item.pinned) ?? [];
-  const rest = items?.filter(item => !item.pinned) ?? [];
+  const groups = groupLibraryByDate(items ?? [], now);
   const menuItem = menu && items?.find(item => item.id === menu.id);
 
   return (
@@ -368,12 +399,11 @@ export function LibraryView({
               </button>
             </p>
           )}
-          {pinned.length > 0 && <GroupedList title="Pinned">{pinned.map(row)}</GroupedList>}
-          {rest.length > 0 && (
-            <GroupedList title={pinned.length ? 'Everything else' : 'In your Edi folder'}>
-              {rest.map(row)}
+          {groups.map(group => (
+            <GroupedList key={group.key} title={group.title}>
+              {group.items.map(item => row(item, group.when))}
             </GroupedList>
-          )}
+          ))}
         </>
       )}
       {menu && menuItem && (

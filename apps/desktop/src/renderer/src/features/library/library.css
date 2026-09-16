@@ -1,4 +1,4 @@
-/* Pinned, then everything else, with room between the groups. */
+/* Pinned, then a group per stretch of time (Today, Previous 7 Days, July), with room between. */
 .library-view .ds-group-section + .ds-group-section {
   margin-top: var(--space-4);
 }
