@@ -261,7 +261,14 @@ async function start() {
   // One SQLite writer, owned here. Nothing in flight at the last quit is replayed.
   const database = openDatabase(join(app.getPath('userData'), 'edi.sqlite'));
   const repositories = createRepositories(database);
-  repositories.recoverInterrupted(Date.now());
+  // Nothing in flight is replayed. What stopped part-way is remembered here instead, so the
+  // person can be told what was under way and ask for it again if they still want it.
+  const recoveredAt = Date.now();
+  const recovered = {
+    ...repositories.recoverInterrupted(recoveredAt),
+    tasks: 0,
+    prompts: repositories.runs.interruptedAt(recoveredAt, 3).map(turn => turn.prompt.slice(0, 200)),
+  };
 
   const settings = new SettingsStore();
   await settings.load();
@@ -1726,6 +1733,13 @@ async function start() {
   agent.onChange(state => {
     broadcast([workspace], 'edi:agent', state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
+    // Asking again is the answer to "something stopped last time", so that notice goes.
+    if (state.status === 'running' && recovered.runs + recovered.tasks > 0) {
+      recovered.runs = 0;
+      recovered.tasks = 0;
+      recovered.uncertain = 0;
+      recovered.prompts = [];
+    }
     // Their marks belong to the question they asked; once it is answered, the screen is theirs.
     if (state.status === 'running') annotations.keep();
     if (state.status !== 'running' && previousAgentStatus === 'running') annotations.clear();
@@ -1786,7 +1800,7 @@ async function start() {
     if (!agent.state.approval) approvalSurface();
   });
   // Queued tasks start once the windows exist; work that was running when Edi quit is marked.
-  tasks.resume();
+  recovered.tasks = tasks.resume();
   scheduler.onChange(list => broadcast([workspace], 'edi:schedules', list));
   approvalRules.onChange(list => broadcast([workspace], 'edi:approval-rules', list));
   privacy.onChange(state => broadcast([workspace], 'edi:privacy', state));
@@ -2157,6 +2171,12 @@ async function start() {
           packs: voicePacks.status(),
         },
         pushToTalk: { status: hotkey.status, label: '⌥ Space' },
+        recovered: {
+          runs: recovered.runs,
+          tasks: recovered.tasks,
+          uncertain: recovered.uncertain,
+          prompts: recovered.prompts,
+        },
         workspaceFolder,
       };
     },

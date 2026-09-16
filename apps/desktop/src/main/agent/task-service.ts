@@ -136,10 +136,14 @@ export class TaskService {
     return () => this.listeners.delete(listener);
   }
 
-  /** After a restart: interrupted work is marked, and queued tasks start. */
+  /**
+   * After a restart: interrupted work is marked, and queued tasks start. Returns how many were
+   * cut off, so the person can be told; none of them is started again on its own.
+   */
   resume() {
-    this.options.repositories.tasks.recover(this.now());
+    const interrupted = this.options.repositories.tasks.recover(this.now());
     this.pump();
+    return interrupted;
   }
 
   start(input: {
@@ -177,6 +181,21 @@ export class TaskService {
       this.options.repositories.tasks.update(id, { status: 'cancelled', finishedAt: this.now() });
       this.publish();
     }
+  }
+
+  /**
+   * Ask for the same thing again, as a new task. The old one keeps its history and nothing it
+   * did is repeated: this starts from the request, exactly as if the person had asked afresh.
+   */
+  retry(id: string) {
+    const record = this.options.repositories.tasks.get(id);
+    if (!record) throw new Error('That task no longer exists.');
+    return this.start({
+      prompt: record.prompt,
+      title: record.title,
+      budgetUsd: record.budgetUsd,
+      conversationId: null,
+    });
   }
 
   remove(id: string) {

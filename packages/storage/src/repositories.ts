@@ -120,6 +120,12 @@ const parseJson = (text: string | null): unknown => {
   }
 };
 
+/** A turn that was cut off, named back to the person so they can ask for it again. */
+const interruptedRunRow = z.object({
+  id: z.string(),
+  prompt: z.string(),
+  note: z.string().nullable(),
+});
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
@@ -148,6 +154,23 @@ export class RunRepository {
         run.taskId ?? null,
         run.note ?? null,
       );
+  }
+
+  /**
+   * The turns cut off when Edi last closed, newest first. Recovery stamps every one of them with
+   * the same moment, so this asks for exactly those and nothing older. Reading them re-runs
+   * nothing: it is only so the person can be told what was under way. Turns belonging to a task
+   * are left out, because the task itself says so.
+   */
+  interruptedAt(at: number, limit: number) {
+    return this.db
+      .prepare(
+        `SELECT id, prompt, note FROM runs
+         WHERE status = 'interrupted' AND finished_at = ? AND task_id IS NULL AND prompt != ''
+         ORDER BY started_at DESC LIMIT ?`,
+      )
+      .all(at, limit)
+      .map(row => interruptedRunRow.parse(row));
   }
 
   /**
