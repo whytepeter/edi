@@ -484,13 +484,14 @@ const scheduleRow = z.object({
   notify: scheduleNotifySchema,
   budgetUsd: z.number(),
   enabled: z.number(),
+  unattended: z.number(),
   createdAt: z.number(),
   lastRunAt: z.number().nullable(),
   nextRunAt: z.number().nullable(),
   lastResult: z.string(),
 });
 const scheduleColumns = `id, title, prompt, when_json AS "when", notify, budget_usd AS budgetUsd,
-  enabled, created_at AS createdAt, last_run_at AS lastRunAt, next_run_at AS nextRunAt,
+  enabled, unattended, created_at AS createdAt, last_run_at AS lastRunAt, next_run_at AS nextRunAt,
   last_result AS lastResult`;
 
 /** Schedules and watches. A row whose rule no longer parses is skipped, never run. */
@@ -544,15 +545,15 @@ export class ScheduleRepository {
     const raw = scheduleRow.parse(row);
     const when = scheduleWhenSchema.safeParse(JSON.parse(raw.when));
     if (!when.success) return null;
-    return { ...raw, when: when.data, enabled: raw.enabled === 1 };
+    return { ...raw, when: when.data, enabled: raw.enabled === 1, unattended: raw.unattended === 1 };
   }
 
   create(schedule: Omit<Schedule, 'lastRunAt' | 'lastResult'>) {
     this.db
       .prepare(
         `INSERT INTO schedules (id, title, prompt, when_json, notify, budget_usd, enabled,
-                                created_at, next_run_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                unattended, created_at, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         schedule.id,
@@ -562,6 +563,7 @@ export class ScheduleRepository {
         schedule.notify,
         schedule.budgetUsd,
         schedule.enabled ? 1 : 0,
+        schedule.unattended ? 1 : 0,
         schedule.createdAt,
         schedule.nextRunAt,
       );
@@ -600,6 +602,7 @@ export class ScheduleRepository {
     id: string,
     change: {
       enabled?: boolean;
+      unattended?: boolean;
       nextRunAt?: number | null;
       lastRunAt?: number;
       lastResult?: string;
@@ -610,6 +613,10 @@ export class ScheduleRepository {
     if (change.enabled !== undefined) {
       fields.push('enabled = ?');
       values.push(change.enabled ? 1 : 0);
+    }
+    if (change.unattended !== undefined) {
+      fields.push('unattended = ?');
+      values.push(change.unattended ? 1 : 0);
     }
     if (change.nextRunAt !== undefined) {
       fields.push('next_run_at = ?');

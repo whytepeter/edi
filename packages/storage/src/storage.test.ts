@@ -594,6 +594,7 @@ test('schedules: due ones earliest first, disabled and broken rules never due, r
     notify: 'always' as const,
     budgetUsd: 0.25,
     enabled: true,
+    unattended: false,
     createdAt: 1,
   };
   repos.schedules.create({

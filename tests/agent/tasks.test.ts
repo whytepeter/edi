@@ -163,6 +163,71 @@ test('a review pauses the task; always allowing it covers the rest of that task'
   );
 });
 
+test('a schedule that runs on its own adds reminders without asking, and still waits for the rest', async () => {
+  let added = 0;
+  const addReminders = defineCapability({
+    id: 'reminders.create',
+    title: 'Add reminders',
+    description: 'Add reminders',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ title: z.string() }).strict(),
+    prepare: ({ title }) => ({
+      preview: { title: 'Add reminders', action: 'Add', summary: `Add ${title}.`, fields: [] },
+      execute: async () => {
+        added++;
+        return { summary: 'Added.' };
+      },
+    }),
+  });
+  const trash = defineCapability({
+    id: 'files.trash',
+    title: 'Move to Trash',
+    description: 'Trash',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ path: z.string() }).strict(),
+    prepare: ({ path }) => ({
+      preview: { title: 'Move to Trash', action: 'Trash', summary: `Trash ${path}.`, fields: [] },
+      execute: async () => ({ summary: 'Trashed.' }),
+    }),
+  });
+  const { tasks, workers, repositories } = harness([
+    addReminders as Capability,
+    trash as Capability,
+  ]);
+  repositories.schedules.create({
+    id: uuid(300),
+    title: 'Daily reminders',
+    prompt: 'Add my reminders',
+    when: { kind: 'daily', time: '08:00' },
+    notify: 'always',
+    budgetUsd: 0.5,
+    enabled: true,
+    unattended: true,
+    createdAt: 1,
+    nextRunAt: 2,
+  });
+  const task = tasks.start({
+    prompt: 'Add my reminders',
+    budgetUsd: 0.5,
+    conversationId: null,
+    scheduleId: uuid(300),
+  });
+  const worker = workers[0]!;
+  worker.emit({ type: 'tool-call', id: uuid(1), name: 'reminders_create', input: { title: 'Standup' } });
+  await settle();
+  assert.equal(added, 1, 'nobody had to be there');
+  assert.equal(tasks.currentApproval, null);
+  assert.equal(tasks.task(task.id)?.status, 'running');
+
+  // Moving files to the Trash is not on that list, so it still waits for the person.
+  worker.emit({ type: 'tool-call', id: uuid(2), name: 'files_trash', input: { path: '~/a.txt' } });
+  await settle();
+  assert.equal(tasks.task(task.id)?.status, 'waiting');
+  assert.equal(tasks.currentApproval?.capability.id, 'files.trash');
+});
+
 test('stopping ends a running or queued task; a restart interrupts what was running', () => {
   const { tasks, workers, repositories } = harness();
   const one = tasks.start({ prompt: 'One', budgetUsd: 0.5, conversationId: null });

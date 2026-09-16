@@ -3,6 +3,7 @@ import {
   describeWhen,
   isActiveTask,
   type ArtifactRef,
+  unattendedSummary,
   type Schedule,
   type ScheduleWhen,
   type Task,
@@ -308,6 +309,22 @@ function ScheduleRow({
         </span>
       ) : (
         <span className="schedule-controls">
+          {/* Letting a run finish while nobody is here: small, reversible actions need no review. */}
+          <button
+            type="button"
+            className="schedule-badge schedule-own"
+            aria-pressed={schedule.unattended}
+            title={unattendedSummary}
+            onClick={() =>
+              void send({
+                type: 'set-schedule-unattended',
+                id: schedule.id,
+                unattended: !schedule.unattended,
+              })
+            }
+          >
+            {schedule.unattended ? 'On its own' : 'Asks first'}
+          </button>
           {schedule.nextRunAt !== null && (
             <Switch
               label={`${schedule.enabled ? 'Pause' : 'Resume'} ${schedule.title}`}

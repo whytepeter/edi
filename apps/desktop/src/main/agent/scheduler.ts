@@ -94,6 +94,8 @@ export class Scheduler {
     when: ScheduleWhen;
     notify: Schedule['notify'];
     budgetUsd: number;
+    /** Let its runs act on their own, for the small reversible actions. */
+    unattended?: boolean;
   }): Schedule {
     const now = this.now();
     const next = nextRunAt(input.when, now, now);
@@ -110,6 +112,7 @@ export class Scheduler {
       notify: input.notify,
       budgetUsd: input.budgetUsd,
       enabled: true,
+      unattended: input.unattended ?? false,
       createdAt: now,
       nextRunAt: next,
     });
@@ -126,6 +129,14 @@ export class Scheduler {
       enabled,
       ...(enabled ? { nextRunAt: nextRunAt(schedule.when, now, schedule.createdAt) } : {}),
     });
+    this.publish();
+  }
+
+  /** Let a schedule act on its own, or make it wait for a review again. */
+  setUnattended(id: string, unattended: boolean) {
+    if (!this.options.repositories.schedules.get(id))
+      throw new Error('That schedule no longer exists.');
+    this.options.repositories.schedules.update(id, { unattended });
     this.publish();
   }
 

@@ -287,6 +287,17 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Quiet until it is on: a schedule that acts on its own says so. */
+.schedule-own {
+  border: 0;
+  background: var(--fill);
+  color: var(--label-secondary);
+}
+.schedule-own[aria-pressed='true'] {
+  background: var(--accent-softer);
+  color: var(--accent-strong);
+}
+
 .schedule-controls {
   display: flex;
   flex: none;

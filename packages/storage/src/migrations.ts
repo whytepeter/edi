@@ -313,6 +313,12 @@ export const migrations: readonly { version: number; sql: string }[] = [
       ALTER TABLE artifacts ADD COLUMN pinned_at INTEGER;
     `,
   },
+  {
+    // Schedules the person let run on its own: small, reversible actions need no review, so a
+    // run finishes while nobody is there. Existing schedules keep asking.
+    version: 16,
+    sql: `ALTER TABLE schedules ADD COLUMN unattended INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

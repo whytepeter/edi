@@ -11,6 +11,7 @@ import {
   presentationText,
   ruleAllows,
   modelIdSchema,
+  unattendedCapabilities,
   type ApprovalRequest,
   type Task,
   type TaskStatus,
@@ -104,7 +105,12 @@ export class TaskService {
       const taskId = this.runs.get(request.runId);
       return (
         Boolean(this.options.rules?.allows(request)) ||
-        Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id))
+        Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id)) ||
+        Boolean(
+          taskId &&
+            unattendedCapabilities.has(request.capability.id) &&
+            this.runsOnItsOwn(taskId),
+        )
       );
     },
   );
@@ -200,6 +206,15 @@ export class TaskService {
 
   get currentApproval(): ApprovalRequest | null {
     return this.approvals.current;
+  }
+
+  /**
+   * Whether this task came from a schedule the person lets act on its own. Read from the schedule
+   * each time, so turning it off stops the next review, and a restart still knows.
+   */
+  private runsOnItsOwn(taskId: string) {
+    const scheduleId = this.options.repositories.tasks.get(taskId)?.scheduleId;
+    return Boolean(scheduleId && this.options.repositories.schedules.get(scheduleId)?.unattended);
   }
 
   owns(callOrRunId: string) {

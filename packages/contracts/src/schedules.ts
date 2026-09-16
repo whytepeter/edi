@@ -93,6 +93,12 @@ export const scheduleSchema = z
     notify: scheduleNotifySchema,
     budgetUsd: taskBudgetSchema,
     enabled: z.boolean(),
+    /**
+     * The person let this one act on its own: its runs do the small, reversible things below
+     * without asking, so a schedule still finishes while nobody is at the Mac. Anything else
+     * still waits for them.
+     */
+    unattended: z.boolean(),
     createdAt: z.number().int().nonnegative(),
     lastRunAt: z.number().int().nonnegative().nullable(),
     /** Null once a one-time schedule has run. */
@@ -102,6 +108,26 @@ export const scheduleSchema = z
   })
   .strict();
 export type Schedule = z.infer<typeof scheduleSchema>;
+
+/**
+ * What a schedule that runs on its own may do without asking: adding to Reminders and Calendar,
+ * and Edi's own notes and content. Each is small, visible in Activity and undoable. Moving or
+ * deleting files, opening things, and connected apps always wait for the person.
+ */
+export const unattendedCapabilities: ReadonlySet<string> = new Set([
+  'reminders.create',
+  'calendar.create',
+  'calendar.update',
+  'notes.save',
+  'workspace.show',
+  'workspace.update',
+  'workspace.export',
+]);
+
+/** One line for the person: what letting a schedule run on its own allows. */
+export const unattendedSummary =
+  'Adds reminders and calendar events, and saves notes and content, without asking. Anything ' +
+  'else still waits for you.';
 export const scheduleListSchema = z.array(scheduleSchema).max(100);
 
 /** The first run strictly after `after` (ms), in local time; null when none remains. */

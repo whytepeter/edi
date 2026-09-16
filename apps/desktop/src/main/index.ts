@@ -238,6 +238,14 @@ const scheduleInput = z
       .enum(['always', 'on-change'])
       .describe('always: tell the user each result; on-change: a watch'),
     budgetUsd: taskBudgetSchema.optional().describe('Spending cap per run, if the user named one'),
+    unattended: z
+      .boolean()
+      .optional()
+      .describe(
+        'true when the user wants it to run without asking them each time (“just do it”, “don’t ' +
+          'ask me”): its runs then add reminders and calendar events and save notes on their own, ' +
+          'and anything else still waits for the user',
+      ),
   })
   .strict();
 
@@ -820,7 +828,7 @@ async function start() {
         .extend({ when: z.preprocess(normalizeScheduleWhen, scheduleWhenSchema) })
         .strict(),
       inputSchema: z.toJSONSchema(scheduleInput) as Record<string, unknown>,
-      prepare({ title, instructions, when, notify, budgetUsd }) {
+      prepare({ title, instructions, when, notify, budgetUsd, unattended }) {
         const budget = budgetUsd ?? settings.current.taskBudgetUsd;
         const rhythm = describeWhen(when);
         return {
@@ -834,6 +842,12 @@ async function start() {
                 label: 'Tells you',
                 value: notify === 'on-change' ? 'Only when something changes' : 'Each result',
               },
+              {
+                label: 'Each run',
+                value: unattended
+                  ? 'Adds reminders, events and notes without asking'
+                  : 'Asks you before it changes anything',
+              },
             ],
             body: instructions.slice(0, 4000),
           },
@@ -844,6 +858,7 @@ async function start() {
               when,
               notify,
               budgetUsd: budget,
+              unattended: unattended ?? false,
             });
             return {
               summary: `${notify === 'on-change' ? 'Watching' : 'Scheduled'} “${schedule.title}”: ${rhythm.toLowerCase()}.`,

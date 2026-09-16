@@ -398,6 +398,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ id, enabled }) => scheduler.setEnabled(id, enabled),
     },
+    'set-schedule-unattended': {
+      from: fromWorkspace,
+      handle: ({ id, unattended }) => scheduler.setUnattended(id, unattended),
+    },
     'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
     'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
     'add-connector': {

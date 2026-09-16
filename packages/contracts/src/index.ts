@@ -517,6 +517,14 @@ export const commandSchema = z.discriminatedUnion('type', [
       enabled: z.boolean(),
     })
     .strict(),
+  /** Let a schedule act on its own, or make it wait for you again. */
+  z
+    .object({
+      type: z.literal('set-schedule-unattended'),
+      id: z.string().uuid(),
+      unattended: z.boolean(),
+    })
+    .strict(),
   z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('remove-approval-rule'), id: z.string().uuid() }).strict(),
   /** From Edi's short list by id, or any server by its address. */
