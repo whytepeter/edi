@@ -231,6 +231,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Schedule and calendar awareness from real calendar state | 7 (after a calendar connector in 3) | Planned |
 | Bubble as ambient channel, explicit proactivity sources, levels, voice vs silent, companion tone | 7 | Bubble foundation done (voice states, approvals, artifact previews) |
 | Flagship “find jobs while I work” demo | 7 exit | Planned |
+| Models on this Mac (downloaded in Edi, or Ollama/LM Studio) | 2–3 | Done (2026-09-16): Settings → AI downloads Qwen2.5-VL and runs it with the llama.cpp server Edi ships; Ollama and LM Studio models are offered too, each checked for image and tool support. One backs OpenRouter up, or answers everything. See [`LOCAL-MODELS.md`](LOCAL-MODELS.md) |
 | AI provider, Recommended/Custom, roles, cost preference, compatibility, fallbacks, advanced | 2 (roles), 7 (background role) | Recommended picks and compatibility filtering done; roles and cost preference planned |
 | Compact bubble as HITL surface with compact and expanded representations | 2 | Approvals and artifact previews done |
 | Liquid Glass materials, hierarchy, shared language | 2 | Native glass for floating windows; solid settings; hierarchy applied |
