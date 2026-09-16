@@ -9,6 +9,7 @@ import {
   type Schedule,
   type SystemInfo,
   type Task,
+  type UsageSummary,
   type WorkspaceView,
 } from '@edi/contracts';
 import { GroupedList, GroupedRow, Icon } from '../../components/ui';
@@ -50,6 +51,43 @@ function when(at: number, now = Date.now()) {
   return `${new Date(at).toLocaleDateString([], { weekday: 'long' })} at ${time}`;
 }
 
+/** "just now", "at 08:30", "yesterday at 21:10": when something finished. */
+function ago(at: number, now = Date.now()) {
+  const minutes = Math.round((now - at) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const time = new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const days = Math.floor(
+    (new Date(now).setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86_400_000,
+  );
+  if (days === 0) return `at ${time}`;
+  if (days === 1) return `yesterday at ${time}`;
+  return new Date(at).toLocaleDateString([], { weekday: 'long' });
+}
+
+/** Work that ended recently, newest first; the rest lives in Tasks. */
+function recentlyFinished(tasks: Task[], now = Date.now()) {
+  return tasks
+    .filter(
+      task =>
+        !isActiveTask(task.status) &&
+        task.finishedAt !== null &&
+        now - task.finishedAt < 48 * 3_600_000,
+    )
+    .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
+    .slice(0, 3);
+}
+
+/** How a finished task went: what it found, or why it stopped, and when. */
+function outcome(task: Task) {
+  const at = task.finishedAt ? ` · ${ago(task.finishedAt)}` : '';
+  if (task.status === 'done') return `${clip(task.result || task.progress || 'Done.', 70)}${at}`;
+  if (task.status === 'failed')
+    return `Didn't finish: ${clip(task.error || 'something went wrong', 60)}${at}`;
+  if (task.status === 'cancelled') return `Stopped${at}`;
+  return `Interrupted${at}`;
+}
+
 /** Things to try, for someone who has not asked anything yet. */
 const openers = [
   'What can you do?',
@@ -69,6 +107,7 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
   const [tasks, setTasks] = useState<Task[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
 
   useEffect(() => {
     if (!window.edi) return;
@@ -92,6 +131,10 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
     load(window.edi.tasks(), setTasks);
     load(window.edi.schedules(), setSchedules);
     load(window.edi.connectors(), setConnectors);
+    void window.edi.usage(7).then(
+      value => alive && setUsage(value),
+      () => {},
+    );
     return () => {
       alive = false;
     };
@@ -132,18 +175,6 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
       done: hasVoice,
       open: () => onOpen('settings.voice'),
     },
-    {
-      id: 'hello',
-      icon: 'chat' as const,
-      title: 'Say hi',
-      detail: !agent.configured
-        ? 'Ready once the first step is done.'
-        : canTalk
-          ? 'Hold ⌥ Space and ask out loud, or type above.'
-          : 'Type your first question above.',
-      done: Boolean(lastUser),
-      open: agent.configured ? () => setDraft(openers[0] ?? '') : undefined,
-    },
   ];
   const setupLeft = steps.filter(step => !step.done);
 
@@ -182,6 +213,19 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
   ];
 
   const active = tasks.filter(task => isActiveTask(task.status));
+  // What finished while they were away.
+  const finished = recentlyFinished(tasks);
+  const spent = (usage?.daily ?? []).reduce((sum, day) => sum + day.costUsd, 0);
+  const week =
+    usage && usage.answers > 0
+      ? [
+          `${usage.answers} ${usage.answers === 1 ? 'answer' : 'answers'} this week`,
+          spent > 0 ? `$${spent.toFixed(2)}` : '',
+          saved.length ? `${saved.length} saved` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : null;
   const next = schedules
     .flatMap(schedule => (schedule.nextRunAt ? [{ schedule, at: schedule.nextRunAt }] : []))
     .sort((a, b) => a.at - b.at)[0];
@@ -283,6 +327,20 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
         </GroupedList>
       )}
 
+      {finished.length > 0 && (
+        <GroupedList title="Finished">
+          {finished.map(task => (
+            <GroupedRow
+              key={task.id}
+              icon={task.status === 'done' ? 'check' : 'info'}
+              title={task.title}
+              detail={outcome(task)}
+              onOpen={() => onOpen('tasks')}
+            />
+          ))}
+        </GroupedList>
+      )}
+
       {lastUser ? (
         <GroupedList title="Pick up where you left off">
           <GroupedRow
@@ -316,6 +374,8 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
           ))}
         </GroupedList>
       )}
+
+      {week && <p className="home-hint ds-footnote ds-tertiary">{week}</p>}
     </section>
   );
 }

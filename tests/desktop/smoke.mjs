@@ -81,7 +81,7 @@ async function launch() {
   // development copy of the models, so only the steps that cannot be are asserted here.)
   await expect(workspace.getByRole('heading', { name: 'Set up' })).toBeVisible();
   await expect(workspace.getByRole('button', { name: /a brain/ })).toBeVisible();
-  await expect(workspace.getByText(/of 3 done/)).toBeVisible();
+  await expect(workspace.getByText(/of 2 done/)).toBeVisible();
   await expect(workspace.getByRole('heading', { name: /Let Edi (?:see|hear)/ })).toHaveCount(0);
   return { workspace, pet };
 }

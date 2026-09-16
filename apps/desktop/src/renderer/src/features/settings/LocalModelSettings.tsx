@@ -19,16 +19,6 @@ function abilities(model: LocalModelOption) {
 
 const size = (bytes: number) => `${(bytes / 1_000_000_000).toFixed(1)} GB`;
 
-/** Where a download has got to, in the words the row shows. */
-function packDetail(pack: LocalPackStatus) {
-  if (pack.state === 'installed') return 'On this Mac';
-  if (pack.state === 'downloading')
-    return `${size(pack.received)} of ${size(pack.bytes)} · Downloading`;
-  if (pack.state === 'paused') return `${size(pack.received)} of ${size(pack.bytes)} · Paused`;
-  if (pack.state === 'failed') return pack.error ?? 'The download stopped.';
-  return `${size(pack.bytes)} to download`;
-}
-
 /**
  * Settings → AI › On this Mac. Edi can download a model and run it itself, with nothing else to
  * install; models Ollama or LM Studio already serve are offered too. The chosen one backs
@@ -91,10 +81,80 @@ export function LocalModelSettings({
     );
   };
 
+  /** A pack row: what it costs to download, how far it got, and the one thing to do next. */
+  const packRow = (pack: LocalPackStatus) => {
+    const action =
+      pack.state === 'downloading'
+        ? { label: 'Pause', act: 'pause' as const }
+        : pack.state === 'installed'
+          ? { label: 'Remove', act: 'remove' as const }
+          : { label: pack.state === 'paused' ? 'Resume' : 'Download', act: 'download' as const };
+    const detail =
+      pack.state === 'installed'
+        ? 'On this Mac'
+        : pack.state === 'failed'
+          ? (pack.error ?? 'The download stopped.')
+          : pack.state === 'paused'
+            ? `Paused at ${size(pack.received)} of ${size(pack.bytes)}`
+            : pack.state === 'downloading'
+              ? undefined
+              : `${size(pack.bytes)} to download`;
+    return (
+      <GroupedRow
+        key={pack.id}
+        title={pack.name}
+        detail={
+          pack.state === 'downloading' ? (
+            <span className="pack-progress">
+              <progress max={pack.bytes} value={pack.received} aria-label="Download progress" />
+              <span>{`${size(pack.received)} of ${size(pack.bytes)}`}</span>
+            </span>
+          ) : (
+            detail
+          )
+        }
+        control={
+          <Button size="small" onClick={() => send(action.act, pack.id)}>
+            {action.label}
+          </Button>
+        }
+      />
+    );
+  };
+
+  const models = state?.models ?? [];
   const running = (state?.runtimes ?? [])
     .filter(runtime => runtime.running)
     .map(runtime => localRuntimeNames[runtime.id]);
-  const chosenMissing = state !== null && model && !state.models.some(entry => entry.id === model);
+  const chosenMissing = state !== null && model && !models.some(entry => entry.id === model);
+  const modelRow = (option: LocalModelOption) => (
+    <GroupedRow
+      key={option.id}
+      title={option.name}
+      detail={`${localRuntimeNames[option.runtime]} · ${abilities(option)}`}
+      value={option.id === model ? 'Chosen' : undefined}
+      onOpen={() => onChange(option.id === model ? null : option.id, use)}
+    />
+  );
+  const checkRow = (
+    <GroupedRow title={checking ? 'Checking…' : 'Check again'} onOpen={() => void look(true)} />
+  );
+
+  // Nothing here yet: one section that offers a model, rather than an empty list above a list.
+  if (state !== null && models.length === 0)
+    return (
+      <GroupedList
+        title="On this Mac"
+        footer={
+          running.length
+            ? `Edi runs these itself, free and offline. A model added in ${running.join(' or ')} shows up here too.`
+            : 'Edi runs these itself, with nothing else to install. Free, offline, and nothing you ask them goes online.'
+        }
+      >
+        {state.packs.map(packRow)}
+        {checkRow}
+      </GroupedList>
+    );
 
   return (
     <>
@@ -102,30 +162,8 @@ export function LocalModelSettings({
         title="On this Mac"
         footer="Free, and works offline. Edi needs a model that sees images and uses tools; a limited one answers in words only."
       >
-        {state === null ? (
-          <GroupedRow title="Looking for models on this Mac…" />
-        ) : (
-          state.models.map(option => (
-            <GroupedRow
-              key={option.id}
-              title={option.name}
-              detail={`${localRuntimeNames[option.runtime]} · ${abilities(option)}`}
-              value={option.id === model ? 'Chosen' : undefined}
-              onOpen={() => onChange(option.id === model ? null : option.id, use)}
-            />
-          ))
-        )}
-        {state !== null && state.models.length === 0 && (
-          <GroupedRow
-            icon="info"
-            title="No model on this Mac yet"
-            detail={
-              running.length
-                ? `Download one below, or add a model in ${running.join(' or ')}.`
-                : 'Download one below.'
-            }
-          />
-        )}
+        {state === null ? <GroupedRow title="Looking for models on this Mac…" /> : null}
+        {models.map(modelRow)}
         {chosenMissing && (
           <GroupedRow
             icon="info"
@@ -133,36 +171,15 @@ export function LocalModelSettings({
             detail="Download it again, or choose another."
           />
         )}
-        <GroupedRow title={checking ? 'Checking…' : 'Check again'} onOpen={() => void look(true)} />
+        {checkRow}
       </GroupedList>
 
-      {state !== null && state.packs.length > 0 && (
+      {state !== null && state.packs.some(pack => pack.state !== 'installed') && (
         <GroupedList
           title="Download a model"
           footer="Edi runs these itself, with nothing else to install. They stay on this Mac, and nothing you ask them goes online."
         >
-          {state.packs.map(pack => (
-            <GroupedRow
-              key={pack.id}
-              title={pack.name}
-              detail={packDetail(pack)}
-              control={
-                pack.state === 'downloading' ? (
-                  <Button size="small" onClick={() => send('pause', pack.id)}>
-                    Pause
-                  </Button>
-                ) : pack.state === 'installed' ? (
-                  <Button size="small" onClick={() => send('remove', pack.id)}>
-                    Remove
-                  </Button>
-                ) : (
-                  <Button size="small" onClick={() => send('download', pack.id)}>
-                    {pack.state === 'paused' ? 'Resume' : 'Download'}
-                  </Button>
-                )
-              }
-            />
-          ))}
+          {state.packs.filter(pack => pack.state !== 'installed').map(packRow)}
         </GroupedList>
       )}
 

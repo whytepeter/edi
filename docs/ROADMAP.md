@@ -215,7 +215,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Computer use as a separate, off-by-default, interruptible capability | 8 | Planned; listed as not available |
 | Self-awareness from runtime state | 1 | Done (setup snapshot, abilities, not-yet-available list, location) |
 | Conversational navigation of Edi itself | 1–2 | Done for every page; preference changes and close/sleep too |
-| Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7 | Planned; scale naming is an open decision |
+| Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7 | Planned; when built they belong on Home and in the bubble (owner, 2026-09-16). Scale naming is an open decision |
 | Keep identity, voice, skin, capabilities, permissions separate | Principle | Enforced by contracts; skin changes never touch capabilities |
 | Private custom voices with consent | 8 | Planned |
 | Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Character packages: install from a .edichar file, every mood previewed; community library planned |
