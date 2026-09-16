@@ -48,7 +48,7 @@ const ruleIcon: Record<ApprovalRule['kind'], IconName> = {
 
 const statusLabel: Record<PermissionStatus, string> = {
   granted: 'Allowed',
-  'not-determined': 'Not asked yet',
+  'not-determined': 'Asks when needed',
   denied: 'Off',
   restricted: 'Restricted',
   unavailable: 'Unavailable',
@@ -150,13 +150,11 @@ export function PrivacySettings({
     }
   }
 
-  async function act(permission: PermissionId, status: PermissionStatus) {
+  /** Only for a permission macOS has turned off: everything else is asked for when it's needed. */
+  async function openPermissionSettings(permission: PermissionId) {
     setError('');
     try {
-      await window.edi?.command({
-        type: status === 'denied' ? 'permission-open-settings' : 'permission-request',
-        permission,
-      });
+      await window.edi?.command({ type: 'permission-open-settings', permission });
     } catch {
       setError('Couldn’t reach System Settings. Try again.');
     }
@@ -184,20 +182,21 @@ export function PrivacySettings({
         title="Permissions"
         footer="Edi asks for each one the first time a feature needs it."
       >
+        {/* Only a permission macOS has turned off needs a button here; the rest are asked for
+            when a feature first needs them, in the moment. */}
         {permissions.permissions.map(({ id, status }) => {
           const copy = permissionCopy[id];
-          const actionable = status === 'denied' || status === 'not-determined';
           return (
             <GroupedRow
               key={id}
               icon={copy.icon}
               title={copy.title}
               detail={copy.detail}
-              value={actionable ? undefined : statusLabel[status]}
+              value={status === 'denied' ? undefined : statusLabel[status]}
               control={
-                actionable && (
-                  <Button size="small" onClick={() => void act(id, status)}>
-                    {status === 'denied' ? 'Open Settings' : 'Allow'}
+                status === 'denied' && (
+                  <Button size="small" onClick={() => void openPermissionSettings(id)}>
+                    Open Settings
                   </Button>
                 )
               }
