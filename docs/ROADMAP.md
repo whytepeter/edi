@@ -215,7 +215,7 @@ a rule every milestone follows rather than a feature with its own gate.
 | Computer use as a separate, off-by-default, interruptible capability | 8 | Planned; listed as not available |
 | Self-awareness from runtime state | 1 | Done (setup snapshot, abilities, not-yet-available list, location) |
 | Conversational navigation of Edi itself | 1–2 | Done for every page; preference changes and close/sleep too |
-| Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7 | Planned; when built they belong on Home and in the bubble (owner, 2026-09-16). Scale naming is an open decision |
+| Subtle proactive suggestions from local signals, no continuous capture, Off/Subtle/Helpful | 7, brought forward | Bubble done (2026-09-16): the app in front, and the site in a browser, matched against apps that could be connected and switched-on skills; one line with its action and Not now; Settings → Behavior, off by default, a week between repeats, silent while sharing, while busy, while the card is open and in the first minute. Home still to come (owner, 2026-09-16) |
 | Keep identity, voice, skin, capabilities, permissions separate | Principle | Enforced by contracts; skin changes never touch capabilities |
 | Private custom voices with consent | 8 | Planned |
 | Custom and community skins as declarative, privilege-free packages | 6 (packs), 8 (community) | Character packages: install from a .edichar file, every mood previewed; community library planned |
@@ -282,8 +282,9 @@ Initial targets to validate, not public guarantees: immediate input feedback, vi
 - Default voice must be female. Later custom voice enrollment may use the user's girlfriend's voice with her explicit consent; include recording/upload disclosure and deletion controls. Defer cloning until after the current audio foundation work.
 - First connector and its desktop OAuth feasibility.
 - SVG versus Rive after trying the character interaction.
-- Proactivity scale: two scales have been proposed, Off/Subtle/Helpful (suggestions) and Quiet/Balanced/Expressive
-  (overall behavior). Pick one user-facing control, or define them as two distinct settings, before building Behavior.
+- Proactivity scale: settled 2026-09-16. Settings → Behavior carries one control, Off/Subtle/Helpful, for what Edi
+  offers on its own. Quiet/Balanced/Expressive was dropped: how much Edi interrupts is already covered by spoken
+  replies and privacy mode, and a second scale would have been two ways to say the same thing.
 - Personal build uses a user-provided OpenRouter key (selected and live-tested). Edi-funded usage for distribution remains a separate decision.
 
 Contracts, workspace design, and extension lifecycle can proceed before these choices. Resolve each before its runtime, asset, or distribution commitment.
