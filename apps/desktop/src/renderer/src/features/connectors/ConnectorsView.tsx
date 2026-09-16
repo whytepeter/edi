@@ -2,10 +2,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   connectorCatalog,
   connectorUrlSchema,
+  describeLocalServer,
+  localServerSchema,
   type Command,
   type Connector,
   type ConnectorStatus,
   type ConnectorTool,
+  type LocalServer,
+  type LocalServerRuntime,
 } from '@edi/contracts';
 import { Button, GroupedList, GroupedRow, Icon, Switch, TextField } from '../../components/ui';
 import { BrandIcon } from '../../components/BrandIcon';
@@ -267,12 +271,18 @@ function ToolList({
 
 function CustomServerPopover({
   onAdd,
+  onAddLocal,
   onClose,
 }: {
   onAdd: (url: string, name: string) => Promise<boolean>;
+  onAddLocal: (local: LocalServer, name: string) => Promise<boolean>;
   onClose: () => void;
 }) {
+  const [where, setWhere] = useState<'web' | 'mac'>('web');
   const [address, setAddress] = useState('');
+  const [runtime, setRuntime] = useState<LocalServerRuntime>('node');
+  const [pkg, setPkg] = useState('');
+  const [version, setVersion] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -287,29 +297,112 @@ function CustomServerPopover({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const parsed = connectorUrlSchema.safeParse(address);
+    if (where === 'web') {
+      const parsed = connectorUrlSchema.safeParse(address);
+      if (!parsed.success) {
+        setError('Use the server’s full https address.');
+        return;
+      }
+      setError('');
+      const ok = await onAdd(parsed.data, name.trim());
+      if (ok) onClose();
+      else setError('Couldn’t add that server.');
+      return;
+    }
+    // The version is required and exact: what runs stays what was added.
+    const parsed = localServerSchema.safeParse({
+      runtime,
+      package: pkg.trim(),
+      version: version.trim(),
+      args: [],
+    });
     if (!parsed.success) {
-      setError('Use the server’s full https address.');
+      setError(parsed.error.issues[0]?.message ?? 'Check the package and version.');
       return;
     }
     setError('');
-    const ok = await onAdd(parsed.data, name.trim());
+    const ok = await onAddLocal(parsed.data, name.trim());
     if (ok) onClose();
     else setError('Couldn’t add that server.');
   }
 
+  const ready = where === 'web' ? address.trim() : pkg.trim() && version.trim();
+
   return (
     <div className="connector-popover" ref={ref}>
       <form className="connector-form" onSubmit={event => void submit(event)}>
-        <TextField
-          label="Server address"
-          placeholder="https://example.com/mcp"
-          value={address}
-          onChange={event => setAddress(event.target.value)}
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus
-        />
+        <div className="connector-where" role="group" aria-label="Where the server runs">
+          <button
+            type="button"
+            className="connector-where-choice"
+            aria-pressed={where === 'web'}
+            onClick={() => {
+              setWhere('web');
+              setError('');
+            }}
+          >
+            On the web
+          </button>
+          <button
+            type="button"
+            className="connector-where-choice"
+            aria-pressed={where === 'mac'}
+            onClick={() => {
+              setWhere('mac');
+              setError('');
+            }}
+          >
+            On this Mac
+          </button>
+        </div>
+
+        {where === 'web' ? (
+          <TextField
+            label="Server address"
+            placeholder="https://example.com/mcp"
+            value={address}
+            onChange={event => setAddress(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+          />
+        ) : (
+          <>
+            <label className="connector-field">
+              <span className="connector-field-label">Runtime</span>
+              <select
+                className="connector-select"
+                value={runtime}
+                onChange={event => setRuntime(event.target.value as LocalServerRuntime)}
+              >
+                <option value="node">Node (npx)</option>
+                <option value="python">Python (uvx)</option>
+              </select>
+            </label>
+            <TextField
+              label="Package"
+              placeholder={runtime === 'node' ? 'notes-server' : 'notes_server'}
+              value={pkg}
+              onChange={event => setPkg(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+            />
+            <TextField
+              label="Version"
+              placeholder="1.4.2"
+              value={version}
+              onChange={event => setVersion(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <p className="ds-footnote ds-tertiary">
+              Runs on this Mac with your own access, pinned to that exact version. Its own install
+              scripts are refused, and it never sees your keys.
+            </p>
+          </>
+        )}
+
         <TextField
           label="Name (optional)"
           placeholder="Shown in Edi"
@@ -319,7 +412,7 @@ function CustomServerPopover({
         />
         {error && <p className="connector-popover-error">{error}</p>}
         <div className="connector-form-actions">
-          <Button type="submit" size="small" disabled={!address.trim()}>
+          <Button type="submit" size="small" disabled={!ready}>
             Add Server
           </Button>
           <button type="button" className="connector-link" onClick={onClose}>
@@ -454,9 +547,11 @@ function ConnectedApp({
               <span className="connector-setting-text">
                 <span>Use {connector.name}</span>
                 <span className="connector-setting-detail">
-                  {viaComposio
-                    ? 'Signs in through Composio, which keeps the sign-in.'
-                    : `Connected directly to ${hostOf(connector.url)}; the sign-in stays on this Mac.`}
+                  {connector.local
+                    ? `Runs on this Mac: ${describeLocalServer(connector.local)}. Pinned to that version.`
+                    : viaComposio
+                      ? 'Signs in through Composio, which keeps the sign-in.'
+                      : `Connected directly to ${hostOf(connector.url)}; the sign-in stays on this Mac.`}
                 </span>
               </span>
               <Switch
@@ -593,6 +688,13 @@ export function ConnectorsView() {
     );
   }
 
+  async function addOnThisMac(local: LocalServer, name: string) {
+    return send(
+      { type: 'add-connector', local, ...(name ? { name } : {}) },
+      'Couldn’t add that server.',
+    );
+  }
+
   const available = useMemo(() => {
     const added = new Set(connectors?.map(c => c.catalogId));
     return connectorCatalog.filter(
@@ -664,7 +766,11 @@ export function ConnectorsView() {
                 Add
               </button>
               {showCustom && (
-                <CustomServerPopover onAdd={addByAddress} onClose={() => setShowCustom(false)} />
+                <CustomServerPopover
+                  onAdd={addByAddress}
+                  onAddLocal={addOnThisMac}
+                  onClose={() => setShowCustom(false)}
+                />
               )}
             </div>
           </div>

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   approvalRuleSchema,
   connectorToolSchema,
+  localServerSchema,
   providerFailureSchema,
   runStatusSchema,
   toolCallStatusSchema,
@@ -13,6 +14,7 @@ import {
   type Activity,
   type ApprovalRule,
   type ConnectorTool,
+  type LocalServer,
   type ProviderFailure,
   type UsageEntry,
   type UsagePeriod,
@@ -516,9 +518,9 @@ export class MemoryRepository {
   }
 
   count() {
-    return z.number().parse(
-      (this.db.prepare(`SELECT count(*) AS n FROM memories`).get() as { n: unknown }).n,
-    );
+    return z
+      .number()
+      .parse((this.db.prepare(`SELECT count(*) AS n FROM memories`).get() as { n: unknown }).n);
   }
 
   add(memory: Memory) {
@@ -597,7 +599,12 @@ export class ScheduleRepository {
     const raw = scheduleRow.parse(row);
     const when = scheduleWhenSchema.safeParse(JSON.parse(raw.when));
     if (!when.success) return null;
-    return { ...raw, when: when.data, enabled: raw.enabled === 1, unattended: raw.unattended === 1 };
+    return {
+      ...raw,
+      when: when.data,
+      enabled: raw.enabled === 1,
+      unattended: raw.unattended === 1,
+    };
   }
 
   create(schedule: Omit<Schedule, 'lastRunAt' | 'lastResult'>) {
@@ -771,7 +778,13 @@ export class ToolCallRepository {
   steps(runIds: readonly string[]) {
     const byRun = new Map<
       string,
-      { callId: string; capability: string; title: string; status: ToolCallStatus; summary: string }[]
+      {
+        callId: string;
+        capability: string;
+        title: string;
+        status: ToolCallStatus;
+        summary: string;
+      }[]
     >();
     if (!runIds.length) return byRun;
     const rows = this.db
@@ -1051,8 +1064,10 @@ export interface ConnectorRecord {
   name: string;
   url: string;
   catalogId: string | null;
-  provider: 'mcp' | 'composio';
+  provider: 'mcp' | 'composio' | 'local';
   composioConnectionId: string | null;
+  /** How to start a server that runs on this Mac; null for apps reached over the network. */
+  local: LocalServer | null;
   enabled: boolean;
   /** The server's tools as last listed, with the person's on/off choice for each. */
   tools: ConnectorTool[];
@@ -1064,8 +1079,9 @@ const connectorRow = z.object({
   name: z.string(),
   url: z.string(),
   catalogId: z.string().nullable(),
-  provider: z.enum(['mcp', 'composio']),
+  provider: z.enum(['mcp', 'composio', 'local']),
   composioConnectionId: z.string().nullable(),
+  local: z.string().nullable(),
   enabled: z.number(),
   tools: z.string(),
   addedAt: z.number(),
@@ -1077,8 +1093,12 @@ export class ConnectorRepository {
   private static parse(row: unknown): ConnectorRecord {
     const raw = connectorRow.parse(row);
     const tools = z.array(connectorToolSchema).max(200).safeParse(JSON.parse(raw.tools));
+    // An unreadable local line would start the wrong program, so it becomes null and the
+    // server simply won't run until it is added again.
+    const local = raw.local ? localServerSchema.safeParse(JSON.parse(raw.local)) : null;
     return {
       ...raw,
+      local: local?.success ? local.data : null,
       enabled: raw.enabled === 1,
       tools: tools.success ? tools.data : [],
     };
@@ -1088,7 +1108,7 @@ export class ConnectorRepository {
     return this.db
       .prepare(
         `SELECT id, name, url, catalog_id AS catalogId, provider,
-                composio_connection_id AS composioConnectionId,
+                composio_connection_id AS composioConnectionId, local_json AS local,
                 enabled, tools_json AS tools, added_at AS addedAt
          FROM connectors ORDER BY added_at, rowid LIMIT 50`,
       )
@@ -1104,8 +1124,8 @@ export class ConnectorRepository {
     this.db
       .prepare(
         `INSERT INTO connectors (id, name, url, catalog_id, provider, composio_connection_id,
-                                 enabled, tools_json, added_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 local_json, enabled, tools_json, added_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         connector.id,
@@ -1114,6 +1134,7 @@ export class ConnectorRepository {
         connector.catalogId,
         connector.provider,
         connector.composioConnectionId,
+        connector.local ? JSON.stringify(localServerSchema.parse(connector.local)) : null,
         connector.enabled ? 1 : 0,
         JSON.stringify(connector.tools),
         connector.addedAt,

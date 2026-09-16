@@ -287,6 +287,7 @@ test('without a saved sign-in, launching only marks the app as needing one', asy
       catalogId: null,
       provider: 'mcp',
       composioConnectionId: null,
+      local: null,
       enabled: true,
       tools: [],
       addedAt: 1,
