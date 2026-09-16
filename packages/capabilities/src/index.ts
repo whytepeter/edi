@@ -56,6 +56,7 @@ export {
   type FileRoot,
 } from './builtins/files';
 export { memoryCapabilities } from './builtins/memory';
+export { shortcutsCapabilities } from './builtins/shortcuts';
 export {
   activityCapabilities,
   reversal,

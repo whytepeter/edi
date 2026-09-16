@@ -40,6 +40,7 @@ import {
   renameWorkspaceItem,
   activityCapabilities,
   memoryCapabilities,
+  shortcutsCapabilities,
   ediSetupCapabilities,
   fileCapabilities,
   macCapabilities,
@@ -145,6 +146,7 @@ import { TaskService } from './agent/task-service';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
 import { randomUUID } from 'node:crypto';
+import { listShortcuts, runShortcut } from './platform/shortcuts';
 import { PrivacyGuard, readPrivateApp } from './privacy/privacy-guard';
 import { OpenRouterAccount } from './agent/openrouter-account';
 import { HoldHotkey, optionSpace, resolveHotkeyHelper } from './input/hold-hotkey';
@@ -563,6 +565,7 @@ async function start() {
           asksFirst: false,
         },
         { name: 'Switch the AI model it answers with', asksFirst: true },
+        { name: 'Run the shortcuts you made in the Shortcuts app, by name', asksFirst: true },
         {
           name: 'Tell you what it did, and undo its own moves, renames, new folders and added events',
           asksFirst: true,
@@ -708,6 +711,8 @@ async function start() {
     }),
     ...workspaceCapabilities(workspaceDeps),
     ...fileCapabilities(fileDeps),
+    // The person's own shortcuts: Edi starts one by name, and they review every run.
+    ...shortcutsCapabilities({ list: listShortcuts, run: runShortcut }),
     // Background tasks may use Reminders and Calendar; opening things is for the person present.
     ...macTools.filter(tool => !tool.id.startsWith('mac.')),
     ...webCapabilities({
