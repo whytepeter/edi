@@ -31,6 +31,9 @@ function launch(mode, tools = [], context = {}) {
     spoken: context.spoken ?? false,
     ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),
     ...(context.selfContext ? { selfContext: context.selfContext } : {}),
+    // The worker's own mode (chat, task, review); only a warm launch can carry it, since the
+    // harness's test mode uses the same key in workerData.
+    ...(context.workerMode ? { mode: context.workerMode } : {}),
     tools,
   };
   const worker = new Worker(
@@ -206,6 +209,34 @@ test('a worker loaded ahead of the question answers the run it is then given', a
   assert.match(JSON.stringify(requests[0].messages[0].content), /You are Edi/);
   assert.ok(requests[0].tools.some(tool => tool.function?.name === 'notes_save'));
   assert.match(requests[0].messages.at(-1).content.at(-1).text, /\{"name":"Edi"\}\n<\/turn>$/);
+});
+
+test('a review answers in one short line from the reader model, with no tools', async () => {
+  const worker = launch('success', [notesSave], {
+    warm: true,
+    workerMode: 'review',
+    readerModel: 'test/reader',
+  });
+  const messages = [];
+  const readers = [];
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(Error('Worker timed out')), 8000);
+    worker.on('message', message => {
+      if (message.type === 'debug-reader') return readers.push(message.body);
+      messages.push(message);
+      if (message.type === 'done' || message.type === 'error') {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+  await worker.terminate();
+  assert.equal(text(messages), 'The story says rain clears by noon.');
+  assert.equal(messages.at(-1).type, 'done');
+  assert.equal(readers.length, 1);
+  assert.equal(readers[0].tools, undefined);
+  assert.match(JSON.stringify(readers[0].messages[0]), /You check one action/);
+  assert.equal(messages.find(m => m.type === 'usage')?.entry.model, 'test/reader');
 });
 
 test('what changes each turn goes last, so the system prompt stays the same for the cache', async () => {

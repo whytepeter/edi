@@ -115,6 +115,11 @@ export function ApprovalCard({
         </div>
       </header>
       {children}
+      {approval.concern && (
+        <p className="approval-card-concern" role="note">
+          Edi’s check: {approval.concern}
+        </p>
+      )}
       <label className="approval-card-always">
         <span className="approval-card-badge" aria-hidden="true">
           <Icon name="shield" size={13} />

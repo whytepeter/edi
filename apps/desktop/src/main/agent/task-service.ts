@@ -39,6 +39,8 @@ const HISTORY_TURNS = 6;
 export const REPEATED_FAILURES = 3;
 /** A run that changes this many things is stopped and checked, in case something is wrong. */
 export const MAX_WRITES_PER_RUN = 40;
+/** How long the check of an unattended action may take before the person is asked instead. */
+const REVIEW_MS = 25_000;
 
 /** The part of a worker the service uses; tests pass a fake. */
 export interface WorkerLike {
@@ -110,13 +112,11 @@ export class TaskService {
     () => this.onApprovals(),
     request => {
       const taskId = this.runs.get(request.runId);
-      return (
-        Boolean(this.options.rules?.allows(request)) ||
-        Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id)) ||
-        Boolean(
-          taskId && unattendedCapabilities.has(request.capability.id) && this.runsOnItsOwn(taskId),
-        )
-      );
+      if (this.options.rules?.allows(request)) return true;
+      if (taskId && this.allowed.get(taskId)?.has(request.capability.id)) return true;
+      if (taskId && unattendedCapabilities.has(request.capability.id) && this.runsOnItsOwn(taskId))
+        return this.review(taskId, request);
+      return false;
     },
   );
   private readonly broker: CapabilityBroker;
@@ -239,6 +239,96 @@ export class TaskService {
   private runsOnItsOwn(taskId: string) {
     const scheduleId = this.options.repositories.tasks.get(taskId)?.scheduleId;
     return Boolean(scheduleId && this.options.repositories.schedules.get(scheduleId)?.unattended);
+  }
+
+  /**
+   * An unattended schedule's run may change a few kinds of thing on its own, but each change is
+   * first checked against what the person asked that schedule to do. One that doesn't plainly fit
+   * waits for them with the reason, and so does any change the check couldn't be made for.
+   */
+  private async review(taskId: string, request: ApprovalRequest): Promise<boolean> {
+    const record = this.options.repositories.tasks.get(taskId);
+    const active = this.active.get(taskId);
+    if (!record || !active) return false;
+    const { preview } = request;
+    const action = [
+      `${request.capability.title}: ${preview.summary}`,
+      ...preview.fields.map(field => `${field.label}: ${field.value}`),
+      preview.body?.slice(0, 2000) ?? '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const verdict = await this.check(
+      active,
+      `<instructions>\n${record.prompt.slice(0, 4000)}\n</instructions>\n\n<action>\n${action}\n</action>`,
+    );
+    if (verdict !== null && /^\s*FITS\b/i.test(verdict)) return true;
+    // This request is this call's own object, made for this review: the card shows why.
+    request.concern =
+      verdict === null
+        ? 'Edi couldn’t check this against the schedule’s instructions, so it asks you.'
+        : verdict
+            .replace(/^\s*DOESN.?T FIT:?\s*/i, '')
+            .trim()
+            .slice(0, 300) || 'It may not be what this schedule was asked to do.';
+    return false;
+  }
+
+  /** One review-mode run of the worker: its answer, or null when none came. */
+  private check(active: ActiveTask, prompt: string): Promise<string | null> {
+    const { credentials, repositories } = this.options;
+    const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
+    const worker = (this.options.createWorker ?? spawnWorker)({
+      apiKey: credentials.apiKey,
+      model: credentials.model,
+      name: this.options.assistantName?.() ?? 'Edi',
+      prompt,
+      history: [],
+      screenshots: [],
+      pointer: null,
+      spoken: false,
+      mode: 'review',
+      maxSteps: 1,
+      expressiveVoice: false,
+      selfContext: '',
+      skills: [],
+      desktopContext: null,
+      ...(readerModel ? { readerModel } : {}),
+      tools: [],
+    });
+    return new Promise(resolve => {
+      let text = '';
+      let settled = false;
+      const end = (answer: string | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        active.abort.signal.removeEventListener('abort', give);
+        void worker.terminate();
+        resolve(answer);
+      };
+      const give = () => end(null);
+      const timer = setTimeout(give, REVIEW_MS);
+      timer.unref?.();
+      active.abort.signal.addEventListener('abort', give, { once: true });
+      worker.on('message', raw => {
+        const parsed = workerMessageSchema.safeParse(raw);
+        if (!parsed.success) return end(null);
+        const message = parsed.data;
+        // The check is part of the task's spending.
+        if (message.type === 'usage')
+          try {
+            repositories.usage.add(message.entry, this.now(), active.runId);
+          } catch {
+            // Usage records are best effort.
+          }
+        else if (message.type === 'text') text += message.text;
+        else if (message.type === 'done') end(text);
+        else if (message.type === 'error') end(null);
+      });
+      worker.on('error', give);
+      worker.on('exit', give);
+    });
   }
 
   owns(callOrRunId: string) {

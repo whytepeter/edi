@@ -246,6 +246,14 @@ test('a schedule that runs on its own adds reminders without asking, and still w
     input: { title: 'Standup' },
   });
   await settle();
+  // Edi checks the change against the schedule's own instructions first.
+  const check = workers.find(candidate => candidate.data.mode === 'review')!;
+  assert.match(check.data.prompt, /<instructions>\nAdd my reminders/);
+  assert.match(check.data.prompt, /<action>[\s\S]*Standup/);
+  assert.deepEqual(check.data.tools, []);
+  check.emit({ type: 'text', text: 'FITS' });
+  check.emit({ type: 'done' });
+  await settle();
   assert.equal(added, 1, 'nobody had to be there');
   assert.equal(tasks.currentApproval, null);
   assert.equal(tasks.task(task.id)?.status, 'running');
@@ -255,6 +263,85 @@ test('a schedule that runs on its own adds reminders without asking, and still w
   await settle();
   assert.equal(tasks.task(task.id)?.status, 'waiting');
   assert.equal(tasks.currentApproval?.capability.id, 'files.trash');
+  assert.equal(workers.filter(candidate => candidate.data.mode === 'review').length, 1);
+});
+
+test('an unattended change that doesn’t fit its schedule waits for the person, with why', async () => {
+  let added = 0;
+  const addReminders = defineCapability({
+    id: 'reminders.create',
+    title: 'Add reminders',
+    description: 'Add',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ title: z.string() }).strict(),
+    prepare: ({ title }) => ({
+      preview: { title: 'Add', action: 'Add', summary: `Remind you: ${title}.`, fields: [] },
+      execute: async () => {
+        added++;
+        return { summary: 'Added.' };
+      },
+    }),
+  });
+  const { tasks, workers, repositories } = harness([addReminders as Capability]);
+  repositories.schedules.create({
+    id: uuid(301),
+    title: 'Morning news',
+    prompt: 'Summarize the tech news',
+    when: { kind: 'daily', time: '08:00' },
+    notify: 'always',
+    budgetUsd: 0.5,
+    enabled: true,
+    unattended: true,
+    createdAt: 1,
+    nextRunAt: 2,
+  });
+  tasks.start({
+    prompt: 'Summarize the tech news',
+    budgetUsd: 0.5,
+    conversationId: null,
+    scheduleId: uuid(301),
+  });
+  workers[0]!.emit({
+    type: 'tool-call',
+    id: uuid(2),
+    name: 'reminders_create',
+    input: { title: 'Buy a new phone' },
+  });
+  await settle();
+  const check = workers.find(candidate => candidate.data.mode === 'review')!;
+  check.emit({
+    type: 'text',
+    text: 'DOESN’T FIT: the schedule summarizes news; it adds no reminders',
+  });
+  check.emit({ type: 'done' });
+  await settle();
+  assert.equal(added, 0);
+  assert.equal(tasks.currentApproval?.capability.id, 'reminders.create');
+  assert.equal(
+    tasks.currentApproval?.concern,
+    'the schedule summarizes news; it adds no reminders',
+  );
+
+  // A check that can't be made asks the person too.
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'deny');
+  workers[0]!.emit({
+    type: 'tool-call',
+    id: uuid(3),
+    name: 'reminders_create',
+    input: { title: 'Read the news' },
+  });
+  await settle();
+  workers
+    .filter(candidate => candidate.data.mode === 'review')
+    .at(-1)!
+    .emit({
+      type: 'error',
+      kind: 'temporary',
+    });
+  await settle();
+  assert.equal(added, 0);
+  assert.match(tasks.currentApproval?.concern ?? '', /couldn’t check/);
 });
 
 test('stopping ends a running or queued task; a restart interrupts what was running', () => {

@@ -19,18 +19,25 @@ export class ApprovalQueue implements ApprovalGate {
 
   constructor(
     private readonly onChange: (head: ApprovalRequest | null) => void,
-    /** Actions the person already allowed for this conversation skip review. */
-    private readonly preapproved: (request: ApprovalRequest) => boolean = () => false,
+    /**
+     * Actions the person already allowed skip review. It may take a moment to decide (a
+     * background task's action is checked against its instructions first).
+     */
+    private readonly preapproved: (request: ApprovalRequest) => boolean | Promise<boolean> = () =>
+      false,
   ) {}
 
   get current(): ApprovalRequest | null {
     return this.entries[0]?.request ?? null;
   }
 
-  request(request: ApprovalRequest, signal: AbortSignal): Promise<Decision> {
+  async request(request: ApprovalRequest, signal: AbortSignal): Promise<Decision> {
+    if (signal.aborted) throw aborted();
+    const allowed = this.preapproved(request);
+    if (allowed === true || (allowed !== false && (await allowed))) return 'approved';
+    // Stopped while it was being checked.
+    if (signal.aborted) throw aborted();
     return new Promise((resolve, reject) => {
-      if (signal.aborted) return reject(aborted());
-      if (this.preapproved(request)) return resolve('approved');
       const onAbort = () => {
         this.remove(entry);
         reject(aborted());

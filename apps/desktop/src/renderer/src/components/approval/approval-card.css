@@ -168,7 +168,8 @@
   box-shadow: var(--focus-ring);
 }
 
-.approval-card-error {
+.approval-card-error,
+.approval-card-concern {
   font: var(--text-footnote);
   color: #c2502e;
 }
@@ -215,7 +216,8 @@
     background: linear-gradient(180deg, #3a3d48, #2c2f38);
     box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.08);
   }
-  .approval-card-error {
+  .approval-card-error,
+  .approval-card-concern {
     color: #f2a283;
   }
 }

@@ -99,7 +99,8 @@ export const workerInputSchema = z
     /** The question was spoken and the reply will be read aloud. */
     spoken: z.boolean(),
     /** A background task works on its own for longer; chat answers the person in front of it. */
-    mode: z.enum(['chat', 'task']).default('chat'),
+    /** `review` checks one action against a task's instructions: one short answer, no tools. */
+    mode: z.enum(['chat', 'task', 'review']).default('chat'),
     /** Model steps allowed in this run. */
     maxSteps: z.number().int().min(1).max(40).default(10),
     /**
