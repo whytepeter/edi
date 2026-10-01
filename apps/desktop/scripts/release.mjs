@@ -81,6 +81,17 @@ await build({
   config: {
     electronDist: 'node_modules/electron/dist',
     mac: { identity: signer, hardenedRuntime: true, notarize: true },
+    // Edi holds Screen Recording, Microphone and Calendar access. In a copy for other Macs, its
+    // signed binary can't be started as plain Node or with a debugger to borrow that access, and
+    // it loads only its own checked app.asar. Local `pnpm package` builds keep these, so the
+    // Playwright tests can still attach.
+    electronFuses: {
+      runAsNode: false,
+      enableNodeOptionsEnvironmentVariable: false,
+      enableNodeCliInspectArguments: false,
+      onlyLoadAppFromAsar: true,
+      enableEmbeddedAsarIntegrityValidation: true,
+    },
   },
 });
 
