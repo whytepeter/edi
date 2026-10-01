@@ -1,12 +1,13 @@
 /* eslint-disable no-console -- a command-line report printed to the terminal */
 /**
- * Summarizes Jev shadow mode (apps/desktop/src/main/jev/shadow.ts): where Jev and Edi's own
- * checks disagree, what following Jev would have saved or cost, and how long Jev took.
+ * Summarizes Jev in development runs (apps/desktop/src/main/jev): what it took out of hands-free
+ * turns, where it and Edi's own checks disagree, what following it would have saved or cost, and
+ * how long it took.
  *
  *   pnpm jev:report [path] [--finished-at 0.8]
  *
  * `--finished-at` is how sure Jev must be that a pause ends the turn before it would answer early.
- * The path defaults to the development log; Edi prints the exact path when shadow mode starts.
+ * The path defaults to the development log; Edi prints the exact path when Jev is turned on.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -17,14 +18,14 @@ const flag = args.indexOf('--finished-at');
 const finishedAt = flag >= 0 ? Number(args[flag + 1]) : 0.8;
 const path =
   args.find((arg, index) => !arg.startsWith('--') && (flag < 0 || index !== flag + 1)) ??
-  join(homedir(), 'Library/Application Support/Edi/jev-shadow.jsonl');
+  join(homedir(), 'Library/Application Support/Edi/jev.jsonl');
 
 if (!(finishedAt > 0 && finishedAt <= 1)) {
   console.error('--finished-at takes a number above 0 and up to 1.');
   process.exit(1);
 }
 if (!existsSync(path)) {
-  console.error(`No shadow log at ${path}. Pass the path Edi printed when shadow mode started.`);
+  console.error(`No Jev log at ${path}. Pass the path Edi printed when Jev was turned on.`);
   process.exit(1);
 }
 
@@ -65,9 +66,47 @@ function latency(list) {
   );
 }
 
+const heard = records.filter(record => record.kind === 'heard');
 const screens = records.filter(record => record.kind === 'screen');
 const turns = records.filter(record => record.kind === 'turn');
-console.log(`${path}\n${records.length} checks: ${screens.length} screen, ${turns.length} turn\n`);
+console.log(
+  `${path}\n${records.length} checks: ${heard.length} heard, ${screens.length} screen, ` +
+    `${turns.length} turn\n`,
+);
+
+if (heard.length) {
+  const judged = answered(heard);
+  const dropped = judged.filter(record => !record.kept);
+  const trimmed = judged.filter(record => record.kept && record.kept !== record.heard);
+  const line = record =>
+    `${record.jev.forEdi.toFixed(2)}  ${record.interrupting ? '(over Edi) ' : ''}${short(record.heard)}`;
+  // Records from before recording-only mode have no `decided`: those runs acted on Jev.
+  const acted = heard.some(record => record.decided !== false);
+  console.log(
+    `Heard for Edi (${acted ? 'deciding' : 'recording only'}): ${judged.length} judged, ` +
+      `${dropped.length} ${acted ? 'let go' : 'Jev would let go'}, ${trimmed.length} trimmed`,
+  );
+  show(
+    `${acted ? 'Let go' : 'Jev would let go'} as not for Edi (check these by hand)`,
+    dropped,
+    line,
+  );
+  show(`Sentences ${acted ? 'taken' : 'Jev would take'} out of a turn for Edi`, trimmed, record => {
+    // Split as the hearing check splits; a sentence under 0.2 was taken out.
+    const gone = (record.heard.match(/[^.!?]+[.!?]*/g) ?? [])
+      .map(sentence => sentence.trim())
+      .filter(Boolean)
+      .filter((_, index) => record.jev.sentences[index] < 0.2);
+    return `${short(gone.join(' '))}  ← from: ${short(record.heard)}`;
+  });
+  show(
+    'Kept, but Jev leaned toward the room (0.2 to 0.5)',
+    judged.filter(record => record.kept && record.jev.forEdi < 0.5),
+    line,
+  );
+  latency(heard);
+  console.log();
+}
 
 if (screens.length) {
   const judged = answered(screens);

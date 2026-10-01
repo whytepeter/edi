@@ -70,6 +70,13 @@ export interface VoiceDependencies<Screens> {
    */
   settle?(heard: string): string;
   /**
+   * Hands-free only: the words said to Edi, with what the microphone picked up from the room taken
+   * out ('' when none of it was for her). Asked at the first pause of each utterance, so a turn
+   * the long pause ends has its answer by then; a turn that ends sooner waits for it. A failure
+   * keeps every word.
+   */
+  sift?(heard: string, interrupting: boolean): Promise<string>;
+  /**
    * Hands-free turn detection in main (Silero and loudness). With one, the pet streams every
    * frame of a conversation and main finds speech; without, the pet reports speech itself.
    */
@@ -95,6 +102,8 @@ export interface VoiceDependencies<Screens> {
  */
 export interface VoiceTurnTiming {
   transcript: number;
+  /** The room taken out of a hands-free turn (`sift`), when it ran. */
+  sifted?: number;
   screens: number;
   /** The run is under way: desktop context gathered and the model called. */
   started?: number;
@@ -111,6 +120,7 @@ export interface VoiceTurnTiming {
 export function describeTiming(timing: VoiceTurnTiming) {
   const stages = [
     ['transcript', timing.transcript],
+    ['sifted', timing.sifted],
     ['screens', timing.screens],
     ['started', timing.started],
     ['first words', timing.firstWords],
@@ -133,10 +143,19 @@ export interface PauseOutcome {
   afterMs: number;
 }
 
-/** When the person finished, and how long reading their words took after that. */
+/** When the person finished, and how long reading their words (and sifting them) took after. */
 interface TurnMark {
   ended: number;
   transcript: number;
+  sifted?: number;
+}
+
+interface Utterance {
+  transcriber: Transcriber;
+  /** Counts speech starts, so a check that speech resumed during is dropped. */
+  epoch: number;
+  /** The words last sifted and what was kept, so the long pause reuses the first pause's. */
+  sifted?: { heard: string; kept: Promise<string> };
 }
 
 type Speak = (text: string, signal: AbortSignal, consume: Consume) => Promise<void>;
@@ -159,8 +178,11 @@ export function cleanTranscript(text: string) {
     .trim();
 }
 
-/** How recognizers spell "Edi" (turbo heard "Eddie" and "Edy" in half the addressed samples). */
-const EDI_SPELLINGS = 'eddie|eddy|edy|edie|eddi|edee';
+/**
+ * How recognizers spell "Edi" (turbo heard "Eddie" and "Edy" in half the addressed samples, and
+ * "Heddy" after "Hey").
+ */
+const EDI_SPELLINGS = 'eddie|eddy|edy|edie|eddi|edee|heddy|hedy';
 const greeting = new RegExp(
   `\\b(hey|hi|hello|okay|ok|yo|thanks|thank you)(,?\\s+)(?:${EDI_SPELLINGS})\\b`,
   'gi',
@@ -280,7 +302,7 @@ interface Reply {
 export class VoiceController<Screens> {
   private session: VoiceSession = initialVoiceSession;
   private reply?: Reply;
-  private utterance?: { transcriber: Transcriber; epoch: number };
+  private utterance?: Utterance;
   /** The words that ended the last hands-free utterance, for `submit-turn`. */
   private heard = '';
   private heardMark?: TurnMark;
@@ -509,9 +531,15 @@ export class VoiceController<Screens> {
       },
       () => '',
     );
+    const transcribed = now();
     // Speech resumed, the utterance was handed off, or the session changed meanwhile.
-    if (this.utterance !== utterance || utterance.epoch !== epoch) return;
-    if (generation !== this.session.generation) return;
+    const stale = () =>
+      this.utterance !== utterance ||
+      utterance.epoch !== epoch ||
+      generation !== this.session.generation;
+    if (stale()) return;
+    // Sifted now, even at a pause that waits: if these are the last words, it is done by then.
+    const kept = heard ? this.sift(utterance, heard) : undefined;
     if (long) this.settlePause('long-pause', ended);
     else {
       const unfinished = soundsUnfinished(heard);
@@ -521,11 +549,30 @@ export class VoiceController<Screens> {
         return;
       }
     }
+    const words = kept ? await kept : heard;
+    if (stale()) return;
     this.endUtterance(true);
-    this.heard = heard;
-    this.heardMark = { ended, transcript: now() - ended };
-    this.dispatch({ type: 'end-of-turn', generation, heard: Boolean(heard) });
-    if (!heard && this.session.phase === 'listening') this.armIdle();
+    this.heard = words;
+    this.heardMark = {
+      ended,
+      transcript: transcribed - ended,
+      ...(kept && { sifted: now() - ended }),
+    };
+    // Nothing for Edi is no turn: she keeps listening, or carries on with the reply it came over.
+    this.dispatch({ type: 'end-of-turn', generation, heard: Boolean(words) });
+    if (!words && this.session.phase === 'listening') this.armIdle();
+  }
+
+  /** What `sift` keeps of `heard`, asked once for each wording of an utterance. */
+  private sift(utterance: Utterance, heard: string) {
+    const sift = this.deps.sift;
+    if (!sift) return undefined;
+    if (utterance.sifted?.heard !== heard)
+      utterance.sifted = {
+        heard,
+        kept: sift(heard, this.session.interrupting).catch(() => heard),
+      };
+    return utterance.sifted.kept;
   }
 
   /** Tells `pauseJudged` what followed the last pause judged unfinished, if one is waiting. */
@@ -572,6 +619,7 @@ export class VoiceController<Screens> {
     const since = () => now() - mark.ended;
     const timing: VoiceTurnTiming = {
       transcript: mark.transcript,
+      ...(mark.sifted !== undefined && { sifted: mark.sifted }),
       screens: 0,
       finished: 0,
       outcome: 'failed',

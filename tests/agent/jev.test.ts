@@ -1,9 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { JevClient, type JevAnswer } from '../../apps/desktop/src/main/jev/client';
+import {
+  JevClient,
+  type JevAnswer,
+  type JevAnswers,
+  type JevState,
+  type YesNoQuestion,
+} from '../../apps/desktop/src/main/jev/client';
+import {
+  JevHearing,
+  forEdiQuestion,
+  sentenceQuestion,
+  type HearingContext,
+  type HearingRecord,
+} from '../../apps/desktop/src/main/jev/hearing';
+import { jevFromEnv } from '../../apps/desktop/src/main/jev/setup';
 import {
   JevShadow,
-  jevShadowFromEnv,
   screenQuestion,
   turnQuestion,
   type ShadowRecord,
@@ -62,6 +75,29 @@ test('the OpenRouter key is read on each question, and nothing is sent without o
   key = 'saved-later';
   assert.equal((await client.yesNo({ request: 'hi' }, screenQuestion)).ok, true);
   assert.deepEqual(sentWith, ['Bearer saved-later']);
+});
+
+test('several questions go in one request, each answer read by its id', async () => {
+  const bodies: unknown[] = [];
+  const signals: (AbortSignal | null | undefined)[] = [];
+  const client = new JevClient(
+    () => 'key',
+    async (_url, init) => {
+      bodies.push(JSON.parse(String(init.body)));
+      signals.push(init.signal);
+      return json({ answers: { a: { type: 'noul', noul: 0.1 }, b: { type: 'noul', noul: 0.7 } } });
+    },
+  );
+  const both = await client.ask({ heard: 'hi' }, { a: screenQuestion, b: turnQuestion }, 600);
+  assert.deepEqual(both.ok && both.yes, { a: 0.1, b: 0.7 });
+  assert.deepEqual((bodies[0] as { questions: unknown }).questions, {
+    a: { type: 'noul', ...screenQuestion },
+    b: { type: 'noul', ...turnQuestion },
+  });
+  assert.ok(signals[0] instanceof AbortSignal, 'a deadline goes with the request');
+  // One answer missing makes the whole response unusable.
+  const missing = await client.ask({}, { a: screenQuestion, b: turnQuestion, c: turnQuestion });
+  assert.deepEqual(missing.ok ? 'answered' : missing.error, 'unexpected response');
 });
 
 test('a refused, malformed or failed request is an answer with a reason, never a throw', async () => {
@@ -192,12 +228,177 @@ test('checks beyond four waiting on Jev are skipped, not queued', async () => {
   assert.equal(pending.length, 5, 'room again once answers arrive');
 });
 
-test('shadow mode needs a development run and EDI_JEV_SHADOW=on, not a second key', () => {
-  const on = { EDI_JEV_SHADOW: 'on' };
+test('Jev needs a development run and EDI_JEV=on or decide, not a second key', () => {
+  const on = { EDI_JEV: 'on' };
   const make = (packaged: boolean, env: Record<string, string>) =>
-    jevShadowFromEnv({ packaged, logPath: '/dev/null', apiKey: () => 'openrouter-key', env });
-  assert.ok(make(false, on) instanceof JevShadow);
+    jevFromEnv({ packaged, logPath: '/dev/null', apiKey: () => 'openrouter-key', env });
+  const jev = make(false, on);
+  assert.ok(jev?.shadow instanceof JevShadow);
+  assert.ok(jev?.hearing instanceof JevHearing);
+  assert.equal(jev?.hearing.decides, false, 'on records; it does not decide');
+  assert.equal(make(false, { EDI_JEV: 'decide' })?.hearing.decides, true);
   assert.equal(make(true, on), null, 'never in a packaged app');
+  assert.equal(make(true, { EDI_JEV: 'decide' }), null);
   assert.equal(make(false, {}), null, 'the OpenRouter key alone does not turn it on');
-  assert.equal(make(false, { EDI_JEV_SHADOW: 'yes' }), null);
+  assert.equal(make(false, { EDI_JEV: 'yes' }), null);
+});
+
+/**
+ * A deciding hearing (or `decides: false`, recording only) whose Jev answers from `yes` by
+ * question id, recording what it was asked.
+ */
+function hearing(yes: Record<string, number> | { error: string }, decides = true) {
+  const asked: { state: JevState; questions: Record<string, YesNoQuestion>; timeoutMs?: number }[] =
+    [];
+  const written: HearingRecord[] = [];
+  const jev = {
+    ask: async <Id extends string>(
+      state: JevState,
+      questions: Record<Id, YesNoQuestion>,
+      timeoutMs?: number,
+    ): Promise<JevAnswers<Id>> => {
+      asked.push({ state, questions, timeoutMs });
+      if ('error' in yes) return { ok: false, error: String(yes.error), ms: 600 };
+      const ids = Object.keys(questions) as Id[];
+      return {
+        ok: true,
+        yes: Object.fromEntries(
+          ids.map(id => [id, (yes as Record<string, number>)[id] ?? 0.9]),
+        ) as Record<Id, number>,
+        ms: 210,
+      };
+    },
+  };
+  return {
+    asked,
+    written,
+    hearing: new JevHearing(
+      jev,
+      record => written.push(record),
+      decides,
+      () => 5,
+    ),
+  };
+}
+
+const context: HearingContext = {
+  name: 'Edi',
+  lastReply: 'You have two meetings tomorrow. Want me to move the first one?',
+  lastRequest: 'What is on my calendar tomorrow?',
+  interrupting: false,
+};
+
+test('words from the room are let go only when Jev is sure they were not for Edi', async () => {
+  const room = hearing({ for_edi: 0.06 });
+  assert.equal(await room.hearing.sift('And now, the weather for the weekend.', context), '');
+  assert.deepEqual(room.asked[0]?.questions, { for_edi: forEdiQuestion });
+  assert.equal(room.asked[0]?.timeoutMs, 1_500, 'a live check is never waited on for long');
+  assert.deepEqual(room.asked[0]?.state, {
+    heard: 'And now, the weather for the weekend.',
+    conversation: {
+      edi_said_last: context.lastReply,
+      person_asked_before: context.lastRequest,
+      edi_was_speaking: 'no',
+    },
+  });
+  assert.deepEqual(room.written, [
+    {
+      kind: 'heard',
+      at: 5,
+      heard: 'And now, the weather for the weekend.',
+      interrupting: false,
+      kept: '',
+      decided: true,
+      jev: { ok: true, forEdi: 0.06, sentences: [], ms: 210 },
+    },
+  ]);
+
+  // Unsure is not sure: a short answer to Edi's question stays.
+  const unsure = hearing({ for_edi: 0.35 });
+  assert.equal(await unsure.hearing.sift('Yes, do that.', context), 'Yes, do that.');
+});
+
+test('stray sentences are taken out of words that were for Edi', async () => {
+  const mixed = hearing({ for_edi: 0.92, sentence_0: 0.95, sentence_1: 0.04, sentence_2: 0.88 });
+  const heard = 'Move it to Friday. Stay tuned after the break. And tell Sam.';
+  assert.equal(await mixed.hearing.sift(heard, context), 'Move it to Friday. And tell Sam.');
+  assert.deepEqual(Object.keys(mixed.asked[0]?.questions ?? {}), [
+    'for_edi',
+    'sentence_0',
+    'sentence_1',
+    'sentence_2',
+  ]);
+  assert.deepEqual(
+    mixed.asked[0]?.questions.sentence_1,
+    sentenceQuestion('Stay tuned after the break.'),
+  );
+  assert.deepEqual(mixed.written[0]?.jev, {
+    ok: true,
+    forEdi: 0.92,
+    sentences: [0.95, 0.04, 0.88],
+    ms: 210,
+  });
+
+  // For Edi, but no sentence was: the answers disagree, so every word stays.
+  const torn = hearing({ for_edi: 0.6, sentence_0: 0.1, sentence_1: 0.1 });
+  assert.equal(await torn.hearing.sift('Sure. Go ahead.', context), 'Sure. Go ahead.');
+});
+
+test('her name, nothing heard or a failed check never loses a word', async () => {
+  const named = hearing({ for_edi: 0 });
+  assert.equal(
+    await named.hearing.sift('Okay Edi, read it again.', context),
+    'Okay Edi, read it again.',
+  );
+  assert.equal(await named.hearing.sift('   ', context), '   ');
+  assert.equal(named.asked.length, 0, 'nothing to ask');
+  // "Edinburgh" is not her name.
+  await named.hearing.sift('Book a train to Edinburgh.', context);
+  assert.equal(named.asked.length, 1);
+
+  const failed = hearing({ error: 'timeout' });
+  const over = { ...context, interrupting: true };
+  assert.equal(await failed.hearing.sift('Wait, stop.', over), 'Wait, stop.');
+  assert.equal(
+    (failed.asked[0]?.state.conversation as { edi_was_speaking: string }).edi_was_speaking,
+    'yes, and these words came over her',
+  );
+  assert.deepEqual(failed.written[0], {
+    kind: 'heard',
+    at: 5,
+    heard: 'Wait, stop.',
+    interrupting: true,
+    kept: 'Wait, stop.',
+    decided: true,
+    jev: { ok: false, error: 'timeout', ms: 600 },
+  });
+});
+
+test('a long turn is judged whole, not sentence by sentence', async () => {
+  const long = hearing({ for_edi: 0.9 });
+  const heard = Array.from({ length: 9 }, (_, i) => `Point ${i + 1}.`).join(' ');
+  assert.equal(await long.hearing.sift(heard, context), heard);
+  assert.deepEqual(Object.keys(long.asked[0]?.questions ?? {}), ['for_edi']);
+});
+
+test('recording only, every word goes on at once and Jev’s verdict is written beside it', async () => {
+  const recorded = hearing({ for_edi: 0.04 }, false);
+  assert.equal(
+    await recorded.hearing.sift('And now, the weather.', context),
+    'And now, the weather.',
+  );
+  await tick();
+  assert.deepEqual(recorded.written[0], {
+    kind: 'heard',
+    at: 5,
+    heard: 'And now, the weather.',
+    interrupting: false,
+    kept: '',
+    decided: false,
+    jev: { ok: true, forEdi: 0.04, sentences: [], ms: 210 },
+  });
+
+  // A Jev that never answers holds nothing up.
+  const stuck = new JevHearing({ ask: () => new Promise<never>(() => {}) }, () => {}, false);
+  assert.equal(await stuck.sift('Check my emails.', context), 'Check my emails.');
 });

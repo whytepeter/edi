@@ -173,16 +173,26 @@ Shown content is data, never HTML. It is displayed, not returned to the model, s
 `workspace.show` also creates a useful representation under Documents › Edi › Artifacts: reports and checklists
 are Markdown, while tables are CSV. The generated-content view has no second Copy or Save step.
 
-### Jev shadow mode (development only)
+### Jev (development only)
 
-- Client and shadow: `apps/desktop/src/main/jev`; report: `pnpm jev:report [path]`
-- Hooks: `compareScreenGate` in `capture/screens.ts`, `pauseJudged` on `VoiceController`
+- Client, hearing filter and shadow: `apps/desktop/src/main/jev`; turned on in `jev/setup.ts`
+- Report: `pnpm jev:report [path]`
+- Hooks: `sift` and `pauseJudged` on `VoiceController`, `compareScreenGate` in `capture/screens.ts`
 
-Asks [Jev](https://docs.typesafe.ai/api.md) (`typesafe/jev-1.13`) the same question as two local checks, whether a
-prompt needs a screenshot and whether a hands-free pause ends the turn, and records both answers. Edi's own check
-still decides. Off unless a development run sets `EDI_JEV_SHADOW=on`; then each checked prompt or utterance goes to
-Jev through OpenRouter's System One API on the saved OpenRouter key, and the comparisons, words included, go to
-`jev-shadow.jsonl` in user data. Never active in a packaged app.
+Off unless a development run sets `EDI_JEV=on` (everything recorded, nothing decided) or `EDI_JEV=decide` (the
+hearing check acts too); never active in a packaged app. [Jev](https://docs.typesafe.ai/api.md)
+(`typesafe/jev-1.13`) is reached through OpenRouter's System One API on the saved OpenRouter key, and every question
+and answer, words included, goes to `jev.jsonl` in user data.
+
+- **Hearing (decides only with `EDI_JEV=decide`):** each hands-free utterance that doesn't use Edi's name is asked, in one request, whether it was
+  said to Edi and, when it has 2 to 8 sentences, which of them were. Words go only when Jev puts the chance they were
+  for Edi below 0.2: a whole turn becomes no turn (Edi keeps listening, or carries on with a reply it came over), and
+  a stray sentence is cut from a turn that stays. It is asked at the first pause, so a turn the long pause ends has
+  its answer already; a slow (over 1.5 s) or failed answer keeps every word. Holds and typed messages are never
+  sifted. With `EDI_JEV=on` the verdict is only recorded and Edi never waits for it: Jev's first run scored the
+  person's own words 0.16–0.32, so it isn't trusted to drop anything yet.
+- **Shadow (decides nothing):** whether a prompt needs a screenshot and whether a hands-free pause ends the turn are
+  asked beside Edi's own checks, and both answers are recorded.
 
 ### Storage
 

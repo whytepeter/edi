@@ -4,15 +4,12 @@
  * Two checks are compared: whether a prompt needs a screenshot, and whether a hands-free pause
  * ends the turn.
  *
- * Development runs only, and only when turned on with `EDI_JEV_SHADOW=on`. The words of each
- * checked prompt or utterance then go to Jev through OpenRouter, on the OpenRouter key Edi already
- * has, and each comparison, words included, is added to a local JSON Lines file.
- * `pnpm jev:report` summarizes that file.
+ * Development runs only, with `EDI_JEV=on` (see `setup.ts`). Each comparison, words included, is
+ * added to the Jev log, which `pnpm jev:report` summarizes.
  */
 
-import { appendFile } from 'node:fs/promises';
 import type { PauseOutcome } from '../voice/voice-controller';
-import { JevClient, type JevAnswer, type YesNoQuestion } from './client';
+import type { JevAnswer, JevClient, YesNoQuestion } from './client';
 
 /** Checks beyond this many waiting on Jev are skipped rather than queued. */
 const MAX_IN_FLIGHT = 4;
@@ -129,24 +126,4 @@ export class JevShadow {
       this.inFlight--;
     }
   }
-}
-
-/** Adds each record as one line of JSON; a failed write loses that record and nothing else. */
-export function appendJsonLines(path: string) {
-  return (record: ShadowRecord) => {
-    appendFile(path, `${JSON.stringify(record)}\n`).catch(() => {});
-  };
-}
-
-/** The shadow when this development run turned it on; otherwise null, and nothing is sent. */
-export function jevShadowFromEnv(options: {
-  packaged: boolean;
-  logPath: string;
-  /** The OpenRouter key Edi already uses for answers. */
-  apiKey: () => string;
-  env?: Record<string, string | undefined>;
-}): JevShadow | null {
-  const env = options.env ?? process.env;
-  if (options.packaged || env.EDI_JEV_SHADOW !== 'on') return null;
-  return new JevShadow(new JevClient(options.apiKey), appendJsonLines(options.logPath));
 }

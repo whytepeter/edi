@@ -108,7 +108,7 @@ import {
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
 import { captureScreensForPrompt, compareScreenGate, showMarksInCaptures } from './capture/screens';
-import { jevShadowFromEnv } from './jev/shadow';
+import { jevFromEnv } from './jev/setup';
 import { documentText, shouldHideCardOnBlur, windowListJson } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
@@ -1105,19 +1105,26 @@ async function start() {
       ? { ...context, windowTitle: null, url: null, document: null, selectedText: null }
       : context;
   };
-  // Jev beside the screen gate and the end-of-turn check, deciding nothing (development only).
-  const jevShadowLog = join(app.getPath('userData'), 'jev-shadow.jsonl');
-  const jevShadow = jevShadowFromEnv({
+  // Jev (development only): beside the screen gate, the end-of-turn check and hands-free hearing,
+  // recorded; with EDI_JEV=decide it also takes room talk out of hands-free turns.
+  const jevLog = join(app.getPath('userData'), 'jev.jsonl');
+  const jev = jevFromEnv({
     packaged: app.isPackaged,
-    logPath: jevShadowLog,
+    logPath: jevLog,
     apiKey: () => openRouter.apiKey,
   });
-  if (jevShadow) {
-    compareScreenGate((prompt, followUp, needed) => jevShadow.screenGate(prompt, followUp, needed));
+  if (jev) {
+    compareScreenGate((prompt, followUp, needed) =>
+      jev.shadow.screenGate(prompt, followUp, needed),
+    );
     // eslint-disable-next-line no-console -- a deliberate notice: prompts now go to Jev
     console.info(
-      `[jev] shadow mode on: prompts and utterances go to Jev through OpenRouter; ${jevShadowLog}`,
+      `[jev] on, ${jev.hearing.decides ? 'dropping room talk' : 'recording only'}: prompts and ` +
+        `hands-free words go to Jev through OpenRouter; ${jevLog}`,
     );
+  } else if (!app.isPackaged && process.env.EDI_JEV_SHADOW) {
+    // eslint-disable-next-line no-console -- the old flag would otherwise turn nothing on, silently
+    console.warn('[jev] EDI_JEV_SHADOW was renamed: run with EDI_JEV=on (or EDI_JEV=decide)');
   }
   /** Screenshots for a screen question, only while Edi may look. */
   const screensForPrompt = (prompt: string) =>
@@ -1402,8 +1409,20 @@ async function start() {
     failed: error =>
       // eslint-disable-next-line no-console -- a deliberate diagnostic line
       console.error('[voice]', error instanceof Error ? (error.stack ?? error.message) : error),
-    ...(jevShadow && {
-      pauseJudged: (heard: string, unfinished: boolean) => jevShadow.endOfTurn(heard, unfinished),
+    ...(jev && {
+      pauseJudged: (heard: string, unfinished: boolean) => jev.shadow.endOfTurn(heard, unfinished),
+      // Talk from the room is not a turn, nor an interruption (EDI_JEV=decide; else recorded).
+      sift: (heard: string, interrupting: boolean) =>
+        jev.hearing.sift(heard, {
+          name: companion(),
+          // The reply being spoken, or the last one: a new run is what clears it.
+          lastReply: speakable(
+            agent.state.text ||
+              (agent.state.messages.findLast(message => message.role === 'assistant')?.text ?? ''),
+          ),
+          lastRequest: agent.state.prompt,
+          interrupting,
+        }),
     }),
     // Timings only, never words: where a spoken reply's wait goes, in the terminal running Edi.
     timed: timing =>
