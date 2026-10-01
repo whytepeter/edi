@@ -113,6 +113,7 @@ import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
 import { progressLabel } from './agent/step-labels';
+import { batchTextUpdates } from './agent/state-batcher';
 import {
   resolveChatterboxVoice,
   resolveKokoro,
@@ -1681,8 +1682,10 @@ async function start() {
   });
   let runWasSpoken = false;
   let previousAgentStatus = agent.state.status;
+  // The card gets streamed words in batches; voice and the character still see every change.
+  const sendAgentState = batchTextUpdates(state => broadcast([workspace], 'edi:agent', state));
   agent.onChange(state => {
-    broadcast([workspace], 'edi:agent', state);
+    sendAgentState(state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     // Asking again is the answer to "something stopped last time", so that notice goes.
     if (state.status === 'running' && recovered.runs + recovered.tasks > 0) {
