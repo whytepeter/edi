@@ -1507,7 +1507,11 @@ async function start() {
     card: workspace,
     character: () => currentCharacter().manifest,
     name: () => companion(),
-    startVoice: mode => voice.start(mode),
+    startVoice: mode => {
+      // A spoken question is on its way: load the agent worker while the person talks.
+      agent.warm();
+      return voice.start(mode);
+    },
     showContent: () => placement.show(),
     openSettings: () => {
       workspace.webContents.send('edi:navigate', 'settings');
@@ -1540,6 +1544,7 @@ async function start() {
     {
       down: () => {
         pressedAt = Date.now();
+        agent.warm();
         conversingAtPress = voice.mode === 'conversation';
         pet.showInactive();
         // Held: a drag now draws on their screen instead of reaching the app underneath.
@@ -1738,6 +1743,8 @@ async function start() {
   screen.on('display-metrics-changed', onDisplayChange);
   pet.once('ready-to-show', () => pet.showInactive());
   workspace.on('focus', () => {
+    // The card in front usually means a typed question is coming.
+    agent.warm();
     permissions?.refresh();
     void fileAccess.refresh();
   });

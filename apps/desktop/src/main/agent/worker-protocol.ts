@@ -175,6 +175,8 @@ export type WorkerMessage = z.infer<typeof workerMessageSchema>;
 
 /** Main → worker. */
 export type HostMessage =
+  /** A worker loaded ahead of time receives its run. */
+  | { type: 'start'; input: WorkerInput }
   | { type: 'stop' }
   /** Time is nearly up: stop using tools and answer from what has been found so far. */
   | { type: 'wrap-up' }

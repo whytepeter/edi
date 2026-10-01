@@ -17,6 +17,22 @@ const notesSave = {
 // Mock the network below the real SDK/adapter. No requests or credentials leave the process.
 // Each request body is echoed to the test as a `debug-request` message for inspection.
 function launch(mode, tools = [], context = {}) {
+  const input = {
+    apiKey: 'test-only-secret',
+    model: 'test/model',
+    ...(context.readerModel ? { readerModel: context.readerModel } : {}),
+    ...(context.maxSteps ? { maxSteps: context.maxSteps } : {}),
+    ...(context.desktopContext ? { desktopContext: context.desktopContext } : {}),
+    ...(context.skills ? { skills: context.skills } : {}),
+    prompt: 'Hello',
+    history: context.history ?? [],
+    screenshots: context.screenshots ?? [],
+    ...(context.pointer ? { pointer: context.pointer } : {}),
+    spoken: context.spoken ?? false,
+    ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),
+    ...(context.selfContext ? { selfContext: context.selfContext } : {}),
+    tools,
+  };
   const worker = new Worker(
     `
     const { workerData, parentPort } = require('node:worker_threads');
@@ -106,26 +122,13 @@ function launch(mode, tools = [], context = {}) {
   `,
     {
       eval: true,
-      workerData: {
-        entry: resolve('apps/desktop/out/main/agent-worker.js'),
-        apiKey: 'test-only-secret',
-        model: 'test/model',
-        ...(context.readerModel ? { readerModel: context.readerModel } : {}),
-        ...(context.maxSteps ? { maxSteps: context.maxSteps } : {}),
-        ...(context.desktopContext ? { desktopContext: context.desktopContext } : {}),
-        ...(context.skills ? { skills: context.skills } : {}),
-        prompt: 'Hello',
-        history: context.history ?? [],
-        screenshots: context.screenshots ?? [],
-        ...(context.pointer ? { pointer: context.pointer } : {}),
-        spoken: context.spoken ?? false,
-        ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),
-        ...(context.selfContext ? { selfContext: context.selfContext } : {}),
-        tools,
-        mode,
-      },
+      // A spare worker starts with nothing but `warm`, and receives its run as a message.
+      workerData: context.warm
+        ? { entry: resolve('apps/desktop/out/main/agent-worker.js'), mode, warm: true }
+        : { entry: resolve('apps/desktop/out/main/agent-worker.js'), mode, ...input },
     },
   );
+  if (context.warm) worker.postMessage({ type: 'start', input });
   return worker;
 }
 
@@ -191,6 +194,18 @@ test('real SDK worker streams mocked OpenRouter text', async () => {
     },
   );
   assert.match(JSON.stringify(requests[0].messages[0].content), /Use web_search for current/);
+});
+
+test('a worker loaded ahead of the question answers the run it is then given', async () => {
+  const { messages, requests } = await collect(
+    launch('success', [notesSave], { warm: true, selfContext: '{"name":"Edi"}' }),
+  );
+  assert.equal(text(messages), 'Hello from Edi.');
+  assert.equal(messages.at(-1).type, 'done');
+  // The same request as a worker started with its data: name, tools and the turn's notes.
+  assert.match(JSON.stringify(requests[0].messages[0].content), /You are Edi/);
+  assert.ok(requests[0].tools.some(tool => tool.function?.name === 'notes_save'));
+  assert.match(requests[0].messages.at(-1).content.at(-1).text, /\{"name":"Edi"\}\n<\/turn>$/);
 });
 
 test('what changes each turn goes last, so the system prompt stays the same for the cache', async () => {

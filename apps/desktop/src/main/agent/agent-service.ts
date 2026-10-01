@@ -51,6 +51,9 @@ const GROUNDING_WAIT_MS = 1500;
 const CONTEXT_WAIT_MS = 2_000;
 /** A conversation Edi picked up by itself is continued only within this long of its last turn. */
 const FRESH_MS = 2 * 60 * 60 * 1000;
+/** A worker loaded ahead of a question is dropped after this long unused (it holds ~37 MiB). */
+export const SPARE_IDLE_MS = 60_000;
+const WORKER_ENTRY = () => join(__dirname, 'agent-worker.js');
 
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
@@ -138,6 +141,8 @@ export class AgentService {
   private readonly allowedInConversation = new Map<string, Set<string>>();
   private readonly broker: CapabilityBroker;
   private readonly stepRecorder: ToolCallRecorder;
+  /** A worker that has loaded the SDK and waits, without a key, for the next question. */
+  private spare?: { worker: Worker; timer: ReturnType<typeof setTimeout> };
 
   constructor(private readonly options: AgentServiceOptions) {
     this.stepRecorder = this.recorder();
@@ -331,8 +336,38 @@ export class AgentService {
     return id;
   }
 
+  /**
+   * The person is about to ask (the card took focus, or a hold started): load a worker now, so
+   * starting one is not part of the wait. It holds no key until it is given a run.
+   */
+  warm() {
+    if (!this.canAnswer || this.configuring) return;
+    if (this.spare) return void this.spare.timer.refresh();
+    const worker = new Worker(WORKER_ENTRY(), { workerData: { warm: true } });
+    // Waiting never keeps Edi (or a test) running.
+    worker.unref();
+    const drop = () => {
+      if (this.spare?.worker !== worker) return;
+      clearTimeout(this.spare.timer);
+      this.spare = undefined;
+      void worker.terminate();
+    };
+    worker.once('error', drop);
+    worker.once('exit', drop);
+    const timer = setTimeout(drop, SPARE_IDLE_MS);
+    timer.unref?.();
+    this.spare = { worker, timer };
+  }
+
   private spawn(workerData: WorkerInput) {
-    return new Worker(join(__dirname, 'agent-worker.js'), { workerData });
+    const spare = this.spare;
+    if (!spare) return new Worker(WORKER_ENTRY(), { workerData });
+    this.spare = undefined;
+    clearTimeout(spare.timer);
+    spare.worker.removeAllListeners();
+    spare.worker.ref();
+    spare.worker.postMessage({ type: 'start', input: workerData } satisfies HostMessage);
+    return spare.worker;
   }
 
   private listen(run: ActiveRun) {
