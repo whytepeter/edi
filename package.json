@@ -15,6 +15,7 @@
     "dev": "pnpm --filter @edi/desktop dev",
     "build": "pnpm --filter @edi/desktop build",
     "character": "node --import tsx apps/desktop/scripts/character.mts",
+    "jev:report": "node apps/desktop/scripts/jev-report.mjs",
     "typecheck": "pnpm -r typecheck",
     "test": "node --import tsx --disable-warning=ExperimentalWarning --test packages/*/src/*.test.ts tests/input/*.test.ts tests/agent/*.test.ts tests/characters/*.test.ts",
     "test:desktop": "node tests/desktop/smoke.mjs",

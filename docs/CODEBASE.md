@@ -173,6 +173,17 @@ Shown content is data, never HTML. It is displayed, not returned to the model, s
 `workspace.show` also creates a useful representation under Documents › Edi › Artifacts: reports and checklists
 are Markdown, while tables are CSV. The generated-content view has no second Copy or Save step.
 
+### Jev shadow mode (development only)
+
+- Client and shadow: `apps/desktop/src/main/jev`; report: `pnpm jev:report [path]`
+- Hooks: `compareScreenGate` in `capture/screens.ts`, `pauseJudged` on `VoiceController`
+
+Asks [Jev](https://docs.typesafe.ai/api.md) the same question as two local checks, whether a prompt needs a
+screenshot and whether a hands-free pause ends the turn, and records both answers. Edi's own check still decides.
+Off unless a development run sets `EDI_JEV_SHADOW=on` and `TYPESAFE_API_KEY`; then each checked prompt or
+utterance goes to TypeSafe, and the comparisons, words included, go to `jev-shadow.jsonl` in user data. Never
+active in a packaged app.
+
 ### Storage
 
 - Database and migrations: `packages/storage/src/database.ts` and `migrations.ts`

@@ -7,6 +7,7 @@ import {
   cleanTranscript,
   speakable,
   takeSpeech,
+  type PauseOutcome,
   type VoiceDependencies,
   type VoiceStatus,
   type VoiceTurnTiming,
@@ -540,6 +541,51 @@ test('hands-free: a long pause ends the turn even on a trailing word', async () 
   await wait(10);
   stopPlaying();
   assert.equal(h.asked.length, 1);
+});
+
+test('hands-free: each judged pause is reported, then what followed an unfinished one', async () => {
+  // Real time plus jumps: a frozen clock would never let the reply's audio drain.
+  const start = Date.now();
+  let jumped = 0;
+  let words = 'Remind me to call mum and';
+  const judged: [string, boolean][] = [];
+  const followed: PauseOutcome[] = [];
+  const h = harness({
+    listen: fakeListener(() => words).listen,
+    now: () => Date.now() - start + jumped,
+    pauseJudged: (heard, unfinished) => {
+      judged.push([heard, unfinished]);
+      return outcome => followed.push(outcome);
+    },
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  jumped += 400;
+  h.voice.clientEvent(generation, 'speech-detected'); // they carried on
+  words = 'Remind me to call mum and dad at';
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  jumped += 1_200;
+  h.voice.clientEvent(generation, 'long-pause');
+  await wait(10);
+  stopPlaying();
+  assert.deepEqual(judged, [
+    ['Remind me to call mum and', true],
+    ['Remind me to call mum and dad at', true],
+  ]);
+  assert.deepEqual(
+    followed.map(outcome => outcome.next),
+    ['resumed', 'long-pause'],
+  );
+  // Each counts from its own judged pause: the jump, plus the few real milliseconds between.
+  [400, 1_200].forEach((jump, index) => {
+    const afterMs = followed[index]?.afterMs ?? -1;
+    assert.ok(afterMs >= jump && afterMs < jump + 250, `${afterMs} ms after a ${jump} ms wait`);
+  });
+  assert.equal(h.asked.length, 1, 'the judgement is only reported; the turn ends as before');
 });
 
 test('talking over Edi pauses her; words stop the reply and the work, then ask again', async () => {

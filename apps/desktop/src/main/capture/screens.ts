@@ -112,6 +112,17 @@ export function showMarksInCaptures(options: {
   keepVisible = options.windows;
 }
 
+type GateObserver = (prompt: string, followUp: boolean, needed: boolean) => void;
+let observeGate: GateObserver | undefined;
+
+/**
+ * Main can be told each screen decision, with whether the turn before used the screen, to
+ * compare it with another judge (Jev in shadow mode). The decision itself is unchanged.
+ */
+export function compareScreenGate(observe: GateObserver) {
+  observeGate = observe;
+}
+
 /**
  * Generic conversation does not touch ScreenCaptureKit or allocate
  * image data unless screen context is actually needed.
@@ -121,7 +132,10 @@ export async function captureScreensForPrompt(
   /** Privacy mode: false while Edi mustn't look (paused, a screen share, a private app). */
   mayLook: () => Promise<boolean> = async () => true,
 ): Promise<ScreenContext> {
-  if (!screenContext.decide(prompt)) return { screenshots: [], access: null };
+  const followUp = screenContext.state.visualContextActive;
+  const needed = screenContext.decide(prompt);
+  observeGate?.(prompt, followUp, needed);
+  if (!needed) return { screenshots: [], access: null };
   if (!(await mayLook().catch(() => false))) return { screenshots: [], access: null };
 
   // “What's this?” gets a close-up around the pointer; every screen question gets its position.

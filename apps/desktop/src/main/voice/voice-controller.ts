@@ -78,6 +78,11 @@ export interface VoiceDependencies<Screens> {
   timed?(timing: VoiceTurnTiming): void;
   /** A spoken turn broke: the whole error, for the log (the person sees a short notice). */
   failed?(error: unknown): void;
+  /**
+   * Each hands-free pause judged by the words so far, for comparing the judgement with another
+   * (Jev in shadow mode). After an unfinished verdict, the returned function hears what followed.
+   */
+  pauseJudged?(heard: string, unfinished: boolean): ((outcome: PauseOutcome) => void) | void;
   /** Tests shorten these. */
   timing?: Partial<ProgressTiming & { idleMs: number; tickMs: number }>;
   now?(): number;
@@ -117,6 +122,15 @@ export function describeTiming(timing: VoiceTurnTiming) {
     value === undefined ? [] : [`${label} ${Math.round(value)} ms`],
   );
   return `voice turn: ${parts.join(' · ')} (${timing.outcome})`;
+}
+
+/**
+ * What followed a pause judged unfinished: the person carried on, or stayed quiet until the long
+ * pause ended the turn. `afterMs` counts from the judged pause.
+ */
+export interface PauseOutcome {
+  next: 'resumed' | 'long-pause';
+  afterMs: number;
 }
 
 /** When the person finished, and how long reading their words took after that. */
@@ -270,6 +284,8 @@ export class VoiceController<Screens> {
   /** The words that ended the last hands-free utterance, for `submit-turn`. */
   private heard = '';
   private heardMark?: TurnMark;
+  /** The last pause judged unfinished, waiting to hear what followed it (`pauseJudged`). */
+  private pauseCheck?: { report: (outcome: PauseOutcome) => void; at: number };
   /** Finds speech in an open conversation's audio; one per conversation. */
   private detector?: SpeechDetector;
   private pendingAck?: { turn: number; resolve(): void };
@@ -391,6 +407,7 @@ export class VoiceController<Screens> {
   }
 
   private speechDetected(generation: number) {
+    this.settlePause('resumed');
     if (!this.utterance) this.beginUtterance();
     this.utterance!.epoch++;
     clearTimeout(this.idleTimer);
@@ -445,6 +462,7 @@ export class VoiceController<Screens> {
   private endUtterance(notify: boolean) {
     const utterance = this.utterance;
     this.utterance = undefined;
+    this.pauseCheck = undefined;
     utterance?.transcriber.close();
     if (notify && utterance) {
       this.detector?.finishUtterance();
@@ -474,12 +492,27 @@ export class VoiceController<Screens> {
     // Speech resumed, the utterance was handed off, or the session changed meanwhile.
     if (this.utterance !== utterance || utterance.epoch !== epoch) return;
     if (generation !== this.session.generation) return;
-    if (!long && soundsUnfinished(heard)) return;
+    if (long) this.settlePause('long-pause', ended);
+    else {
+      const unfinished = soundsUnfinished(heard);
+      const report = this.deps.pauseJudged?.(heard, unfinished);
+      if (unfinished) {
+        this.pauseCheck = report ? { report, at: ended } : undefined;
+        return;
+      }
+    }
     this.endUtterance(true);
     this.heard = heard;
     this.heardMark = { ended, transcript: now() - ended };
     this.dispatch({ type: 'end-of-turn', generation, heard: Boolean(heard) });
     if (!heard && this.session.phase === 'listening') this.armIdle();
+  }
+
+  /** Tells `pauseJudged` what followed the last pause judged unfinished, if one is waiting. */
+  private settlePause(next: PauseOutcome['next'], at = (this.deps.now ?? Date.now)()) {
+    const check = this.pauseCheck;
+    this.pauseCheck = undefined;
+    check?.report({ next, afterMs: at - check.at });
   }
 
   /** Push-to-talk released and the last audio arrived. */

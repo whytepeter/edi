@@ -107,7 +107,8 @@ import {
 } from '@edi/contracts';
 import { createRepositories, openDatabase } from '@edi/storage';
 import { AgentService } from './agent/agent-service';
-import { captureScreensForPrompt, showMarksInCaptures } from './capture/screens';
+import { captureScreensForPrompt, compareScreenGate, showMarksInCaptures } from './capture/screens';
+import { jevShadowFromEnv } from './jev/shadow';
 import { documentText, shouldHideCardOnBlur, windowListJson } from './permissions';
 import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
@@ -1104,6 +1105,14 @@ async function start() {
       ? { ...context, windowTitle: null, url: null, document: null, selectedText: null }
       : context;
   };
+  // Jev beside the screen gate and the end-of-turn check, deciding nothing (development only).
+  const jevShadowLog = join(app.getPath('userData'), 'jev-shadow.jsonl');
+  const jevShadow = jevShadowFromEnv({ packaged: app.isPackaged, logPath: jevShadowLog });
+  if (jevShadow) {
+    compareScreenGate((prompt, followUp, needed) => jevShadow.screenGate(prompt, followUp, needed));
+    // eslint-disable-next-line no-console -- a deliberate notice: prompts now go to TypeSafe
+    console.info(`[jev] shadow mode on: prompts and utterances go to TypeSafe; ${jevShadowLog}`);
+  }
   /** Screenshots for a screen question, only while Edi may look. */
   const screensForPrompt = (prompt: string) =>
     captureScreensForPrompt(prompt, async () => {
@@ -1383,6 +1392,9 @@ async function start() {
     failed: error =>
       // eslint-disable-next-line no-console -- a deliberate diagnostic line
       console.error('[voice]', error instanceof Error ? (error.stack ?? error.message) : error),
+    ...(jevShadow && {
+      pauseJudged: (heard: string, unfinished: boolean) => jevShadow.endOfTurn(heard, unfinished),
+    }),
     // Timings only, never words: where a spoken reply's wait goes, in the terminal running Edi.
     timed: timing =>
       // eslint-disable-next-line no-console -- a deliberate diagnostic line, numbers only
