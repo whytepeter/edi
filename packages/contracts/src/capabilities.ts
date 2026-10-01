@@ -79,6 +79,8 @@ export const approvalRequestSchema = z
       .strict(),
     preview: approvalPreviewSchema,
     scope: approvalScopeSchema.optional(),
+    /** How often the person allowed this action in the last 30 days, so “always” can be offered. */
+    allowedBefore: z.number().int().min(0).max(10_000).optional(),
   })
   .strict();
 export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;

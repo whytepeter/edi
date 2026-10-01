@@ -840,6 +840,17 @@ export class ToolCallRepository {
     return byRun;
   }
 
+  /** How many calls of `capability` the person approved since `since`. */
+  approvedSince(capability: string, since: number) {
+    const row = this.db
+      .prepare(
+        `SELECT count(*) AS n FROM tool_calls
+         WHERE capability = ? AND decision = 'approved' AND created_at >= ?`,
+      )
+      .get(capability, since) as { n: number };
+    return Number(row.n);
+  }
+
   /** Recent calls, newest first, with what was asked and what came back (activity and undo). */
   recent(limit: number) {
     return this.db

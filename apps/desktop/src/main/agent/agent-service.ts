@@ -51,6 +51,8 @@ const GROUNDING_WAIT_MS = 1500;
 const CONTEXT_WAIT_MS = 2_000;
 /** A conversation Edi picked up by itself is continued only within this long of its last turn. */
 const FRESH_MS = 2 * 60 * 60 * 1000;
+/** How far back “you’ve allowed this before” looks. */
+const ALLOWED_BEFORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 /** A worker loaded ahead of a question is dropped after this long unused (it holds ~37 MiB). */
 export const SPARE_IDLE_MS = 60_000;
 const WORKER_ENTRY = () => join(__dirname, 'agent-worker.js');
@@ -667,7 +669,21 @@ export class AgentService {
     if (!this.run) return;
     if (head) this.run.deadline.pause();
     else this.run.deadline.resume();
-    this.update({ ...this.state, approval: head });
+    this.update({ ...this.state, approval: head && this.withHistory(head) });
+  }
+
+  /** The card offers “always” more plainly once the person keeps allowing the same action. */
+  private withHistory(request: ApprovalRequest): ApprovalRequest {
+    try {
+      const since = Date.now() - ALLOWED_BEFORE_WINDOW_MS;
+      const allowedBefore = this.options.repositories.toolCalls.approvedSince(
+        request.capability.id,
+        since,
+      );
+      return allowedBefore ? { ...request, allowedBefore } : request;
+    } catch {
+      return request;
+    }
   }
 
   /** Persists every transition and mirrors the current run's steps into state. */

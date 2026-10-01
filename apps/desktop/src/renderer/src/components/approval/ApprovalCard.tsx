@@ -89,6 +89,8 @@ export function ApprovalCard({
   const headingId = titleId ?? fallbackId;
   const { label, icon } = source(approval);
   const detail = compact ? approvalDetail(approval) : '';
+  // From the third time, say so beside “always”: the person decides, nothing is switched for them.
+  const allowedBefore = approval.allowedBefore ?? 0;
 
   return (
     <section
@@ -119,7 +121,11 @@ export function ApprovalCard({
         </span>
         <span>
           {alwaysAllowLabel(approval, compact)}
-          {!compact && <small>You can change this in Settings › Privacy.</small>}
+          {allowedBefore >= 2 ? (
+            <small>You’ve allowed this {allowedBefore} times this month.</small>
+          ) : (
+            !compact && <small>You can change this in Settings › Privacy.</small>
+          )}
         </span>
         <input
           type="checkbox"

@@ -55,6 +55,10 @@ test('activity returns runs newest first with their tool steps in order', () => 
   repos.toolCalls.decide(uuid(11), 'denied', 205);
   repos.toolCalls.finish(uuid(11), 'denied', 'Declined', undefined, 205);
   repos.runs.finish(uuid(2), { status: 'done', text: 'Done', error: '', at: 210 });
+  // Approvals are counted per action and period; a denial is not one.
+  assert.equal(repos.toolCalls.approvedSince('notes.save', 0), 1);
+  assert.equal(repos.toolCalls.approvedSince('notes.save', 202), 0);
+  assert.equal(repos.toolCalls.approvedSince('files.move', 0), 0);
 
   const activity = repos.activity(10);
   assert.deepEqual(
