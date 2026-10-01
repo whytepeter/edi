@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ModelOption } from '@edi/contracts';
-import { pickModel } from './builtins/edi-setup';
+import { pickModel, turnSetup, type EdiSetupSnapshot } from './builtins/edi-setup';
 
 const model = (id: string, name: string, recommended: ModelOption['recommended'] = null) => ({
   id,
@@ -40,4 +40,40 @@ test('a model is found the way people name it', () => {
 test('several equal matches come back as a question; unknown names say why', () => {
   assert.throws(() => pickModel(models, 'openai'), /Several models match “openai”: .*Ask the user/);
   assert.throws(() => pickModel(models, 'llama'), /No model Edi can use matches “llama”/);
+});
+
+test('each question carries the setup that changes; the long lists stay in edi_inspect_setup', () => {
+  const snapshot = {
+    identity: { name: 'Edi', customName: false, app: 'Edi', version: '0.1.0' },
+    location: { page: 'home', cardOpen: true, pinned: false },
+    current: { character: { id: 'edi', name: 'Edi' }, size: 1 },
+    workspace: { root: '/Edi', generatedContent: '/Edi/Artifacts', behavior: 'Saved.' },
+    library: { items: 1, notes: 1, artifacts: 0, recent: [{ id: 'n1', title: 'Groceries' }] },
+    skills: [{ id: 'trip-planner', name: 'Trip Planner', active: true }],
+    connectors: [
+      { id: 'notion', name: 'Notion', active: true },
+      { id: 'linear', name: 'Linear', active: false },
+    ],
+    appsToConnect: [{ id: 'todoist', name: 'Todoist' }],
+    permissions: [{ id: 'microphone', status: 'granted' }],
+    availableCharacters: [{ id: 'edi', name: 'Edi' }],
+    availableVoices: [{ id: 'kokoro', name: 'Kokoro', voices: [] }],
+    abilities: [{ name: 'Answer questions', asksFirst: false }],
+    notYetAvailable: ['Clicking or typing in other apps'],
+  } as unknown as EdiSetupSnapshot;
+  const turn = turnSetup(snapshot);
+  assert.deepEqual(Object.keys(turn).sort(), [
+    'appsToConnect',
+    'connectors',
+    'current',
+    'identity',
+    'library',
+    'location',
+    'more',
+    'notYetAvailable',
+    'permissions',
+    'workspace',
+  ]);
+  assert.deepEqual(turn.connectors, [{ id: 'notion', name: 'Notion', active: true }]);
+  assert.match(turn.more, /edi_inspect_setup/);
 });

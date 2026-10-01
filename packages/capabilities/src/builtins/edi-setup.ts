@@ -77,6 +77,33 @@ export interface EdiSetupSnapshot {
   notYetAvailable: string[];
 }
 
+/** Where the full lists are, for the model: they are left out of each question's setup. */
+export const fullSetupNote =
+  'Every ability, voice, character and skill (with ids) is in edi_inspect_setup; call it before ' +
+  'changing a voice, character or skill, or when asked what Edi can do.';
+
+/**
+ * The setup that goes with every question: what changes between turns and answers most
+ * questions about Edi. The long lists (every ability, voice and character, and skills, whose
+ * switched-on ones the system prompt already names) stay behind edi_inspect_setup. They were
+ * well over half of a setup sent, uncached, with every question.
+ */
+export function turnSetup(snapshot: EdiSetupSnapshot) {
+  const {
+    abilities: _abilities,
+    availableVoices: _voices,
+    availableCharacters: _characters,
+    skills: _skills,
+    connectors,
+    ...rest
+  } = snapshot;
+  return {
+    ...rest,
+    connectors: connectors.filter(connector => connector.active),
+    more: fullSetupNote,
+  };
+}
+
 /** Edi's own reversible preferences. Secrets and connections are deliberately absent. */
 export const ediPreferencesSchema = z
   .object({

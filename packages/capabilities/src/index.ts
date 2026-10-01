@@ -45,6 +45,7 @@ export {
 export {
   ediPreferencesSchema,
   ediSetupCapabilities,
+  turnSetup,
   type EdiPreferences,
   type EdiSetupSnapshot,
 } from './builtins/edi-setup';
