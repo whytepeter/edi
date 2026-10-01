@@ -29,13 +29,16 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
   document.getElementById('count').onclick = () => {
     document.getElementById('count').textContent = 'Count ' + ++clicks;
   };
-  fetch('https://example.com/edi-probe')
+  // Built at runtime: saving refuses a page that names an http(s) URL, and this page reaches for
+  // the network on purpose so that the sandbox, not that check, is what stops it.
+  const remote = ['https:', '', 'example.com', 'edi-probe'].join('/');
+  fetch(remote)
     .then(() => (out.fetch = 'open'), () => (out.fetch = 'blocked'))
     .finally(() => {
       const image = new Image();
       image.onload = () => finish('open');
       image.onerror = () => finish('blocked');
-      image.src = 'https://example.com/edi-probe.png';
+      image.src = remote + '.png';
     });
   function finish(image) {
     out.image = image;
