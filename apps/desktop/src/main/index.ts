@@ -160,6 +160,8 @@ import { maxPackageBytes, packageExtension } from './characters/package-file';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
 import { PetDrag } from './character/pet-drag';
+import { GazeTracker } from './character/gaze-tracker';
+import { PetPokes } from './character/pet-pokes';
 import { SettingsStore } from './settings/settings-store';
 import { WindowPlacement } from './windows/placement';
 import { ArtifactWindow } from './windows/artifact-window';
@@ -1503,6 +1505,8 @@ async function start() {
   pet.webContents.on('did-finish-load', () =>
     pet.webContents.send('edi:character-mood', mood.current),
   );
+  // The eyes follow the pointer while Edi is on screen; hidden or asleep, nothing runs.
+  new GazeTracker(pet, gaze => broadcast([pet], 'edi:character-gaze', gaze));
   const character = new CharacterActions({
     pet,
     card: workspace,
@@ -1530,6 +1534,8 @@ async function start() {
     noteActivity: () => mood.noteActivity(),
     quit: () => app.quit(),
   });
+
+  const pokes = new PetPokes(() => character.currentExpression, mood);
 
   // Global hold-to-talk: the same turn as holding the character, and it wakes Edi
   // from Sleep. Registered whenever voice is possible, so a model or key added later works at
@@ -2015,6 +2021,7 @@ async function start() {
       },
       placement,
       petDrag,
+      pokes,
       character,
       voice,
       permissions,

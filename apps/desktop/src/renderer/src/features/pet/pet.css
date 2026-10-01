@@ -12,9 +12,9 @@
   height: 100%;
   transform-origin: 50% 76%;
   animation: edi-appear 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.desktop-pet:active .pet-art {
-  scale: 0.975;
+  /* Touch (usePetMotion): squash on press, lift and lean on drag, all spring-driven. */
+  scale: var(--pet-sx, 1) var(--pet-sy, 1);
+  rotate: var(--pet-tilt, 0deg);
 }
 .desktop-pet:focus-visible {
   box-shadow: none;

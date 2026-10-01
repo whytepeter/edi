@@ -7,9 +7,12 @@ import {
   type CharacterId,
 } from './character/manifest';
 import type { CharacterExpression, CharacterMood } from './character/expressions';
+import type { Gaze } from './character/gaze';
 export { assistantNameSchema } from './assistant-name';
 export * from './character/expressions';
+export * from './character/gaze';
 export * from './character/manifest';
+export * from './character/touch';
 export * from './character/package';
 export {
   sanitizeCharacterArt,
@@ -761,6 +764,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** Edi makes a generated item again from its original request, in that conversation. */
   z.object({ type: z.literal('library-regenerate'), id: z.string().uuid() }).strict(),
   z.object({ type: z.literal('pet-hit-test'), interactive: z.boolean() }).strict(),
+  /** A quick tap on Edi that was not a drag or a hold. Main decides what, if anything, it means. */
+  z.object({ type: z.literal('pet-poke') }).strict(),
   ...voiceCommandSchemas,
   z
     .object({
@@ -838,6 +843,8 @@ export interface DesktopBridge {
   onCharacterExpression(callback: (expression: CharacterExpression) => void): () => void;
   /** How the moment feels; lasts for a reply or a while. */
   onCharacterMood(callback: (mood: CharacterMood) => void): () => void;
+  /** Where the pointer is as seen from Edi, while Edi is on screen; only the pet window gets it. */
+  onCharacterGaze(callback: (gaze: Gaze) => void): () => void;
   /** Built-in and installed characters, checked and ready to render. */
   characters(): Promise<CharacterDescriptor[]>;
   onCharacters(callback: (characters: CharacterDescriptor[]) => void): () => void;

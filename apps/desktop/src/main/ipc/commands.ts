@@ -16,6 +16,7 @@ import type { SkillLibrary } from '../skills/library';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
+import type { PetPokes } from '../character/pet-pokes';
 import type { SettingsStore } from '../settings/settings-store';
 import type { WindowPlacement } from '../windows/placement';
 import type { VoiceController } from '../voice/voice-controller';
@@ -51,6 +52,7 @@ interface CommandDependencies {
   revealSkill(name: string): void;
   placement: WindowPlacement;
   petDrag: PetDrag;
+  pokes: PetPokes;
   character: CharacterActions;
   voice: VoiceController<unknown>;
   permissions: PermissionManager;
@@ -114,6 +116,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     revealSkill,
     placement,
     petDrag,
+    pokes,
     character,
     voice,
     permissions,
@@ -178,6 +181,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'character-menu': { from: fromPet, handle: ({ point }) => character.showMenu(point) },
     'character-action': { from: ['menu'], handle: ({ action }) => character.action(action) },
     'pet-drag': { from: fromPet, handle: command => petDrag.handle(command) },
+    'pet-poke': { from: fromPet, handle: () => pokes.poke() },
     'voice-event': {
       from: fromPet,
       handle: ({ generation, event }) => voice.clientEvent(generation, event),

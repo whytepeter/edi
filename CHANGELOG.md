@@ -7,6 +7,17 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- Edi's eyes follow your pointer. The eyes turn toward it with a small spring, and further the farther it is. They
+  follow when Edi is idle, listening or pleased, loosely while it speaks, and not at all when the face has its own
+  look (thinking, sleepy, puzzled). They settle back to their idle wander when the pointer rests, and stay still with
+  Reduce Motion. Only Edi's own window is told the direction; nothing is captured or kept, and nothing runs while Edi
+  is hidden or asleep. Characters can scale or turn this off with `motion.gaze`.
+- Edi answers touch with springs. Pressing squashes it a little and letting go springs back with a small stretch;
+  dragging lifts it and it leans against the motion, then wobbles to rest when dropped. Poking it repeatedly wears
+  its patience down: surprised at the third poke, annoyed at the fifth, rattled at the eighth, and a pause starts the
+  count over. A poke wakes a sleepy Edi. A single tap still never starts listening, and Edi never changes its face
+  over a conversation, a reply's mood or an error. It moves half as much when sleepy, and not at all with Reduce
+  Motion.
 - Connectors. Connect Notion, Linear or Asana, or any remote MCP server by its https address, from Connectors. Signing
   in opens the app's own page in your browser and returns to Edi on a one-time 127.0.0.1 address (OAuth with dynamic
   client registration and PKCE through the official MCP SDK); sign-ins are encrypted on this Mac with a keychain-held

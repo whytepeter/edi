@@ -11,6 +11,7 @@ import {
   characterInspectionSchema,
   characterListSchema,
   characterMoodSchema,
+  gazeSchema,
   commandSchema,
   librarySchema,
   modelCatalogSchema,
@@ -207,6 +208,14 @@ const bridge: DesktopBridge = {
     };
     ipcRenderer.on('edi:character-mood', listener);
     return () => ipcRenderer.removeListener('edi:character-mood', listener);
+  },
+  onCharacterGaze: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = gazeSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:character-gaze', listener);
+    return () => ipcRenderer.removeListener('edi:character-gaze', listener);
   },
   characters: async () => characterListSchema.parse(await ipcRenderer.invoke('edi:characters:get')),
   onCharacters: callback => {

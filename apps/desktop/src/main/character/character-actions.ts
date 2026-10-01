@@ -66,6 +66,11 @@ export class CharacterActions {
     options.pet.on('move', this.followPet);
   }
 
+  /** What Edi is doing now, for things that must not interrupt it. */
+  get currentExpression() {
+    return this.expression;
+  }
+
   requestListening = (mode: 'conversation' | 'push-to-talk' = 'conversation') => {
     this.options.noteActivity();
     this.hideMenu();

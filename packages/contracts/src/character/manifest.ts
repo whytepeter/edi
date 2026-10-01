@@ -67,9 +67,11 @@ export const characterManifestSchema = z
         intensity: z.number().min(0.5).max(1.5).default(1),
         /** Whether Edi blinks the eyes. Turn off for characters without eyelids. */
         blink: z.boolean().default(true),
+        /** How far the pupils follow the pointer: 0 keeps them still, 1.5 is a wide look. */
+        gaze: z.number().min(0).max(1.5).default(1),
       })
       .strict()
-      .default({ intensity: 1, blink: true }),
+      .default({ intensity: 1, blink: true, gaze: 1 }),
     /** Edi's floating hearts, question marks and z's around the head, unless the art has its own. */
     effects: z.boolean().default(true),
   })
