@@ -35,6 +35,10 @@ const TASK_BUDGET_MS = 15 * 60_000;
 const TASK_STEPS = 25;
 const MAX_TEXT = 32_000;
 const HISTORY_TURNS = 6;
+/** The same action failing this many times the same way means the task is stuck: it stops. */
+export const REPEATED_FAILURES = 3;
+/** A run that changes this many things is stopped and checked, in case something is wrong. */
+export const MAX_WRITES_PER_RUN = 40;
 
 /** The part of a worker the service uses; tests pass a fake. */
 export interface WorkerLike {
@@ -76,6 +80,9 @@ interface ActiveTask {
   text: string;
   /** Over its cap: tool results wait here until the person allows more or stops it. */
   held: HostMessage[] | null;
+  /** Watchdog: how often each exact action has failed, and how many changes went through. */
+  failed: Map<string, number>;
+  writes: number;
 }
 
 const failures = {
@@ -331,6 +338,8 @@ export class TaskService {
       wrappingUp: false,
       text: '',
       held: null,
+      failed: new Map(),
+      writes: 0,
     };
     this.active.set(record.id, active);
     this.runs.set(runId, record.id);
@@ -393,6 +402,18 @@ export class TaskService {
       outcome = { status: 'failed', summary: 'Edi could not record or run this action.' };
     }
     if (this.active.get(active.id) !== active) return;
+    // A task that keeps making the same failing call is stuck, and each try still costs a step.
+    if (outcome.status === 'failed') {
+      const key = `${name}:${JSON.stringify(input) ?? ''}`;
+      const times = (active.failed.get(key) ?? 0) + 1;
+      active.failed.set(key, times);
+      if (times >= REPEATED_FAILURES)
+        return this.finish(
+          active,
+          'failed',
+          `Stopped: the same action failed ${times} times (${outcome.summary.slice(0, 120)}).`,
+        );
+    }
     const reply: HostMessage = { type: 'tool-result', id, outcome };
     if (active.held) active.held.push(reply);
     else active.worker.postMessage(reply);
@@ -444,6 +465,8 @@ export class TaskService {
 
   private recorder(): ToolCallRecorder {
     const { toolCalls } = this.options.repositories;
+    /** Calls that change something, and the task each belongs to, until they finish. */
+    const changes = new Map<string, string>();
     const patch = (callId: string, change: Partial<ToolStep>) => {
       for (const [taskId, list] of this.steps) {
         if (!list.some(step => step.callId === callId)) continue;
@@ -459,6 +482,7 @@ export class TaskService {
         toolCalls.create({ ...call, at: this.now() });
         const taskId = this.runs.get(call.runId);
         if (!taskId) return;
+        if (call.effect !== 'read') changes.set(call.id, taskId);
         const step: ToolStep = {
           callId: call.id,
           capability: call.capability,
@@ -476,6 +500,17 @@ export class TaskService {
       finished: (id, outcome) => {
         toolCalls.finish(id, outcome.status, outcome.summary, outcome.output, this.now());
         patch(id, { status: outcome.status, summary: outcome.summary.slice(0, 400) });
+        const taskId = changes.get(id);
+        changes.delete(id);
+        const active = taskId ? this.active.get(taskId) : undefined;
+        if (!active || outcome.status !== 'succeeded') return;
+        if (++active.writes >= MAX_WRITES_PER_RUN)
+          this.finish(
+            active,
+            'failed',
+            `Stopped after ${active.writes} changes in one run, in case something was wrong. ` +
+              'Check what it did, then try again if it should do more.',
+          );
       },
     };
   }

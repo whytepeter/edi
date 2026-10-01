@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { z } from '../../packages/capabilities/node_modules/zod/index.js';
 import { defineCapability, type Capability } from '../../packages/capabilities/src/index';
 import { createRepositories, openDatabase } from '../../packages/storage/src/index';
-import { TaskService, type WorkerLike } from '../../apps/desktop/src/main/agent/task-service';
+import {
+  MAX_WRITES_PER_RUN,
+  TaskService,
+  type WorkerLike,
+} from '../../apps/desktop/src/main/agent/task-service';
 import type { HostMessage, WorkerInput } from '../../apps/desktop/src/main/agent/worker-protocol';
 import type { OpenRouterCredentials } from '../../apps/desktop/src/main/agent/credentials';
 
@@ -287,4 +291,81 @@ test('stopping ends a running or queued task; a restart interrupts what was runn
       ['Two', 'interrupted'],
     ],
   );
+});
+
+test('a task stuck on an action that keeps failing the same way stops and says why', async () => {
+  const lookup = defineCapability({
+    id: 'web.fetch',
+    title: 'Read a web page',
+    description: 'Read',
+    effect: 'read',
+    timeoutMs: 1000,
+    input: z.object({ url: z.string() }).strict(),
+    prepare: () => ({
+      preview: { title: 'Read', action: 'Read', summary: 'Read.', fields: [] },
+      execute: async () => {
+        throw new Error('The page did not answer.');
+      },
+    }),
+  });
+  const { tasks, workers } = harness([lookup as Capability]);
+  const task = tasks.start({ prompt: 'Research', budgetUsd: 1, conversationId: null });
+  const worker = workers[0]!;
+  const call = (n: number, url: string) =>
+    worker.emit({ type: 'tool-call', id: uuid(500 + n), name: 'web_fetch', input: { url } });
+
+  call(1, 'https://a.example');
+  await settle();
+  call(2, 'https://b.example'); // a different action is a different try
+  await settle();
+  call(3, 'https://a.example');
+  await settle();
+  assert.equal(tasks.task(task.id)?.status, 'running');
+  assert.equal(worker.sent.filter(message => message.type === 'tool-result').length, 3);
+
+  call(4, 'https://a.example');
+  await settle();
+  const stopped = tasks.task(task.id);
+  assert.equal(stopped?.status, 'failed');
+  assert.match(stopped?.error ?? '', /same action failed 3 times/);
+  assert.ok(worker.sent.some(message => message.type === 'stop'));
+});
+
+test('a run that makes too many changes is stopped for a check', async () => {
+  const save = defineCapability({
+    id: 'notes.save',
+    title: 'Save a note',
+    description: 'Save',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ title: z.string() }).strict(),
+    prepare: ({ title }) => ({
+      preview: { title: 'Save', action: 'Save', summary: `Save ${title}.`, fields: [] },
+      execute: async () => ({ summary: `Saved ${title}.` }),
+    }),
+  });
+  const { tasks, workers } = harness([save as Capability]);
+  const task = tasks.start({ prompt: 'Tidy notes', budgetUsd: 1, conversationId: null });
+  const worker = workers[0]!;
+  const call = (n: number) =>
+    worker.emit({
+      type: 'tool-call',
+      id: uuid(600 + n),
+      name: 'notes_save',
+      input: { title: `N${n}` },
+    });
+
+  call(1);
+  await settle();
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'approve-always');
+  await settle();
+  for (let n = 2; n < MAX_WRITES_PER_RUN; n++) call(n);
+  await settle();
+  assert.equal(tasks.task(task.id)?.status, 'running');
+
+  call(MAX_WRITES_PER_RUN);
+  await settle();
+  const stopped = tasks.task(task.id);
+  assert.equal(stopped?.status, 'failed');
+  assert.match(stopped?.error ?? '', new RegExp(`Stopped after ${MAX_WRITES_PER_RUN} changes`));
 });
