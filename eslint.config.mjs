@@ -11,6 +11,8 @@ export default tseslint.config(
       '**/release/**',
       '**/dist/**',
       'benchmarks/**',
+      // Native build output (CMake writes compiler_depend.ts files there).
+      'native/**/build/**',
       '.wolf/**',
       '.codex/**',
       '.claude/**',

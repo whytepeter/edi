@@ -235,6 +235,7 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
     };
     return screenAsk;
   } catch (error) {
+    // eslint-disable-next-line no-console -- a deliberate diagnostic line
     console.error('Screen Recording library missing', error);
     screenAsk = null;
     return screenAsk;
@@ -270,6 +271,7 @@ export async function requestMacScreenCapture(): Promise<boolean | 'unavailable'
     const core = koffi.load('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics');
     return Boolean(core.func('CGRequestScreenCaptureAccess', 'bool', [])());
   } catch (error) {
+    // eslint-disable-next-line no-console -- a deliberate diagnostic line
     console.error('Screen Recording request failed', error);
     return 'unavailable';
   }
