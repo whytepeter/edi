@@ -22,6 +22,9 @@ export default defineConfig({
     },
   },
   renderer: {
+    // electron-vite leaves renderers unminified; every window parses this code when it opens.
+    // Main and preload stay readable, so their stack traces keep their names.
+    build: { minify: true },
     plugins: [
       react(),
       {
