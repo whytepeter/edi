@@ -18,7 +18,10 @@ import './pet.css';
 
 const announcement = (
   name: string,
-): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact' | 'suggestion'>, string> => ({
+): Record<
+  Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact' | 'suggestion'>,
+  string
+> => ({
   unavailable: 'Set up voice in Settings',
   thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.

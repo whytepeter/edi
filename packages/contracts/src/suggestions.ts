@@ -99,10 +99,7 @@ export function appInFront(moment: Pick<SuggestionMoment, 'app' | 'host'>): stri
  * The one thing worth saying now, or null — which is the usual answer. Only two rules so far:
  * an app in front Edi could connect, and a switched-on skill made for that app.
  */
-export function suggestNow(
-  level: SuggestionLevel,
-  moment: SuggestionMoment,
-): Suggestion | null {
+export function suggestNow(level: SuggestionLevel, moment: SuggestionMoment): Suggestion | null {
   if (level === 'off') return null;
   const appId = appInFront(moment);
   if (!appId) return null;

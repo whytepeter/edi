@@ -655,7 +655,9 @@ test('Edi exports workspace items through the host, in formats that suit their k
     shown: () => {},
     artifacts: memoryArtifacts(),
     notes: {
-      store: memoryStore([{ id: noteId, title: 'Palette', path: join(notesFolder, 'p.md'), createdAt: 1 }]),
+      store: memoryStore([
+        { id: noteId, title: 'Palette', path: join(notesFolder, 'p.md'), createdAt: 1 },
+      ]),
       directory: () => notesFolder,
     },
     trash: async () => {},
@@ -677,9 +679,9 @@ test('Edi exports workspace items through the host, in formats that suit their k
     )
   ).execute(live());
 
-  const done = await (await exportTool.prepare({ id: tableId, format: 'pdf' }, context)).execute(
-    live(),
-  );
+  const done = await (
+    await exportTool.prepare({ id: tableId, format: 'pdf' }, context)
+  ).execute(live());
   assert.match(done.summary, /Plan\.pdf in Documents\/Edi\/Exports/);
   await (await exportTool.prepare({ id: noteId, format: 'md' }, context)).execute(live());
   assert.deepEqual(exported, [
@@ -688,7 +690,8 @@ test('Edi exports workspace items through the host, in formats that suit their k
   ]);
   assert.throws(() => exportTool.prepare({ id: tableId, format: 'png' }, context), /csv, pdf, md/);
   assert.throws(
-    () => exportTool.prepare({ id: '00000000-0000-4000-8000-00000000dead', format: 'pdf' }, context),
+    () =>
+      exportTool.prepare({ id: '00000000-0000-4000-8000-00000000dead', format: 'pdf' }, context),
     /Search the workspace first/,
   );
   // A host that can't draw exports offers no export tool at all.
@@ -733,11 +736,10 @@ test('Library rename gives items and their files a new name, never replacing ano
   assert.equal(await readFile(join(checklists, 'trip.md'), 'utf8'), 'someone else');
   assert.equal(await readFile(renamed.path, 'utf8'), '# Trip\n\n- [ ] Passport\n');
   const record = artifacts.get(listId)!;
-  assert.deepEqual([record.title, record.path, record.updatedAt], [
-    'Trip',
-    join('Artifacts', 'Checklists', 'trip-2.md'),
-    50,
-  ]);
+  assert.deepEqual(
+    [record.title, record.path, record.updatedAt],
+    ['Trip', join('Artifacts', 'Checklists', 'trip-2.md'), 50],
+  );
   assert.equal((record.content as { title: string }).title, 'Trip');
 
   // A note keeps everything after its heading; the file follows the title.

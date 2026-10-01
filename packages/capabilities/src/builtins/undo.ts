@@ -18,9 +18,7 @@ export interface RecordedAction {
 }
 
 /** How an action is reversed: the tool that does it and that tool's input, or how to by hand. */
-export type Reversal =
-  | { tool: string; input: unknown; label: string }
-  | { manual: string };
+export type Reversal = { tool: string; input: unknown; label: string } | { manual: string };
 
 const moveList = z.array(z.object({ from: z.string(), to: z.string() })).min(1);
 const pathList = z.array(z.string()).min(1);
@@ -71,7 +69,9 @@ export function reversal(action: RecordedAction): Reversal {
       return { manual: 'Edi can’t remove reminders yet; delete them in Reminders.' };
     case 'files.trash':
     case 'workspace.delete':
-      return { manual: 'It’s in the Trash: open the Trash in Finder, select it and choose Put Back.' };
+      return {
+        manual: 'It’s in the Trash: open the Trash in Finder, select it and choose Put Back.',
+      };
     case 'notes.save':
     case 'workspace.update':
       return { manual: 'Delete it from Library, or ask Edi to change it back.' };
@@ -128,7 +128,12 @@ export function activityCapabilities(deps: {
       .strict(),
     prepare({ since = 'today', includeReads = false }) {
       return {
-        preview: { title: 'Check what Edi did', action: 'Check', summary: 'List recent actions.', fields: [] },
+        preview: {
+          title: 'Check what Edi did',
+          action: 'Check',
+          summary: 'List recent actions.',
+          fields: [],
+        },
         async execute() {
           const all = deps.recent(200);
           const reversed = undone(all);
@@ -191,7 +196,9 @@ export function activityCapabilities(deps: {
           );
       if (!target)
         throw new Error(
-          actionId ? 'Edi can’t find that action any more.' : 'There’s nothing recent Edi can undo.',
+          actionId
+            ? 'Edi can’t find that action any more.'
+            : 'There’s nothing recent Edi can undo.',
         );
       if (reversed.has(target.id)) throw new Error(`“${target.title}” was already undone.`);
       const plan = reversal(target);

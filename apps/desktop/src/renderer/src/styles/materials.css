@@ -128,8 +128,7 @@
   /* The fill twice (about 99%): words under a menu item never read through it. Only the last
      layer may be a color, so the extra one is a flat gradient. */
   background:
-    var(--glass-sheen),
-    linear-gradient(var(--glass-thick-fill), var(--glass-thick-fill)),
+    var(--glass-sheen), linear-gradient(var(--glass-thick-fill), var(--glass-thick-fill)),
     var(--glass-thick-fill);
 }
 :root[data-native-glass] .glass-window .ds-scroll-edge[data-edge='bottom'] {

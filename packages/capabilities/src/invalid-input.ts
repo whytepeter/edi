@@ -46,7 +46,9 @@ function compact(schema: JsonSchema) {
           properties: Object.fromEntries(
             Object.entries(properties).map(([key, value]) => [
               key,
-              { type: value.type ?? (value.anyOf || value.oneOf ? 'one of several shapes' : 'any') },
+              {
+                type: value.type ?? (value.anyOf || value.oneOf ? 'one of several shapes' : 'any'),
+              },
             ]),
           ),
         }

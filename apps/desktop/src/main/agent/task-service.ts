@@ -107,9 +107,7 @@ export class TaskService {
         Boolean(this.options.rules?.allows(request)) ||
         Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id)) ||
         Boolean(
-          taskId &&
-            unattendedCapabilities.has(request.capability.id) &&
-            this.runsOnItsOwn(taskId),
+          taskId && unattendedCapabilities.has(request.capability.id) && this.runsOnItsOwn(taskId),
         )
       );
     },

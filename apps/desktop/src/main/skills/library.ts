@@ -233,11 +233,14 @@ export class SkillLibrary {
       throw new Error('There’s no SKILL.md in that folder, so it isn’t a skill.');
     }
     const { skill, problems } = parseSkill(text);
-    if (!skill) throw new Error(`That SKILL.md needs fixing: ${problems[0]?.message ?? 'unreadable'}`);
+    if (!skill)
+      throw new Error(`That SKILL.md needs fixing: ${problems[0]?.message ?? 'unreadable'}`);
     if (this.options.builtIn.some(entry => entry.name === skill.name))
       throw new Error(`A skill by Fewerlabs is already called ${skill.name}.`);
     if (this.yours.some(entry => entry.name === skill.name))
-      throw new Error(`You already have a skill called ${skill.name}. Remove it first to replace it.`);
+      throw new Error(
+        `You already have a skill called ${skill.name}. Remove it first to replace it.`,
+      );
 
     await mkdir(skills, { recursive: true });
     const temp = join(skills, `.edi-import-${randomUUID()}`);

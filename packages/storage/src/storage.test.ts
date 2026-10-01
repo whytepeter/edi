@@ -810,11 +810,10 @@ test('artifacts pin, move with a rename, and remember the request that made them
   });
   repos.artifacts.setPinned(uuid(2), 9);
   const record = repos.artifacts.get(uuid(2));
-  assert.deepEqual([record?.title, record?.path, record?.pinnedAt], [
-    'Launch',
-    'Artifacts/Reports/launch.md',
-    9,
-  ]);
+  assert.deepEqual(
+    [record?.title, record?.path, record?.pinnedAt],
+    ['Launch', 'Artifacts/Reports/launch.md', 9],
+  );
   // An update without a path keeps the file where it is.
   repos.artifacts.update({ id: uuid(2), title: 'Launch', content, bytes: 2, updatedAt: 3 });
   assert.equal(repos.artifacts.get(uuid(2))?.path, 'Artifacts/Reports/launch.md');

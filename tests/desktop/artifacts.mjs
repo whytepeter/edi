@@ -123,7 +123,8 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     updatedAt: 5,
   });
   // A document, exported to PDF and Markdown.
-  const markdown = '# Launch plan\n\n- Ship the beta\n- Tell the testers\n\n| Step | Owner |\n| --- | --- |\n| QA | Ada |';
+  const markdown =
+    '# Launch plan\n\n- Ship the beta\n- Tell the testers\n\n| Step | Owner |\n| --- | --- |\n| QA | Ada |';
   repositories.toolCalls.create({
     id: documentId,
     runId,
@@ -138,7 +139,13 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     documentId,
     'succeeded',
     'Showed “Launch plan”.',
-    { shown: true, kind: 'document', title: 'Launch plan', path: 'Artifacts/Reports/x.md', bytes: 90 },
+    {
+      shown: true,
+      kind: 'document',
+      title: 'Launch plan',
+      path: 'Artifacts/Reports/x.md',
+      bytes: 90,
+    },
     7,
   );
   repositories.artifacts.add({
@@ -305,9 +312,13 @@ try {
     return readFile(join(exportsFolder, file));
   };
   await artifact.getByRole('button', { name: 'Export' }).click();
-  await expect(
-    artifact.getByRole('menu', { name: 'Export as' }).getByRole('menuitem'),
-  ).toHaveText(['PNG image', 'SVG image', 'PDF', 'Mermaid source', 'Export to…']);
+  await expect(artifact.getByRole('menu', { name: 'Export as' }).getByRole('menuitem')).toHaveText([
+    'PNG image',
+    'SVG image',
+    'PDF',
+    'Mermaid source',
+    'Export to…',
+  ]);
   // Escape closes the menu, not the window.
   await artifact.keyboard.press('Escape');
   await expect(artifact.getByRole('menu')).toHaveCount(0);
@@ -319,7 +330,9 @@ try {
   expect(svg).toMatch(/^<\?xml[^>]*>\n<svg[^>]*width="\d+"/);
   expect(svg).toContain('Database');
   expect((await exportAs('PDF', 'Architecture.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
-  expect((await exportAs('Mermaid source', 'Architecture.mmd')).toString()).toContain('flowchart LR');
+  expect((await exportAs('Mermaid source', 'Architecture.mmd')).toString()).toContain(
+    'flowchart LR',
+  );
   // A second export of the same format never replaces the first.
   await exportAs('PNG image', 'Architecture 2.png');
 

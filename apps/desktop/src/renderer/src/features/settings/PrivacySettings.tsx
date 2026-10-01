@@ -97,7 +97,9 @@ export function PrivacySettings({
     try {
       await window.edi?.command(command);
     } catch {
-      setError(command.type === 'add-private-app' ? 'Couldn’t add that app.' : 'Couldn’t change that.');
+      setError(
+        command.type === 'add-private-app' ? 'Couldn’t add that app.' : 'Couldn’t change that.',
+      );
     }
   }
   const [files, setFiles] = useState<FileAccess | null>(null);
@@ -294,7 +296,9 @@ export function PrivacySettings({
               icon="folder"
               title={folderNames(standardFolders)}
               detail="macOS asks the first time Edi reads one"
-              value={standardFolders.some(folder => folder.status === 'allowed') ? 'Ready' : undefined}
+              value={
+                standardFolders.some(folder => folder.status === 'allowed') ? 'Ready' : undefined
+              }
             />
           )}
           {blockedFolders.map(folder => (
@@ -302,7 +306,9 @@ export function PrivacySettings({
               key={folder.id}
               icon="folder"
               title={folder.name}
-              detail={folder.status === 'off' ? 'Turned off for Edi in System Settings' : 'Not found'}
+              detail={
+                folder.status === 'off' ? 'Turned off for Edi in System Settings' : 'Not found'
+              }
               value={folder.status === 'missing' ? folderStatus.missing : undefined}
               control={
                 folder.status === 'off' && (

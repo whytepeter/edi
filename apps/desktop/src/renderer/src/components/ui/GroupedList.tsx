@@ -35,14 +35,23 @@ interface GroupedRowProps {
   control?: ReactNode;
 }
 
-export function GroupedRow({ icon, leading, title, detail, value, onOpen, control }: GroupedRowProps) {
+export function GroupedRow({
+  icon,
+  leading,
+  title,
+  detail,
+  value,
+  onOpen,
+  control,
+}: GroupedRowProps) {
   const body = (
     <>
-      {leading ?? (icon && (
-        <span className="ds-group-row-icon">
-          <Icon name={icon} size={16} />
-        </span>
-      ))}
+      {leading ??
+        (icon && (
+          <span className="ds-group-row-icon">
+            <Icon name={icon} size={16} />
+          </span>
+        ))}
       <span className="ds-group-row-text">
         <span className="ds-group-row-title">{title}</span>
         {detail && <span className="ds-group-row-detail">{detail}</span>}

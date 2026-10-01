@@ -13,7 +13,13 @@ test('a screen share is noticed by the bar the call app puts up', () => {
     ['FaceTime', 'Screen Sharing', 'FaceTime'],
     ['QuickTime Player', 'Screen Recording', 'QuickTime Player'],
   ] as const)
-    assert.equal(screenSharingApp([{ owner: 'Finder', name: 'Desktop' }, { owner, name }]), app);
+    assert.equal(
+      screenSharingApp([
+        { owner: 'Finder', name: 'Desktop' },
+        { owner, name },
+      ]),
+      app,
+    );
 });
 
 test('ordinary windows, and windows without titles, are not a share', () => {

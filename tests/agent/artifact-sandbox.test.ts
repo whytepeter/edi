@@ -99,5 +99,8 @@ test('interactive pages are sandboxed, legible by default, and exported as HTML'
   assert.deepEqual(artifactExport(page), { copy: page.html, extension: 'html', file: page.html });
   assert.equal(artifactPreview(page), 'Tip Split the bill');
   assert.deepEqual(toArtifactContent(page), page);
-  assert.throws(() => toArtifactContent({ kind: 'html', title: 'Empty' }), /needs the whole page, in `html`/);
+  assert.throws(
+    () => toArtifactContent({ kind: 'html', title: 'Empty' }),
+    /needs the whole page, in `html`/,
+  );
 });

@@ -27,15 +27,16 @@ export function MemorySettings({
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [clearing, setClearing] = useState(false);
 
-  const send: (command: Parameters<NonNullable<typeof window.edi>['command']>[0]) => Promise<void> =
-    async command => {
-      setError('');
-      try {
-        await window.edi?.command(command);
-      } catch {
-        setError('Couldn’t change that. Try again.');
-      }
-    };
+  const send: (
+    command: Parameters<NonNullable<typeof window.edi>['command']>[0],
+  ) => Promise<void> = async command => {
+    setError('');
+    try {
+      await window.edi?.command(command);
+    } catch {
+      setError('Couldn’t change that. Try again.');
+    }
+  };
 
   return (
     <div className="settings-page">

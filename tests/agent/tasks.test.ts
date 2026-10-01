@@ -235,7 +235,12 @@ test('a schedule that runs on its own adds reminders without asking, and still w
     scheduleId: uuid(300),
   });
   const worker = workers[0]!;
-  worker.emit({ type: 'tool-call', id: uuid(1), name: 'reminders_create', input: { title: 'Standup' } });
+  worker.emit({
+    type: 'tool-call',
+    id: uuid(1),
+    name: 'reminders_create',
+    input: { title: 'Standup' },
+  });
   await settle();
   assert.equal(added, 1, 'nobody had to be there');
   assert.equal(tasks.currentApproval, null);

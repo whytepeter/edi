@@ -2,10 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  SpeechActivity,
-  type SpeechActivityEvent,
-} from '../../packages/contracts/src/voice-turns';
+import { SpeechActivity, type SpeechActivityEvent } from '../../packages/contracts/src/voice-turns';
 import {
   SileroVad,
   SpeechDetector,

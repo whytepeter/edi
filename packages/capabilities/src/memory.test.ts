@@ -33,10 +33,8 @@ function setup(enabled = true) {
     },
     enabled: () => enabled,
   });
-  const run = async (
-    tool: typeof remember | typeof forget,
-    input: unknown,
-  ) => (await tool.prepare(input as never, context)).execute(live());
+  const run = async (tool: typeof remember | typeof forget, input: unknown) =>
+    (await tool.prepare(input as never, context)).execute(live());
   return { kept, remember, forget, run };
 }
 

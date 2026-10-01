@@ -1,10 +1,4 @@
-import {
-  BrowserWindow,
-  desktopCapturer,
-  nativeImage,
-  screen,
-  systemPreferences,
-} from 'electron';
+import { BrowserWindow, desktopCapturer, nativeImage, screen, systemPreferences } from 'electron';
 
 import {
   createScreenContextSession,

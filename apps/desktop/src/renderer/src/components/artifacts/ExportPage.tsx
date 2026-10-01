@@ -11,9 +11,7 @@ const ready = (result: { svg?: string; png?: string; failed?: boolean }) =>
 
 /** Two frames after layout, so what main prints is what was drawn. */
 const settled = () =>
-  new Promise<void>(resolve =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  );
+  new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
 /**
  * The drawn diagram as a file of its own: explicit size from its viewBox and a white ground,
@@ -59,7 +57,13 @@ function showsTitle(artifact: Artifact) {
  * page-width, with the same components as the artifact window, then reports that it's ready.
  * Main prints it to PDF; for a diagram picture, the page hands back the SVG or PNG itself.
  */
-export function ExportPage({ reference, format }: { reference: ArtifactRef | null; format: Format }) {
+export function ExportPage({
+  reference,
+  format,
+}: {
+  reference: ArtifactRef | null;
+  format: Format;
+}) {
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const root = useRef<HTMLElement>(null);
   const reported = useRef(false);
@@ -93,7 +97,8 @@ export function ExportPage({ reference, format }: { reference: ArtifactRef | nul
       const element = root.current?.querySelector<SVGSVGElement>('.artifact-diagram svg');
       if (!element) return report({ failed: true });
       const file = standaloneSvg(element);
-      if (format === 'png') return report({ png: await rasterize(file.svg, file.width, file.height) });
+      if (format === 'png')
+        return report({ png: await rasterize(file.svg, file.width, file.height) });
       // A PDF prints this page; the SVG lets main turn a wide diagram's page sideways.
       report({ svg: file.svg });
     } catch {

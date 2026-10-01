@@ -23,7 +23,10 @@ async function setup() {
   });
   const log: RecordedAction[] = [];
   /** Run a tool as the broker would, recording it like tool_calls does. */
-  const run = async (tool: (typeof files)[number] | ReturnType<typeof activityCapabilities>[number], input: unknown) => {
+  const run = async (
+    tool: (typeof files)[number] | ReturnType<typeof activityCapabilities>[number],
+    input: unknown,
+  ) => {
     const context = { callId: uuid(), runId: uuid() };
     const prepared = await tool.prepare(tool.input.parse(input) as never, context);
     const result = await prepared.execute(live());
@@ -53,21 +56,25 @@ test('undo puts moved screenshots back under their own names, once', async () =>
   const { home, files, run, recent, undo } = await setup();
   const shot = 'Screenshot 2026-09-11 at 10.35.11 PM.png';
   await writeFile(join(home, 'Desktop', shot), 'png');
-  await run(files.find(tool => tool.id === 'files.move')!, {
-    moves: [
-      {
-        from: '~/Desktop/Screenshot 2026-09-11 at 10.35.11 PM.png',
-        to: '~/Desktop/Screenshots/Screenshot 2026-09-11 at 10.35.11 PM.png',
-      },
-    ],
-  });
+  await run(
+    files.find(tool => tool.id === 'files.move')!,
+    {
+      moves: [
+        {
+          from: '~/Desktop/Screenshot 2026-09-11 at 10.35.11 PM.png',
+          to: '~/Desktop/Screenshots/Screenshot 2026-09-11 at 10.35.11 PM.png',
+        },
+      ],
+    },
+  );
 
   const listed = (await run(recent, {})).result.output as {
     actions: { what: string; undo: string }[];
   };
-  assert.deepEqual(listed.actions.map(action => [action.what, action.undo]), [
-    ['Move files', 'Edi can undo it'],
-  ]);
+  assert.deepEqual(
+    listed.actions.map(action => [action.what, action.undo]),
+    [['Move files', 'Edi can undo it']],
+  );
 
   const { prepared } = await run(undo, {});
   assert.equal(prepared.preview.action, 'Undo');
@@ -76,14 +83,23 @@ test('undo puts moved screenshots back under their own names, once', async () =>
   assert.ok((await readdir(join(home, 'Desktop'))).includes(shot));
   assert.deepEqual(await readdir(join(home, 'Desktop/Screenshots')), []);
 
-  await assert.rejects(async () => undo.prepare({}, { callId: uuid(), runId: uuid() }), /nothing recent Edi can undo/);
+  await assert.rejects(
+    async () => undo.prepare({}, { callId: uuid(), runId: uuid() }),
+    /nothing recent Edi can undo/,
+  );
 });
 
 test('a new folder is undone only while empty; other actions say how to reverse them', async () => {
   const { home, files, run, undo } = await setup();
-  await run(files.find(tool => tool.id === 'files.create_folder')!, { paths: ['~/Desktop/Plans'] });
+  await run(
+    files.find(tool => tool.id === 'files.create_folder')!,
+    { paths: ['~/Desktop/Plans'] },
+  );
   await writeFile(join(home, 'Desktop/Plans/idea.txt'), 'x');
-  await assert.rejects(async () => undo.prepare({}, { callId: uuid(), runId: uuid() }), /has things in it now/);
+  await assert.rejects(
+    async () => undo.prepare({}, { callId: uuid(), runId: uuid() }),
+    /has things in it now/,
+  );
 
   const action = (capability: string): RecordedAction => ({
     id: uuid(),
@@ -104,5 +120,8 @@ test('a new folder is undone only while empty; other actions say how to reverse 
     input: { eventId: 'E1', title: 'Dentist' },
     label: 'Remove the event “Dentist”',
   });
-  assert.match(JSON.stringify(reversal({ ...action('files.move'), status: 'denied' })), /didn’t go through/);
+  assert.match(
+    JSON.stringify(reversal({ ...action('files.move'), status: 'denied' })),
+    /didn’t go through/,
+  );
 });

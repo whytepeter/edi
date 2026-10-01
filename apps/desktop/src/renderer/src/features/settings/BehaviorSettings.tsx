@@ -5,8 +5,16 @@ import './settings.css';
 /** The control shows these; each stands for one saved level. */
 const choices = ['Off', 'Subtle', 'Helpful'] as const;
 type Choice = (typeof choices)[number];
-const levelOf: Record<Choice, SuggestionLevel> = { Off: 'off', Subtle: 'subtle', Helpful: 'helpful' };
-const choiceOf: Record<SuggestionLevel, Choice> = { off: 'Off', subtle: 'Subtle', helpful: 'Helpful' };
+const levelOf: Record<Choice, SuggestionLevel> = {
+  Off: 'off',
+  Subtle: 'subtle',
+  Helpful: 'helpful',
+};
+const choiceOf: Record<SuggestionLevel, Choice> = {
+  off: 'Off',
+  subtle: 'Subtle',
+  helpful: 'Helpful',
+};
 const detail: Record<SuggestionLevel, string> = {
   off: 'Edi says nothing until you ask.',
   subtle: 'Only when an app you’re using could be connected.',
