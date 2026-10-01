@@ -82,6 +82,8 @@ export class Annotations {
     // The ink is not allowed to outlive it either way.
     this.stopTimer();
     this.timer = setTimeout(() => this.clear(), UNUSED_MS);
+    // Clearing ink never keeps the process alive (tests, and Edi quitting with marks up).
+    this.timer.unref?.();
   }
 
   /** A question is under way: the marks belong to it, and go when it is answered. */
