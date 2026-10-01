@@ -485,15 +485,15 @@ async function start() {
         regenerable: false,
       }));
     const artifacts: LibraryItem[] = repositories.artifacts
-      .list(500)
-      .map(({ id, kind, title, bytes, updatedAt, pinnedAt }) => ({
+      .summaries(500)
+      .map(({ id, kind, title, bytes, updatedAt, pinnedAt, regenerable }) => ({
         id,
         kind,
         title,
         bytes,
         createdAt: updatedAt,
         pinned: Boolean(pinnedAt),
-        regenerable: Boolean(repositories.toolCalls.origin(id)?.prompt.trim()),
+        regenerable,
       }));
     return [...notes, ...artifacts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 500);
   };

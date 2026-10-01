@@ -69,6 +69,14 @@ const artifactRow = z.object({
   updatedAt: z.number().int().nonnegative(),
   pinnedAt: z.number().nullable().optional(),
 });
+const artifactSummaryRow = artifactRow
+  .pick({ id: true, kind: true, title: true, bytes: true, updatedAt: true, pinnedAt: true })
+  .extend({ regenerable: z.number() });
+export type ArtifactSummaryRecord = Pick<
+  ArtifactRecord,
+  'id' | 'kind' | 'title' | 'bytes' | 'updatedAt' | 'pinnedAt'
+> & { regenerable: boolean };
+
 /** Generated workspace content. `content` is the structured data; `path` is workspace-relative. */
 export interface ArtifactRecord {
   id: string;
@@ -994,6 +1002,27 @@ export class ArtifactRepository {
       )
       .get(id);
     return row ? ArtifactRepository.parse(row) : undefined;
+  }
+
+  /**
+   * For the Library: most recently changed first, without content, and whether the request that
+   * made each one is known (so it can be made again). One query, however many items.
+   */
+  summaries(limit: number): ArtifactSummaryRecord[] {
+    return this.db
+      .prepare(
+        `SELECT a.id, a.kind, a.title, a.bytes, a.updated_at AS updatedAt, a.pinned_at AS pinnedAt,
+                EXISTS (
+                  SELECT 1 FROM tool_calls tc JOIN runs r ON r.id = tc.run_id
+                  WHERE tc.id = a.id AND trim(r.prompt, char(32, 9, 10, 13)) <> ''
+                ) AS regenerable
+         FROM artifacts a ORDER BY a.updated_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => {
+        const parsed = artifactSummaryRow.parse(row);
+        return { ...parsed, regenerable: parsed.regenerable === 1 };
+      });
   }
 
   /** Most recently changed first. */

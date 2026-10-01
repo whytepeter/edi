@@ -825,4 +825,27 @@ test('artifacts pin, move with a rename, and remember the request that made them
   });
   assert.equal(repos.toolCalls.origin(uuid(9)), undefined);
   assert.throws(() => repos.artifacts.setPinned(uuid(9), 1));
+
+  // The Library's listing: no content, and whether each can be made again, in one query.
+  repos.artifacts.add({ ...repos.artifacts.get(uuid(2))!, id: uuid(3), updatedAt: 5 });
+  assert.deepEqual(repos.artifacts.summaries(10), [
+    {
+      id: uuid(3),
+      kind: 'document',
+      title: 'Launch',
+      bytes: 2,
+      updatedAt: 5,
+      pinnedAt: null,
+      regenerable: false,
+    },
+    {
+      id: uuid(2),
+      kind: 'document',
+      title: 'Launch',
+      bytes: 2,
+      updatedAt: 3,
+      pinnedAt: 9,
+      regenerable: true,
+    },
+  ]);
 });
