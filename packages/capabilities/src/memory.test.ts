@@ -96,3 +96,40 @@ test('with remembering switched off, Edi keeps nothing', async () => {
     /switched off remembering/,
   );
 });
+
+test('when memories don’t all fit, the newest and the ones the question is about are kept', () => {
+  const memory = (n: number, text: string): Memory => ({
+    id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    kind: 'fact',
+    text,
+    createdAt: n,
+    updatedAt: n,
+  });
+  const old = Array.from({ length: 40 }, (_, n) => memory(n + 1, `Old detail number ${n + 1} xx`));
+  const kept = [
+    // Kept first and never changed since: by age alone, the first to give way.
+    memory(0, 'Allergic to peanuts, so recipes leave them out'),
+    ...old,
+    memory(200, 'Just moved to Lisbon'),
+  ];
+  const limit = 120;
+
+  const plain = memoriesForPrompt(kept, { limit });
+  assert.ok(
+    plain.includes('- Just moved to Lisbon'),
+    'the newest memory is never the one left out',
+  );
+  assert.ok(!plain.includes('- Old detail number 1 xx'), 'the oldest give way first');
+  assert.ok(!plain.some(line => line.includes('peanuts')), 'by age alone, the allergy goes');
+
+  const asked = memoriesForPrompt(kept, { question: 'Suggest a peanut-free dinner recipe', limit });
+  assert.equal(asked[0], '- Allergic to peanuts, so recipes leave them out', 'kept order');
+  assert.ok(asked.includes('- Just moved to Lisbon'));
+  assert.ok(asked.join('\n').length <= limit);
+
+  // Everything fits: all of them, in the order they were kept.
+  assert.deepEqual(memoriesForPrompt(kept.slice(0, 2)), [
+    '- Allergic to peanuts, so recipes leave them out',
+    '- Old detail number 1 xx',
+  ]);
+});

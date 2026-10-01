@@ -35,15 +35,50 @@ export function refuseToRemember(text: string): string | null {
   return null;
 }
 
-/** The memories a turn carries, oldest first, trimmed to what fits. */
-export function memoriesForPrompt(memories: readonly Memory[], limit = memoryPromptChars) {
-  const lines: string[] = [];
+/** Words too common to say what a question is about. */
+const commonWords = new Set(
+  'a an and are as at be but by can do for from have how i in is it me my of on or so that the this to was we what when where which who why will with you your'.split(
+    ' ',
+  ),
+);
+const wordsOf = (text: string) =>
+  new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(word => word.length > 1 && !commonWords.has(word))
+      // “recipes” and “recipe” are the same subject.
+      .map(word => (word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word)),
+  );
+
+/**
+ * The memories a turn carries, trimmed to what fits, in the order they were kept. When they don't
+ * all fit, the ones that share words with the question go first, then the most recently changed.
+ * Before, the oldest always won, so what the person said most recently was the first thing a turn
+ * left out.
+ */
+export function memoriesForPrompt(
+  memories: readonly Memory[],
+  options: { question?: string; limit?: number } = {},
+) {
+  const limit = options.limit ?? memoryPromptChars;
+  const line = (memory: Memory) => `- ${memory.text}`;
+  const asked = wordsOf(options.question ?? '');
+  const overlap = (memory: Memory) => {
+    let shared = 0;
+    for (const word of wordsOf(memory.text)) if (asked.has(word)) shared++;
+    return shared;
+  };
+  const ranked = memories
+    .map((memory, index) => ({ memory, index, shared: overlap(memory) }))
+    .sort((a, b) => b.shared - a.shared || b.memory.updatedAt - a.memory.updatedAt);
+  const chosen: typeof ranked = [];
   let used = 0;
-  for (const memory of memories) {
-    const line = `- ${memory.text}`;
-    if (used + line.length > limit) break;
-    lines.push(line);
-    used += line.length + 1;
+  for (const entry of ranked) {
+    const size = line(entry.memory).length + 1;
+    if (used + size > limit + 1) continue;
+    chosen.push(entry);
+    used += size;
   }
-  return lines;
+  return chosen.sort((a, b) => a.index - b.index).map(entry => line(entry.memory));
 }
