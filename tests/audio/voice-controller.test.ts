@@ -625,6 +625,48 @@ test('talking over Edi pauses her; words stop the reply and the work, then ask a
   h.voice.stop();
 });
 
+test('a link typed into an open conversation is answered aloud; with none open it is not taken', async () => {
+  const outside = harness();
+  assert.equal(outside.voice.typed('https://example.com'), false, 'no conversation: typed path');
+  await holdAndSpeak(outside);
+  assert.equal(outside.voice.typed('https://example.com'), false, 'a hold is not a conversation');
+  outside.voice.stop();
+
+  const runs: AbortSignal[] = [];
+  let answer: ((state: AgentState) => void) | undefined;
+  const h = harness({
+    listen: fakeListener(() => 'Have a look at this link.').listen,
+    whenFinished: (_runId, signal) => {
+      runs.push(signal);
+      return new Promise((resolve, reject) => {
+        answer = resolve;
+        signal.addEventListener('abort', () => reject(new Error('Stopped')));
+      });
+    },
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  assert.equal(h.voice.phase, 'processing');
+
+  // Pasted while Edi is still on the spoken request: the link wins, and is answered aloud.
+  assert.equal(h.voice.typed('  https://glow.example.app  '), true);
+  await wait(5);
+  assert.equal(runs[0]?.aborted, true, 'the earlier reply gave way');
+  assert.deepEqual(
+    h.asked.map(item => item.prompt),
+    ['Have a look at this link.', 'https://glow.example.app'],
+  );
+  answer?.({ ...runningState, status: 'done', text: 'A salon booking app. Looks clean.' });
+  await wait(30);
+  stopPlaying();
+  assert.ok(h.types().includes('pcm'), 'the answer to the link was spoken');
+  assert.equal(h.voice.phase, 'listening', 'and the conversation goes on');
+  h.voice.stop();
+});
+
 test('noise over Edi resumes her reply without cancelling anything', async () => {
   let words = 'What time is it?';
   let finish!: (state: AgentState) => void;

@@ -357,6 +357,26 @@ export class VoiceController<Screens> {
     return true;
   }
 
+  /**
+   * Something typed (a pasted link) while a hands-free conversation is open is the person's next
+   * turn, answered aloud like a spoken one. False when no conversation can take it; it is then
+   * asked as an ordinary typed question.
+   */
+  typed(text: string) {
+    const prompt = text.trim();
+    const { generation, turn } = this.session;
+    if (!prompt || this.session.mode !== 'conversation') return false;
+    const now = this.deps.now ?? Date.now;
+    this.heard = prompt;
+    this.heardMark = { ended: now(), transcript: 0 };
+    this.dispatch({ type: 'typed', generation });
+    if (this.session.turn === turn) return false;
+    clearTimeout(this.idleTimer);
+    // Words half-said when the text arrived would otherwise follow it as a stale turn.
+    this.endUtterance(true);
+    return true;
+  }
+
   stop() {
     if (this.session.phase !== 'idle' || this.reply || this.previewing)
       this.dispatch({ type: 'stop' });

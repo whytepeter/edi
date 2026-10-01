@@ -65,6 +65,25 @@ test('talk the room keeps up sets the bar: it starts no turn, the person up clos
   assert.ok(events[1]![0] <= start + 60 + 35, 'the pause comes about 600 ms after they stop');
 });
 
+test('the person’s own words never raise the bar: every turn of a long conversation is heard', () => {
+  const activity = new SpeechActivity({ voiceDetector: true });
+  run(activity, [[0.003, false, 150]]);
+  for (let turn = 1; turn <= 8; turn++) {
+    // Two seconds of speech at the same level each time, syllables rising and falling.
+    const speech: [number, boolean, number][] = Array.from({ length: 100 }, (_, i) => [
+      0.04 * (0.7 + 0.6 * Math.abs(Math.sin((i * 20) / 90))),
+      true,
+      1,
+    ]);
+    const events = run(activity, [...speech, [0.003, false, 100]]);
+    assert.equal(events[0]?.[1], 'speech', `turn ${turn} was heard`);
+    assert.ok(events[0]![0] <= 15, `turn ${turn} started within 300 ms`);
+    activity.reset(); // the utterance went to the model
+    // A quick reply, then the person answers again.
+    run(activity, [[0.003, false, 75]]);
+  }
+});
+
 test('Silero itself: a request over a loud fan is heard and answered', async () => {
   const RATE = 16_000;
   const wav = readFileSync(resolve('tests/fixtures/speech-16k.wav'));

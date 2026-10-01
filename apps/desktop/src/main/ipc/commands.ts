@@ -349,7 +349,11 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ apiKey, model }) => agent.configure(apiKey, model),
     },
     'disconnect-agent': { from: fromWorkspace, handle: () => agent.disconnect() },
-    'ask-agent': { from: fromWorkspace, handle: ({ prompt }) => agent.ask(prompt) },
+    // In an open hands-free conversation, a typed (or pasted) message is answered aloud too.
+    'ask-agent': {
+      from: fromWorkspace,
+      handle: ({ prompt }) => (voice.typed(prompt) ? undefined : agent.ask(prompt)),
+    },
     'stop-agent': { from: fromWorkspace, handle: () => agent.stop() },
     'new-conversation': { from: fromWorkspace, handle: () => agent.newConversation() },
     'open-conversation': { from: fromWorkspace, handle: ({ id }) => agent.openConversation(id) },

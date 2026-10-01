@@ -1379,12 +1379,16 @@ async function start() {
     status: status => character.showVoiceStatus(status),
     microphoneAccess: async () => permissionPort.current?.require('microphone') ?? false,
     captureScreens: screensForPrompt,
-    ask: (prompt, options) =>
-      agent.ask(prompt, options).catch((error: unknown) => {
+    ask: (prompt, options) => {
+      // A spoken question replaces whatever is running, as a new hold already does; in a
+      // hands-free conversation the clash failed the turn and ended the conversation.
+      if (agent.state.status === 'running') agent.stop();
+      return agent.ask(prompt, options).catch((error: unknown) => {
         if (error instanceof Error && error.message === 'Set up OpenRouter first.')
           placement.reveal();
         throw error;
-      }),
+      });
+    },
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
     // Whisper hears the room as the words it was primed with; those turns are noise.
