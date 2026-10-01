@@ -14,34 +14,59 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-test('Jev is asked one yes/no question in the documented shape, and its noul is read', async () => {
+test('Jev is asked one yes/no question through OpenRouter, and its noul is read', async () => {
   const calls: { url: string; init: RequestInit }[] = [];
-  const client = new JevClient('key-1', async (url, init) => {
-    calls.push({ url, init });
-    return json({
-      model: 'jev-1.13.0',
-      answers: { answer: { type: 'noul', noul: 0.83 } },
-      usage: { input_tokens: 40, output_tokens: 0 },
-    });
-  });
+  const client = new JevClient(
+    () => 'key-1',
+    async (url, init) => {
+      calls.push({ url, init });
+      return json({
+        id: 'gen-dec-1',
+        model: 'typesafe/jev-1.13-20260917',
+        provider: 'TypeSafe',
+        answers: { answer: { type: 'noul', noul: 0.83 } },
+        usage: { input_tokens: 40, output_tokens: 0, cost: 0.000002 },
+      });
+    },
+  );
   const answer = await client.yesNo({ request: 'what is this button?' }, screenQuestion);
   assert.deepEqual({ ...answer, ms: 0 }, { ok: true, yes: 0.83, ms: 0 });
-  assert.equal(calls[0]?.url, 'https://api.typesafe.ai/v1/systemone');
+  assert.equal(calls[0]?.url, 'https://openrouter.ai/api/v1/systemone');
   assert.equal(calls[0]?.init.method, 'POST');
   assert.deepEqual(calls[0]?.init.headers, {
     Authorization: 'Bearer key-1',
     'Content-Type': 'application/json',
   });
   assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), {
-    model: 'jev-latest',
+    model: 'typesafe/jev-1.13',
     state: { request: 'what is this button?' },
     questions: { answer: { type: 'noul', ...screenQuestion } },
   });
 });
 
+test('the OpenRouter key is read on each question, and nothing is sent without one', async () => {
+  let key = '';
+  const sentWith: unknown[] = [];
+  const client = new JevClient(
+    () => key,
+    async (_url, init) => {
+      sentWith.push((init.headers as Record<string, string>).Authorization);
+      return json({ answers: { answer: { type: 'noul', noul: 0.5 } } });
+    },
+  );
+  assert.deepEqual(await client.yesNo({ request: 'hi' }, screenQuestion), {
+    ok: false,
+    error: 'no OpenRouter key',
+    ms: 0,
+  });
+  key = 'saved-later';
+  assert.equal((await client.yesNo({ request: 'hi' }, screenQuestion)).ok, true);
+  assert.deepEqual(sentWith, ['Bearer saved-later']);
+});
+
 test('a refused, malformed or failed request is an answer with a reason, never a throw', async () => {
   const ask = (fetchImpl: () => Promise<Response>) =>
-    new JevClient('key', fetchImpl).yesNo({ words_so_far: 'hi' }, turnQuestion);
+    new JevClient(() => 'key', fetchImpl).yesNo({ words_so_far: 'hi' }, turnQuestion);
   const reason = (answer: JevAnswer) => (answer.ok ? 'answered' : answer.error);
   assert.equal(reason(await ask(async () => json({ detail: 'slow down' }, 429))), 'HTTP 429');
   assert.equal(
@@ -167,12 +192,12 @@ test('checks beyond four waiting on Jev are skipped, not queued', async () => {
   assert.equal(pending.length, 5, 'room again once answers arrive');
 });
 
-test('shadow mode needs a development run, EDI_JEV_SHADOW=on and a key', () => {
-  const on = { EDI_JEV_SHADOW: 'on', TYPESAFE_API_KEY: 'key' };
+test('shadow mode needs a development run and EDI_JEV_SHADOW=on, not a second key', () => {
+  const on = { EDI_JEV_SHADOW: 'on' };
   const make = (packaged: boolean, env: Record<string, string>) =>
-    jevShadowFromEnv({ packaged, logPath: '/dev/null', env });
+    jevShadowFromEnv({ packaged, logPath: '/dev/null', apiKey: () => 'openrouter-key', env });
   assert.ok(make(false, on) instanceof JevShadow);
   assert.equal(make(true, on), null, 'never in a packaged app');
-  assert.equal(make(false, { TYPESAFE_API_KEY: 'key' }), null, 'a key alone does not turn it on');
-  assert.equal(make(false, { EDI_JEV_SHADOW: 'on', TYPESAFE_API_KEY: ' ' }), null);
+  assert.equal(make(false, {}), null, 'the OpenRouter key alone does not turn it on');
+  assert.equal(make(false, { EDI_JEV_SHADOW: 'yes' }), null);
 });

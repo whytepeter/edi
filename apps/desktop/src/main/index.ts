@@ -1107,11 +1107,17 @@ async function start() {
   };
   // Jev beside the screen gate and the end-of-turn check, deciding nothing (development only).
   const jevShadowLog = join(app.getPath('userData'), 'jev-shadow.jsonl');
-  const jevShadow = jevShadowFromEnv({ packaged: app.isPackaged, logPath: jevShadowLog });
+  const jevShadow = jevShadowFromEnv({
+    packaged: app.isPackaged,
+    logPath: jevShadowLog,
+    apiKey: () => openRouter.apiKey,
+  });
   if (jevShadow) {
     compareScreenGate((prompt, followUp, needed) => jevShadow.screenGate(prompt, followUp, needed));
-    // eslint-disable-next-line no-console -- a deliberate notice: prompts now go to TypeSafe
-    console.info(`[jev] shadow mode on: prompts and utterances go to TypeSafe; ${jevShadowLog}`);
+    // eslint-disable-next-line no-console -- a deliberate notice: prompts now go to Jev
+    console.info(
+      `[jev] shadow mode on: prompts and utterances go to Jev through OpenRouter; ${jevShadowLog}`,
+    );
   }
   /** Screenshots for a screen question, only while Edi may look. */
   const screensForPrompt = (prompt: string) =>

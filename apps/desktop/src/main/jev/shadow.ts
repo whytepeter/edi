@@ -4,9 +4,10 @@
  * Two checks are compared: whether a prompt needs a screenshot, and whether a hands-free pause
  * ends the turn.
  *
- * Development runs only, and only when turned on with `EDI_JEV_SHADOW=on` and `TYPESAFE_API_KEY`.
- * The words of each checked prompt or utterance then go to TypeSafe, and each comparison, words
- * included, is added to a local JSON Lines file. `pnpm jev:report` summarizes that file.
+ * Development runs only, and only when turned on with `EDI_JEV_SHADOW=on`. The words of each
+ * checked prompt or utterance then go to Jev through OpenRouter, on the OpenRouter key Edi already
+ * has, and each comparison, words included, is added to a local JSON Lines file.
+ * `pnpm jev:report` summarizes that file.
  */
 
 import { appendFile } from 'node:fs/promises';
@@ -141,10 +142,11 @@ export function appendJsonLines(path: string) {
 export function jevShadowFromEnv(options: {
   packaged: boolean;
   logPath: string;
+  /** The OpenRouter key Edi already uses for answers. */
+  apiKey: () => string;
   env?: Record<string, string | undefined>;
 }): JevShadow | null {
   const env = options.env ?? process.env;
-  const key = env.TYPESAFE_API_KEY?.trim();
-  if (options.packaged || env.EDI_JEV_SHADOW !== 'on' || !key) return null;
-  return new JevShadow(new JevClient(key), appendJsonLines(options.logPath));
+  if (options.packaged || env.EDI_JEV_SHADOW !== 'on') return null;
+  return new JevShadow(new JevClient(options.apiKey), appendJsonLines(options.logPath));
 }

@@ -1,11 +1,13 @@
 /**
  * Jev, TypeSafe AI's decision model. It reads a state and answers named questions with typed
  * values instead of text; a yes/no question ("noul") comes back as how likely the answer is yes.
- * https://docs.typesafe.ai/api.md
+ * Reached through OpenRouter's System One API with the person's OpenRouter key, so there is no
+ * TypeSafe account or second key. https://openrouter.ai/docs/guides/community/typesafe-sdk
  */
 
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
-const MODEL = 'jev-latest';
+const ENDPOINT = 'https://openrouter.ai/api/v1/systemone';
+/** One release, not the newest-release alias, so answers stay comparable across a trial. */
+const MODEL = 'typesafe/jev-1.13';
 /** A decision that takes longer than this would never have been worth waiting for. */
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -22,7 +24,8 @@ export type JevAnswer =
 
 export class JevClient {
   constructor(
-    private readonly apiKey: string,
+    /** Read on each question: the key loads after startup and can change in Settings. */
+    private readonly apiKey: () => string,
     private readonly fetchImpl: Fetch = (url, init) => fetch(url, init),
     private readonly now: () => number = Date.now,
   ) {}
@@ -30,10 +33,12 @@ export class JevClient {
   async yesNo(state: Record<string, string>, question: YesNoQuestion): Promise<JevAnswer> {
     const started = this.now();
     const ms = () => this.now() - started;
+    const key = this.apiKey();
+    if (!key) return { ok: false, error: 'no OpenRouter key', ms: 0 };
     try {
       const response = await this.fetchImpl(ENDPOINT, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: MODEL,
           state,

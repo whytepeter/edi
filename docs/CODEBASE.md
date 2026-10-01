@@ -178,11 +178,11 @@ are Markdown, while tables are CSV. The generated-content view has no second Cop
 - Client and shadow: `apps/desktop/src/main/jev`; report: `pnpm jev:report [path]`
 - Hooks: `compareScreenGate` in `capture/screens.ts`, `pauseJudged` on `VoiceController`
 
-Asks [Jev](https://docs.typesafe.ai/api.md) the same question as two local checks, whether a prompt needs a
-screenshot and whether a hands-free pause ends the turn, and records both answers. Edi's own check still decides.
-Off unless a development run sets `EDI_JEV_SHADOW=on` and `TYPESAFE_API_KEY`; then each checked prompt or
-utterance goes to TypeSafe, and the comparisons, words included, go to `jev-shadow.jsonl` in user data. Never
-active in a packaged app.
+Asks [Jev](https://docs.typesafe.ai/api.md) (`typesafe/jev-1.13`) the same question as two local checks, whether a
+prompt needs a screenshot and whether a hands-free pause ends the turn, and records both answers. Edi's own check
+still decides. Off unless a development run sets `EDI_JEV_SHADOW=on`; then each checked prompt or utterance goes to
+Jev through OpenRouter's System One API on the saved OpenRouter key, and the comparisons, words included, go to
+`jev-shadow.jsonl` in user data. Never active in a packaged app.
 
 ### Storage
 
