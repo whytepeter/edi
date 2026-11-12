@@ -511,6 +511,7 @@ test('workspace.show validates content by kind and is exposed as a plain object 
   const result = await list.execute(live());
   assert.deepEqual(result.output, {
     shown: true,
+    id: '00000000-0000-4000-8000-000000000021',
     kind: 'checklist',
     title: 'Packing',
     path: join('Artifacts', 'Checklists', 'packing.md'),
@@ -959,6 +960,8 @@ test('saved content is reopened by id, not shown again as a copy; a checklist ca
   try {
     const stored = new Map<string, WorkspaceArtifact>();
     const shown: ArtifactSummary[] = [];
+    /** Whether each showing was the person asking to open something that exists. */
+    const asked: boolean[] = [];
     const deps: WorkspaceDependencies = {
       directory: () => directory,
       artifacts: {
@@ -976,7 +979,10 @@ test('saved content is reopened by id, not shown again as a copy; a checklist ca
         store: { get: () => null } as unknown as WorkspaceDependencies['notes']['store'],
         shown: async () => {},
       } as unknown as WorkspaceDependencies['notes'],
-      shown: (artifact: ArtifactSummary) => void shown.push(artifact),
+      shown: (artifact: ArtifactSummary, from: { runId: string; opened?: boolean }) => {
+        shown.push(artifact);
+        asked.push(from.opened === true);
+      },
       now: () => 5,
     } as unknown as WorkspaceDependencies;
     const tools = workspaceCapabilities(deps);
@@ -1002,8 +1008,10 @@ test('saved content is reopened by id, not shown again as a copy; a checklist ca
       },
       context,
     );
-    await made.execute(live);
+    const shownAs = await made.execute(live);
     assert.equal(stored.size, 1);
+    // What was just made says its id, so "open it" a moment later needs no search.
+    assert.equal((shownAs.output as { id: string }).id, uuid(1));
 
     // Opening it shows the same item again and stores nothing new.
     const reopened = await open.prepare({ id: uuid(1) }, { callId: uuid(2), runId: uuid(9) });
@@ -1014,6 +1022,8 @@ test('saved content is reopened by id, not shown again as a copy; a checklist ca
       shown.map(artifact => artifact.id),
       [uuid(1), uuid(1)],
     );
+    // Made content is a preview to open or leave; content the person asked to open, opens.
+    assert.deepEqual(asked, [false, true]);
     await assert.rejects(
       async () => open.prepare({ id: uuid(7) }, context),
       /nothing in its workspace with that id/,

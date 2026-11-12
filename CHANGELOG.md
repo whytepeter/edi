@@ -311,6 +311,12 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- In a hands-free conversation, content Edi made or was asked to open never appeared: its preview waited
+  for the bubble to be free, and the bubble goes straight from speaking back to listening. A preview now
+  shows at once and stays up while the conversation goes on. Asked to open something, Edi opens its window
+  instead of previewing it, in one step and without searching for what it just made.
+- In a hands-free conversation the listening animation took the bubble from a review before you could
+  answer it. A review now stays until it is answered; listening shows on Edi's face.
 - Edi laughs when its voice laughs, not before it answers. A reply said aloud shows its mood when the voice
   starts (the mood tag arrives seconds earlier, with the first words). A glad mood smiles with the eyes and
   no longer opens the laughing mouth, which is kept for a laugh in the voice. The model is told that most

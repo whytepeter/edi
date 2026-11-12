@@ -235,7 +235,11 @@ export interface WorkspaceDependencies {
    * content's own, so the run is the only way to tell who is showing it: the person's
    * conversation, or a background task that must stay quiet.
    */
-  shown(artifact: ArtifactSummary, from: { runId: string }): void | Promise<void>;
+  shown(
+    artifact: ArtifactSummary,
+    /** `opened`: the person asked to open something that exists, so it opens, not previews. */
+    from: { runId: string; opened?: boolean },
+  ): void | Promise<void>;
   artifacts: ArtifactStore;
   notes: { store: NoteStore; directory: () => string };
   /** Move a file to the system Trash (recoverable), never unlink it. */
@@ -627,6 +631,8 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
             summary: `Showed “${content.title}” and created ${file.relativePath}.`,
             output: {
               shown: true,
+              // So "open it" a moment later needs no search for what was just made.
+              id: callId,
               kind: content.kind,
               title: content.title,
               path: file.relativePath,
@@ -750,7 +756,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
               title: content.title,
               preview: artifactPreview(content),
             },
-            { runId },
+            { runId, opened: true },
           );
           return {
             summary: `Opened “${content.title}”.`,

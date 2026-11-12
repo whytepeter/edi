@@ -35,7 +35,7 @@ interface NotesDependencies {
   store: NoteStore;
   now?: () => number;
   /** Display a note in Edi's card; `from` names the run that showed it. */
-  shown?: (artifact: ArtifactSummary, from: { runId: string }) => void;
+  shown?: (artifact: ArtifactSummary, from: { runId: string; opened?: boolean }) => void;
 }
 
 /** File names come only from a slug of the title, so input cannot choose a path. */
@@ -276,7 +276,7 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
               preview: artifactPreview({ kind: 'note', markdown }),
               noteId: note.id,
             },
-            { runId },
+            { runId, opened: true },
           );
           return {
             summary: `Showed “${note.title}” in Edi’s card.`,

@@ -414,7 +414,7 @@ async function start() {
   };
   let openSetup = (_page: WorkspaceView) => {};
   // Filled in once windows exist; capabilities call these lazily.
-  let showArtifact = (_artifact: ArtifactSummary, _from: { runId: string }) => {};
+  let showArtifact = (_artifact: ArtifactSummary, _from: { runId: string; opened?: boolean }) => {};
   let applyPreferences = async (_patch: EdiPreferences) => {};
   let windowAction = (_action: 'close' | 'sleep') => {};
   let hopNow = (): 'hopped' | 'reduced-motion' | 'card-open' | 'no-room' => 'no-room';
@@ -1299,7 +1299,9 @@ async function start() {
     // Asked by run: content a task updates or reopens keeps its own id, which no task owns.
     if (tasks.owns(from.runId) || tasks.owns(artifact.id)) return;
     agent.addArtifact(artifact);
-    if (agent.runningSpoken && !cardOpen()) character.showArtifact(artifact);
+    // Made during a spoken turn with the card closed: a preview beside Edi, to open or leave.
+    // Asked to open something, Edi opens it.
+    if (agent.runningSpoken && !cardOpen() && !from.opened) character.showArtifact(artifact);
     else openArtifact({ callId: artifact.id });
   };
   applyPreferences = async patch => {

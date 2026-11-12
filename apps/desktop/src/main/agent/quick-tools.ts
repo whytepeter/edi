@@ -14,6 +14,8 @@ export const QUICK_TOOLS: ReadonlySet<string> = new Set([
   'workspace_search',
   'workspace_read',
   'workspace_update',
+  // "Open it" a moment after it was made should be one step.
+  'workspace_open',
   // Looking things up.
   'web_fetch',
   'files_search',

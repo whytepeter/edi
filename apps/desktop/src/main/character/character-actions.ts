@@ -214,7 +214,15 @@ export class CharacterActions {
   showVoiceStatus = (
     status: 'opening' | 'listening' | 'thinking' | 'speaking' | 'hidden' | { notice: string },
   ) => {
-    if (status === 'opening') {
+    // A review to approve and a preview of something Edi made stay up while the conversation
+    // goes on: listening, thinking and speaking show on the face. In a hands-free conversation
+    // the microphone reopens the moment Edi stops speaking, and the listening animation used to
+    // take the bubble before the person could act. The review leaves when it is answered; the
+    // preview on its own timer, or when opened.
+    const waitingOnThem = this.bubble?.state === 'approval' || this.bubble?.state === 'artifact';
+    if (waitingOnThem && typeof status === 'string' && status !== 'hidden') {
+      this.setExpression(status === 'opening' ? 'attention' : status);
+    } else if (status === 'opening') {
       this.hideBubble(false);
       this.setExpression('attention');
     } else if (status === 'hidden') {
@@ -227,7 +235,10 @@ export class CharacterActions {
       )
         this.hideBubble();
       else if (this.bubble?.state === 'reply') this.setExpression('idle');
-    } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
+    } else if (typeof status === 'object') {
+      // A passing notice never takes the place of a review that is waiting for an answer.
+      if (this.bubble?.state !== 'approval') this.showStatus('notice', 4000, status.notice);
+    }
     // While the answer is on show, speaking and thinking change the face, not the bubble.
     else if (this.bubble?.state === 'reply' && (status === 'speaking' || status === 'thinking'))
       this.setExpression(status);
@@ -270,8 +281,10 @@ export class CharacterActions {
    */
   showArtifact = (artifact: ArtifactSummary) => {
     this.artifact = artifact;
-    const busy = this.bubble?.state;
-    if (busy === 'listening' || busy === 'speaking' || busy === 'approval') return;
+    // Something to see comes before the listening and speaking animation: in a hands-free
+    // conversation the bubble goes from one to the other and is never free, so a preview that
+    // waited its turn never appeared. Only a review to approve comes first.
+    if (this.bubble?.state === 'approval') return;
     this.presentArtifact();
   };
 
