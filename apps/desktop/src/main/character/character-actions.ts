@@ -44,6 +44,10 @@ interface CharacterActionsOptions {
 
 type MenuAction = 'content' | 'settings' | 'sleep' | 'quit' | 'dismiss';
 
+/** How big the bubble is for a reply: a spoken answer has no field under its words. */
+const replySize = (reply: BubbleReply) =>
+  replyBubbleSize(reply.text, reply.progress, !reply.spoken);
+
 /** One entry point for character clicks, menu actions and the global shortcut. */
 export class CharacterActions {
   private bubble?: { window: BrowserWindow; state: StatusBubbleState; side: BubbleSide };
@@ -53,7 +57,6 @@ export class CharacterActions {
   private bubbleText?: string;
   /** The latest progress line for running work, even while the bubble shows something else. */
   private progress?: string;
-  private ackTimer?: ReturnType<typeof setTimeout>;
   private menu?: BrowserWindow;
   private mode: 'conversation' | 'push-to-talk' = 'conversation';
   private dismiss?: ReturnType<typeof setTimeout>;
@@ -97,7 +100,6 @@ export class CharacterActions {
     // Kept while the bubble is busy, so a voice reply that goes quiet shows what Edi is doing.
     this.progress = thinking ? text : undefined;
     if (!thinking) {
-      clearTimeout(this.ackTimer);
       if (this.bubble?.state === 'thinking') this.hideBubble();
       return;
     }
@@ -114,24 +116,30 @@ export class CharacterActions {
    * answer is complete it lingers long enough to read (and to hear), then leaves. Open shows
    * the whole conversation; the field under it sends a reply.
    */
-  showReply = (text: string, options: { progress?: string; done?: boolean } = {}) => {
+  showReply = (
+    text: string,
+    options: { progress?: string; done?: boolean; spoken?: boolean } = {},
+  ) => {
     const busy = this.bubble?.state;
     // A review, the person talking, or content they can open all come before words.
     if (busy === 'approval' || busy === 'listening' || busy === 'artifact') return;
+    const bubble = this.bubble;
+    // Once the person has brought the field up, it stays for as long as this bubble does.
+    const fieldUp = bubble?.state === 'reply' && this.reply !== undefined && !this.reply.spoken;
     const reply: BubbleReply = {
       text,
       progress: (options.progress ?? '').slice(0, 60),
       done: options.done ?? false,
+      spoken: (options.spoken ?? false) && !fieldUp,
     };
-    const size = replyBubbleSize(reply.text, reply.progress);
-    const bubble = this.bubble;
+    const size = replySize(reply);
     if (bubble?.state !== 'reply' || bubble.window.isDestroyed()) {
       this.reply = reply;
       this.showStatus('reply');
     } else {
       const before = this.reply;
       this.reply = reply;
-      if (!before || replyBubbleSize(before.text, before.progress).height !== size.height)
+      if (!before || replySize(before).height !== size.height)
         bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
       this.pushApproval();
     }
@@ -145,7 +153,15 @@ export class CharacterActions {
 
   /** The person is reading or answering the reply: it stays until they send or dismiss it. */
   holdReply = () => {
-    if (this.bubble?.state === 'reply') clearTimeout(this.dismiss);
+    const bubble = this.bubble;
+    if (bubble?.state !== 'reply') return;
+    clearTimeout(this.dismiss);
+    // Touching a spoken answer is how the person says they want to type back: the field appears.
+    if (this.reply?.spoken && !bubble.window.isDestroyed()) {
+      this.reply = { ...this.reply, spoken: false };
+      bubble.window.setBounds(this.bubblePlacement(replySize(this.reply), bubble.side).bounds);
+      this.pushApproval();
+    }
   };
 
   /**
@@ -157,14 +173,8 @@ export class CharacterActions {
     if (bubble?.state === 'reply' && this.reply && !bubble.window.isDestroyed()) {
       const before = this.reply;
       this.reply = { ...before, progress: text.slice(0, 60) };
-      if (
-        replyBubbleSize(before.text, before.progress).height !==
-        replyBubbleSize(this.reply.text, this.reply.progress).height
-      )
-        bubble.window.setBounds(
-          this.bubblePlacement(replyBubbleSize(this.reply.text, this.reply.progress), bubble.side)
-            .bounds,
-        );
+      if (replySize(before).height !== replySize(this.reply).height)
+        bubble.window.setBounds(this.bubblePlacement(replySize(this.reply), bubble.side).bounds);
       return this.pushApproval();
     }
     if (bubble?.state === 'approval' || bubble?.state === 'listening') return;
@@ -183,12 +193,8 @@ export class CharacterActions {
   acknowledge = () => {
     const busy = this.bubble?.state;
     if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
+    // Straight to thinking. A smile here read as laughing at the question.
     this.showThinking();
-    this.setExpression('happy');
-    clearTimeout(this.ackTimer);
-    this.ackTimer = setTimeout(() => {
-      if (this.bubble?.state === 'thinking') this.setExpression('thinking');
-    }, 900);
   };
 
   private showThinking(text?: string) {
@@ -282,7 +288,6 @@ export class CharacterActions {
   }
 
   /** A completed turn gets one restrained acknowledgement, then returns to idle. */
-  showHappy = () => this.setExpression('happy', 1500);
 
   private showStatus(
     state: StatusBubbleState,
@@ -299,7 +304,7 @@ export class CharacterActions {
       state === 'thinking'
         ? thinkingBubbleSize(text)
         : state === 'reply' && this.reply
-          ? replyBubbleSize(this.reply.text, this.reply.progress)
+          ? replySize(this.reply)
           : statusBubbleSize[state];
     const { bounds, side } = this.bubblePlacement(size);
     const window = this.options.createBubble({
@@ -375,7 +380,7 @@ export class CharacterActions {
       bubble.state === 'thinking'
         ? thinkingBubbleSize(this.bubbleText)
         : bubble.state === 'reply' && this.reply
-          ? replyBubbleSize(this.reply.text, this.reply.progress)
+          ? replySize(this.reply)
           : statusBubbleSize[bubble.state];
     bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
   };

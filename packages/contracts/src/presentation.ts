@@ -277,6 +277,11 @@ export const bubbleReplySchema = z
     progress: z.string().max(60).default(''),
     /** The reply is complete; the bubble lingers, then leaves. */
     done: z.boolean(),
+    /**
+     * The question was asked aloud. The person is talking, not typing, so the bubble shows only
+     * the words; touching it brings the reply field and Open.
+     */
+    spoken: z.boolean().default(false),
   })
   .strict();
 export type BubbleReply = z.infer<typeof bubbleReplySchema>;

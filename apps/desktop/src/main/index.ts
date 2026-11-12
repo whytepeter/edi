@@ -85,7 +85,6 @@ import {
   type VoiceSelection,
   defaultCharacterId,
   bubbleReplyText,
-  replyMood,
   type Artifact,
   type ArtifactRef,
   type ArtifactSummary,
@@ -140,6 +139,7 @@ import { TaskService } from './agent/task-service';
 import { taskCapabilities } from './agent/task-tools';
 import { buildSetupSnapshot } from './setup-snapshot';
 import { memoryRoutes } from './memory-routes';
+import { answerShowsWords, ReplyReactions } from './character/reply-reactions';
 import { DISPLAY_CAPABILITIES, threadArtifacts } from './agent/thread-artifacts';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
@@ -413,7 +413,7 @@ async function start() {
   };
   let openSetup = (_page: WorkspaceView) => {};
   // Filled in once windows exist; capabilities call these lazily.
-  let showArtifact = (_artifact: ArtifactSummary) => {};
+  let showArtifact = (_artifact: ArtifactSummary, _from: { runId: string }) => {};
   let applyPreferences = async (_patch: EdiPreferences) => {};
   let windowAction = (_action: 'close' | 'sleep') => {};
   let cardOpen = () => false;
@@ -433,7 +433,7 @@ async function start() {
   /** One set of workspace dependencies for Edi's tools and the Library's own Delete. */
   const workspaceDeps: WorkspaceDependencies = {
     directory: () => workspaceFolder,
-    shown: artifact => showArtifact(artifact),
+    shown: (artifact, from) => showArtifact(artifact, from),
     artifacts: repositories.artifacts,
     notes: { store: repositories.notes, directory: notesFolder },
     // Recoverable: files go to the Trash, never straight to deletion.
@@ -539,7 +539,7 @@ async function start() {
     ...notesCapabilities({
       directory: notesFolder,
       store: repositories.notes,
-      shown: artifact => showArtifact(artifact),
+      shown: (artifact, from) => showArtifact(artifact, from),
     }),
     ...workspaceCapabilities(workspaceDeps),
     ...fileCapabilities(fileDeps),
@@ -1035,7 +1035,10 @@ async function start() {
   const voice = new VoiceController({
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
-    status: status => character.showVoiceStatus(status),
+    status: status => {
+      reactions.voice(status);
+      character.showVoiceStatus(status);
+    },
     microphoneAccess: async () => permissionPort.current?.require('microphone') ?? false,
     captureScreens: screensForPrompt,
     ask: (prompt, options) => {
@@ -1190,6 +1193,8 @@ async function start() {
   const permissions = mediaPermissions.manager;
   permissionPort.current = permissions;
   const mood = new CharacterMoodController(value => broadcast([pet], 'edi:character-mood', value));
+  // Edi's face in step with a turn: listening, thinking, the reply's mood while it is said.
+  const reactions = new ReplyReactions(mood);
   pet.webContents.on('did-finish-load', () =>
     pet.webContents.send('edi:character-mood', mood.current),
   );
@@ -1273,9 +1278,10 @@ async function start() {
     if (action === 'reveal') return shell.showItemInFolder(artifactPath(ref));
     clipboard.writeText(artifactExport(await resolveArtifact(ref)).copy);
   };
-  showArtifact = artifact => {
+  showArtifact = (artifact, from) => {
     // A background task's content goes quietly to Library and its task, not onto the screen.
-    if (tasks.owns(artifact.id)) return;
+    // Asked by run: content a task updates or reopens keeps its own id, which no task owns.
+    if (tasks.owns(from.runId) || tasks.owns(artifact.id)) return;
     agent.addArtifact(artifact);
     if (agent.runningSpoken && !cardOpen()) character.showArtifact(artifact);
     else openArtifact({ callId: artifact.id });
@@ -1400,35 +1406,40 @@ async function start() {
     // One place to decide: the card's own review while it is open, the bubble otherwise.
     character.showApproval(cardOpen() ? null : (state.approval ?? tasks.currentApproval));
     const running = state.status === 'running' && !state.approval;
-    // A new request gets a warm nod; progress follows unless the person is already watching
+    // A new request shows Edi thinking; progress follows unless the person is already watching
     // the conversation, where the steps are shown in full.
     if (state.status === 'running' && previousAgentStatus !== 'running') {
       character.acknowledge();
       runWasSpoken = agent.runningSpoken ?? false;
+      reactions.turnBegan(runWasSpoken);
     }
     const watching = cardOpen() && currentView === 'conversations';
-    const label = running && !watching ? progressLabel(state) : undefined;
+    // Asked aloud, Edi says what it is doing; beside it there is only the animation.
+    const label = running && !watching && !runWasSpoken ? progressLabel(state) : undefined;
     character.setThinking(running, label);
-    // The answer itself appears beside Edi as it is written, so a question asked by voice or
-    // from the bubble is answered there; the card is for looking back and for longer work.
+    // A question typed in the bubble is answered there in words, as they are written; the card
+    // is for looking back and for longer work. One asked aloud is answered aloud, with only the
+    // animation beside Edi unless there is something to open or nothing to say it
+    // (character/reply-reactions.ts answerShowsWords).
     const words = watching ? '' : bubbleReplyText(state.text);
-    if (running && words) character.showReply(words, { progress: label });
-    if (state.status === 'done' && previousAgentStatus === 'running' && words)
-      character.showReply(words, { done: true });
-    if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();
+    const done = state.status === 'done' && previousAgentStatus === 'running';
+    const inWords = answerShowsWords({
+      spoken: runWasSpoken,
+      done,
+      voiceIdle: voice.phase === 'idle',
+      text: words,
+    });
+    if (running && words && inWords) character.showReply(words, { progress: label });
+    if (done && words && inWords) character.showReply(words, { done: true, spoken: runWasSpoken });
     // The reply's mood shows as soon as its tag streams in and lingers a little after it ends;
     // a failure looks briefly sad.
-    if (state.status === 'running') {
-      mood.noteActivity();
-      const felt = replyMood(state.text);
-      if (felt && felt !== mood.current) mood.set(felt);
-    } else if (previousAgentStatus === 'running') {
-      if (state.status === 'error') mood.set('sad', 5000);
+    if (state.status === 'running') reactions.replyGrew(state.text);
+    else if (previousAgentStatus === 'running') {
+      reactions.replyEnded(state.status === 'done' ? state.text : '', state.status === 'error');
       // Voice turns report their own outcome; a typed question someone isn't watching must not
       // fail silently.
       if (state.status === 'error' && !runWasSpoken && !watching)
         character.showVoiceStatus({ notice: spokenFailure(state.error) });
-      else mood.set(replyMood(state.text) ?? 'neutral', 9000);
     }
     previousAgentStatus = state.status;
     // A new review appears beside Edi first. The person can act there or reveal
@@ -1471,6 +1482,10 @@ async function start() {
     workspace.hide();
   });
   workspace.on('blur', hideOnBlur);
+  // A click anywhere else on the screen: the card's open menu closes, as it would in any app.
+  // Asked of the app, not the window: the card also loses focus when Edi's own windows move or
+  // take it for a moment, and a menu must not close under the pointer for that.
+  app.on('did-resign-active', () => broadcast([workspace], 'edi:card-blur', null));
   const approvalSurface = () =>
     character.showApproval(cardOpen() ? null : (agent.state.approval ?? tasks.currentApproval));
   tasks.onChange(list => {

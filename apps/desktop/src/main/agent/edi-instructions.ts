@@ -169,8 +169,10 @@ const POINTING = [
 const MOOD = [
   'Begin every reply with one mood tag for how you feel about what you are saying, chosen from',
   '[MOOD:neutral], [MOOD:happy], [MOOD:sad], [MOOD:surprised], [MOOD:confused], [MOOD:sleepy],',
-  '[MOOD:love] and [MOOD:annoyed]. Your face shows it; the user never sees the tag. Use neutral',
-  'when nothing stands out, keep annoyed playful, and never mention or explain the tag.',
+  '[MOOD:love] and [MOOD:annoyed]. Your face shows it; the user never sees the tag. Most replies',
+  'are neutral: greetings, answers, questions and everyday help. Choose another mood only when',
+  'the reply itself clearly has one, such as good news, a joke or something sad. Keep annoyed',
+  'playful, and never mention or explain the tag.',
 ].join(' ');
 
 // Voice turns are heard, not read: keep them short and free of formatting.

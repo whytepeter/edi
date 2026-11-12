@@ -43,12 +43,25 @@ function asSuggestion(value: unknown): { text: string; label: string } | null {
 }
 
 /** An answer in words: bounded text, a short progress line, and whether it is complete. */
-function asReply(value: unknown): { text: string; progress: string; done: boolean } | null {
+interface Reply {
+  text: string;
+  progress: string;
+  done: boolean;
+  /** Asked aloud: the bubble shows only the words until the person touches it. */
+  spoken: boolean;
+}
+
+function asReply(value: unknown): Reply | null {
   if (!value || typeof value !== 'object') return null;
   const reply = value as Record<string, unknown>;
   if (typeof reply.text !== 'string' || reply.text.length > 1_200) return null;
   if (typeof reply.progress !== 'string' || reply.progress.length > 60) return null;
-  return { text: reply.text, progress: reply.progress, done: reply.done === true };
+  return {
+    text: reply.text,
+    progress: reply.progress,
+    done: reply.done === true,
+    spoken: reply.spoken === true,
+  };
 }
 
 /**
@@ -94,7 +107,7 @@ contextBridge.exposeInMainWorld('ediBubble', {
   async reply() {
     return asReply(await ipcRenderer.invoke('edi:bubble-reply:get'));
   },
-  subscribeReply(callback: (reply: { text: string; progress: string; done: boolean }) => void) {
+  subscribeReply(callback: (reply: Reply) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const reply = asReply(value);
       if (reply) callback(reply);

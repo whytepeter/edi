@@ -59,6 +59,8 @@ interface BubbleReply {
   text: string;
   progress: string;
   done: boolean;
+  /** Asked aloud: only the words show until the person touches the bubble. */
+  spoken: boolean;
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
@@ -337,38 +339,41 @@ function ReplyBubble({ side, name }: { side: BubbleSide; name: string }) {
           {reply.progress}
         </span>
       )}
-      <form className="reply-bubble-row" onSubmit={event => void send(event)}>
-        <input
-          className="reply-bubble-field"
-          value={draft}
-          placeholder={`Reply to ${name}…`}
-          aria-label={`Reply to ${name}`}
-          maxLength={8000}
-          onFocus={hold}
-          onChange={event => setDraft(event.target.value)}
-        />
-        {draft.trim() ? (
-          <IconButton
-            type="submit"
-            icon="arrow-up"
-            label="Send"
-            disabled={sending}
-            className="reply-bubble-send"
+      {/* Asked aloud: only the words. Touching them (hold, above) brings this row. */}
+      {reply && !reply.spoken && (
+        <form className="reply-bubble-row" onSubmit={event => void send(event)}>
+          <input
+            className="reply-bubble-field"
+            value={draft}
+            placeholder={`Reply to ${name}…`}
+            aria-label={`Reply to ${name}`}
+            maxLength={8000}
+            onFocus={hold}
+            onChange={event => setDraft(event.target.value)}
           />
-        ) : (
-          <Button
-            size="small"
-            variant="plain"
-            onClick={() =>
-              void approvalBridge()
-                ?.showContent()
-                .catch(() => {})
-            }
-          >
-            Open
-          </Button>
-        )}
-      </form>
+          {draft.trim() ? (
+            <IconButton
+              type="submit"
+              icon="arrow-up"
+              label="Send"
+              disabled={sending}
+              className="reply-bubble-send"
+            />
+          ) : (
+            <Button
+              size="small"
+              variant="plain"
+              onClick={() =>
+                void approvalBridge()
+                  ?.showContent()
+                  .catch(() => {})
+              }
+            >
+              Open
+            </Button>
+          )}
+        </form>
+      )}
     </SpeechBubble>
   );
 }

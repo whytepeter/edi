@@ -47,6 +47,11 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('edi:navigate', listener);
     return () => ipcRenderer.removeListener('edi:navigate', listener);
   },
+  onCardBlur: callback => {
+    const listener = () => callback();
+    ipcRenderer.on('edi:card-blur', listener);
+    return () => ipcRenderer.removeListener('edi:card-blur', listener);
+  },
   onOpenArtifact: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = artifactRefSchema.safeParse(value);

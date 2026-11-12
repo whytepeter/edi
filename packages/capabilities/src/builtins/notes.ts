@@ -34,8 +34,8 @@ interface NotesDependencies {
   directory: () => string;
   store: NoteStore;
   now?: () => number;
-  /** Display a note in Edi's card. */
-  shown?: (artifact: ArtifactSummary) => void;
+  /** Display a note in Edi's card; `from` names the run that showed it. */
+  shown?: (artifact: ArtifactSummary, from: { runId: string }) => void;
 }
 
 /** File names come only from a slug of the title, so input cannot choose a path. */
@@ -257,7 +257,7 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
     effect: 'read',
     timeoutMs: 5_000,
     input: z.object({ id: noteId }).strict(),
-    prepare({ id }, { callId }) {
+    prepare({ id }, { callId, runId }) {
       const { note } = locate(store, directory, id);
       return {
         preview: {
@@ -268,13 +268,16 @@ export function notesCapabilities({ directory, store, now = Date.now, shown }: N
         },
         async execute() {
           const { markdown } = await readLibraryNote(store, directory, id);
-          shown?.({
-            id: callId,
-            kind: 'note',
-            title: note.title,
-            preview: artifactPreview({ kind: 'note', markdown }),
-            noteId: note.id,
-          });
+          shown?.(
+            {
+              id: callId,
+              kind: 'note',
+              title: note.title,
+              preview: artifactPreview({ kind: 'note', markdown }),
+              noteId: note.id,
+            },
+            { runId },
+          );
           return {
             summary: `Showed “${note.title}” in Edi’s card.`,
             // The body stays out of the reply so it is displayed, not read aloud.

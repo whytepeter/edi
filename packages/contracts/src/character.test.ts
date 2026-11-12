@@ -220,6 +220,19 @@ test('variants resolve from the most specific state down to default', () => {
   assert.equal(resolveVariant(eyes, state({ expression: 'speaking', mood: 'sad' })), 'sad');
   // A laugh wins over talking and falls back to happy when there is no laugh face.
   assert.equal(resolveVariant(mouth, state({ expression: 'speaking', cue: 'laugh' })), 'happy');
+  // A glad mood smiles with the eyes; the mouth is not the open, laughing one, which is kept
+  // for a laugh in the voice and for the happy gesture. Talking still shows while glad.
+  assert.equal(resolveVariant(eyes, state({ mood: 'happy' }), 'eyes'), 'happy');
+  assert.equal(resolveVariant(mouth, state({ mood: 'happy' }), 'mouth'), 'default');
+  assert.equal(resolveVariant(mouth, state({ mood: 'love' }), 'mouth'), 'default');
+  assert.equal(
+    resolveVariant(mouth, state({ mood: 'happy', expression: 'speaking' }), 'mouth'),
+    'talk',
+  );
+  assert.equal(resolveVariant(mouth, state({ mood: 'happy', cue: 'laugh' }), 'mouth'), 'happy');
+  assert.equal(resolveVariant(mouth, state({ expression: 'happy' }), 'mouth'), 'happy');
+  // Other moods keep their own mouths.
+  assert.equal(resolveVariant(mouth, state({ mood: 'sad' }), 'mouth'), 'sad');
   // Love borrows happy; an unknown mood variant falls back to default.
   assert.equal(resolveVariant(eyes, state({ mood: 'love' })), 'happy');
   assert.equal(resolveVariant(eyes, state({ mood: 'confused' })), 'default');

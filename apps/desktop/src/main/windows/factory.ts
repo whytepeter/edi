@@ -62,14 +62,15 @@ export function thinkingBubbleSize(text?: string) {
 
 /**
  * The reply bubble fits its words: about forty-four characters to a line, up to seven lines, then it
- * scrolls. A progress line and the reply field sit under the text.
+ * scrolls. A progress line sits under the text, and the reply field under that unless the answer
+ * is to something said aloud (`field` false), which shows only its words.
  */
-export function replyBubbleSize(text: string, progress = '') {
+export function replyBubbleSize(text: string, progress = '', field = true) {
   const lines = text
     .split('\n')
     .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 44)), 0);
   const shown = Math.max(1, Math.min(7, lines));
-  return withTail(320, 20 + shown * 21 + (progress ? 22 : 0) + 46);
+  return withTail(320, 20 + shown * 21 + (progress ? 22 : 0) + (field ? 46 : 4));
 }
 
 /** Real desktop blur (CSS backdrop-filter cannot see behind a window). */

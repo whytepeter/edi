@@ -57,6 +57,7 @@ export function CharacterArt({
       const chosen = resolveVariant(
         options.map(option => option.getAttribute('data-variant')!),
         state,
+        part.getAttribute('data-part') ?? undefined,
       );
       for (const option of options)
         option.toggleAttribute('data-active', option.getAttribute('data-variant') === chosen);

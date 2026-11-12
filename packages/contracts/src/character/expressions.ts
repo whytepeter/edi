@@ -89,14 +89,19 @@ export const characterVariantNames = [
 /**
  * Variant names in order of preference for a state. A cue wins (it is short and audible), then
  * the talking mouth, the happy and attention gestures, the mood, and finally what Edi is doing.
+ *
+ * `part` is the part being drawn. On the mouth a mood never borrows `happy`: characters draw
+ * that mouth open and laughing, and a mood lasts a whole reply, so Edi looked as if it laughed
+ * through every glad answer. A glad mood shows in the eyes, brows and cheeks; the mouth laughs
+ * only for a laugh in the voice (a cue) or the happy gesture.
  */
-export function variantPreference(state: CharacterState): string[] {
+export function variantPreference(state: CharacterState, part?: string): string[] {
   const order: string[] = [];
   if (state.cue) order.push(...cueFallbacks[state.cue]);
   if (state.expression === 'speaking') order.push('talk');
   if (state.expression === 'happy') order.push('happy');
   if (state.expression === 'attention') order.push('attention');
-  order.push(...moodFallbacks[state.mood]);
+  order.push(...moodFallbacks[state.mood].filter(name => !(part === 'mouth' && name === 'happy')));
   if (state.expression === 'listening' || state.expression === 'thinking')
     order.push(state.expression);
   order.push('default');
@@ -104,9 +109,9 @@ export function variantPreference(state: CharacterState): string[] {
 }
 
 /** The variant a part shows, or null when it has nothing for this state (the part is hidden). */
-export function resolveVariant(available: Iterable<string>, state: CharacterState) {
+export function resolveVariant(available: Iterable<string>, state: CharacterState, part?: string) {
   const offered = new Set(available);
-  return variantPreference(state).find(name => offered.has(name)) ?? null;
+  return variantPreference(state, part).find(name => offered.has(name)) ?? null;
 }
 
 export type { SpeechCue };

@@ -102,13 +102,16 @@
   transform: rotate(180deg);
 }
 
+/* Under the open menu, over everything else in the card, the header included: the header drags
+   the window and would otherwise swallow the click that should close the menu. */
 .workspace-menu-dismiss {
   position: absolute;
-  inset: 56px 0 0;
+  inset: 0;
   z-index: 3;
   border: 0;
   background: transparent;
   cursor: default;
+  -webkit-app-region: no-drag;
 }
 .workspace-menu {
   position: absolute;

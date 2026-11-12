@@ -16,7 +16,8 @@ touch artwork or CSS; they produce semantic state, and the pet renderer turns th
 | **cue**        | laugh, chuckle, sigh, gasp, groan, sniff                              | the pet window, timed to the audio (`features/pet/cue-store`) |
 
 - Expressions come from what Edi is doing (voice states, a new request, an approval).
-- Moods come from the reply: the agent opens every reply with `[MOOD:…]`, which `replyMood` reads and
+- Moods come from the reply (read: as its tag streams in; said aloud: when Edi's voice starts, see
+  `main/character/reply-reactions.ts`): the agent opens every reply with `[MOOD:…]`, which `replyMood` reads and
   `presentationText` and `speakable` strip. An error is briefly sad; after 20 quiet minutes the companion is
   sleepy until the next interaction.
 - Cues come from Chatterbox tags. `cueSegments` splits an expressive clip so the tag starts its own
@@ -30,7 +31,9 @@ The three are validated at the preload boundary and combined in `CharacterState`
 Art is split into parts (`data-part`: eyes, brows, mouth, cheeks, extras, effects), each with variants
 (`data-variant`). `resolveVariant` in `packages/contracts/src/character/expressions.ts` picks the variant a
 part shows, in this order: cue → talking mouth → happy/attention gesture → mood → listening/thinking →
-`default`. Missing variants fall back to a relative (`chuckle` → `laugh` → `happy`, `love` → `happy`,
+`default`. On the mouth a mood never borrows `happy`: that mouth is drawn open and laughing, so a
+glad mood shows in the eyes, brows and cheeks, and the mouth laughs only for a laugh in the voice or the happy
+gesture. Missing variants fall back to a relative (`chuckle` → `laugh` → `happy`, `love` → `happy`,
 `gasp` → `surprised`…). A part with no match is hidden, which is how `extras` shows a prop only for one state.
 
 `CharacterArt` injects the sanitized art, marks the chosen variant of each part with `data-active` before

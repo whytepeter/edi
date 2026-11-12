@@ -133,6 +133,27 @@ try {
     }
   });
   expect(petCannotChangeSettings).toBe(true);
+  // The section menu closes on a click anywhere outside it: on the page, on the header (which
+  // drags the window and used to swallow the click), and when the card loses focus to a click
+  // elsewhere on the screen.
+  const sections = workspace.getByRole('menu', { name: 'Sections' });
+  const openSections = async () => {
+    await workspace.getByRole('button', { name: /choose a section/ }).click();
+    await expect(sections).toBeVisible();
+  };
+  await openSections();
+  await workspace.mouse.click(300, 430);
+  await expect(sections).toHaveCount(0);
+  await openSections();
+  await workspace.mouse.click(250, 28);
+  await expect(sections).toHaveCount(0);
+  await openSections();
+  await instance.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find(w => w.webContents.getURL().includes('surface=workspace'))
+      .webContents.send('edi:card-blur', null),
+  );
+  await expect(sections).toHaveCount(0);
   await workspace.getByRole('button', { name: /choose a section/ }).click();
   await workspace.getByRole('menuitem', { name: /Appearance/ }).click();
   // Only Edi and Mochi ship; retired characters are gone. Installing more starts from Add.

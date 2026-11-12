@@ -141,7 +141,8 @@ export class AgentService {
   private cachedArtifacts = new Map<string, ArtifactSummary[]>();
   private cachedSteps = new Map<string, ToolStep[]>();
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
-  private starting?: object;
+  /** A turn that is gathering its screens and has no worker yet; it already knows how it was asked. */
+  private starting?: { spoken: boolean };
   private configuring = false;
   private readonly listeners = new Set<(state: AgentState) => void>();
   private readonly approvals = new ApprovalQueue(
@@ -251,7 +252,7 @@ export class AgentService {
     if (this.configuring || !credentials.configured) throw new Error('Set up OpenRouter first.');
     if (this.run || this.starting) throw new Error('A response is already running.');
 
-    const starting = {};
+    const starting = { spoken: options.spoken === true };
     this.starting = starting;
     const conversationId = this.conversationFor(prompt, options.conversationId);
     this.update({
@@ -558,9 +559,13 @@ export class AgentService {
     if (this.run) this.finish(this.run, 'stopped');
   }
 
-  /** Whether the running turn was spoken; undefined when nothing is running. */
+  /**
+   * Whether the running turn was spoken; undefined when nothing is running. True from the first
+   * 'running' state, before the turn has its worker: that first state is when the bubble decides
+   * how to show the answer.
+   */
   get runningSpoken() {
-    return this.run?.spoken;
+    return this.run?.spoken ?? this.starting?.spoken;
   }
 
   /** A display tool showed content in the running turn. Ignored after the turn ends. */

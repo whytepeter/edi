@@ -235,6 +235,11 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Changed
 
+- Asked aloud, Edi answers aloud, and beside it there is only the listening, thinking and speaking
+  animation: no words, no progress line, no reply field. A bubble with content appears when there is
+  something to do or to see: a review to approve, content Edi made, an answer with a link in it, or an
+  answer nothing is going to say (the voice is off or failed). A question typed in the bubble is still
+  answered there in words.
 - The documents follow the usual layout: lowercase names under `docs/`, one page per subject, indexed in
   `docs/README.md`. `CODEBASE.md` is now `architecture.md`, `AUDIO-RUNTIME.md` is `voice.md`, `PRESENTATION.md`
   is `pointing.md`, `RELEASE.md` is `releasing.md`, and the roadmap is one short page of what comes next. The
@@ -292,6 +297,19 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- Edi laughs when its voice laughs, not before it answers. A reply said aloud shows its mood when the voice
+  starts (the mood tag arrives seconds earlier, with the first words). A glad mood smiles with the eyes and
+  no longer opens the laughing mouth, which is kept for a laugh in the voice. The model is told that most
+  replies are neutral, so a mood means something.
+- Edi no longer laughs when you start talking or when an answer finishes. A request goes straight to the
+  thinking face, the smile from the last answer ends the moment you speak again, and a reply's mood now lasts
+  for as long as Edi is saying it and fades just after, instead of nine seconds from when the text was done.
+- A spoken turn was not recognised as spoken until after its first update, so the bubble treated it as typed.
+- A background task that updated or reopened content you made earlier put it on your screen, even in the
+  middle of a spoken conversation. Shown content now says which run showed it, so a task's stays in the
+  Library and its task.
+- The section menu closes on a click anywhere outside it. A click on the card's header, or anywhere else on
+  the screen, used to leave it open.
 - A generated file you edited by hand was ignored by Edi and then overwritten. Edi now reads your version, and
   before any update, rename or tick it keeps your version beside the file as “(your edits)”.
 - Edi wasn't told when an app you keep private was in front, so it could guess at a screen it wasn't looking at.

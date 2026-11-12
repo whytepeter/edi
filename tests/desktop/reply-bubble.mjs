@@ -108,8 +108,37 @@ try {
   await field.press('Enter');
   await expect.poll(() => page.evaluate(() => window.__sent)).toEqual(['Move it to 3pm']);
   await expect(field).toHaveValue('');
+
+  // An answer to something said aloud is only its words: no field, no Open. The person is
+  // talking, not typing.
+  await page.evaluate(() => {
+    window.__held = false;
+    window.__pushReply({
+      text: 'I am doing well, thanks.',
+      progress: '',
+      done: true,
+      spoken: true,
+    });
+  });
+  await expect(page.getByText('I am doing well, thanks.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Reply to Edi' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open' })).toHaveCount(0);
+  const spoken = join(profile, 'reply-bubble-spoken.png');
+  await page.screenshot({ path: spoken, omitBackground: true });
+  // Touching the words asks main to bring the field; main answers with the same reply, typed.
+  await page.getByText('I am doing well, thanks.').click();
+  await expect.poll(() => page.evaluate(() => window.__held)).toBe(true);
+  await page.evaluate(() =>
+    window.__pushReply({
+      text: 'I am doing well, thanks.',
+      progress: '',
+      done: true,
+      spoken: false,
+    }),
+  );
+  await expect(page.getByRole('textbox', { name: 'Reply to Edi' })).toBeVisible();
   console.log(
-    `PASS: reply bubble shows the answer and sends a reply. Screenshots: ${writing} ${done}`,
+    `PASS: reply bubble shows the answer and sends a reply; a spoken answer is words only. Screenshots: ${writing} ${done} ${spoken}`,
   );
 } finally {
   await app?.close();

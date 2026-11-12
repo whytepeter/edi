@@ -227,7 +227,12 @@ export interface ArtifactStore {
 export interface WorkspaceDependencies {
   /** Trusted, host-chosen workspace root (Documents/Edi). Never taken from model input. */
   directory: () => string;
-  shown(artifact: ArtifactSummary): void | Promise<void>;
+  /**
+   * Content was shown, by the run named in `from`. The id of updated or reopened content is the
+   * content's own, so the run is the only way to tell who is showing it: the person's
+   * conversation, or a background task that must stay quiet.
+   */
+  shown(artifact: ArtifactSummary, from: { runId: string }): void | Promise<void>;
   artifacts: ArtifactStore;
   notes: { store: NoteStore; directory: () => string };
   /** Move a file to the system Trash (recoverable), never unlink it. */
@@ -580,7 +585,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     effect: 'read',
     timeoutMs: 5_000,
     input: showInput,
-    prepare(input, { callId }) {
+    prepare(input, { callId, runId }) {
       const content = toArtifactContent(input);
       return {
         preview: {
@@ -614,7 +619,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
             title: content.title,
             preview: artifactPreview(content),
           };
-          await deps.shown(artifact);
+          await deps.shown(artifact, { runId });
           return {
             summary: `Showed “${content.title}” and created ${file.relativePath}.`,
             output: {
@@ -718,7 +723,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     effect: 'read',
     timeoutMs: 5_000,
     input: z.object({ id: itemId }).strict(),
-    prepare({ id }) {
+    prepare({ id }, { runId }) {
       const record = deps.artifacts.get(id);
       if (!record)
         throw new Error(
@@ -735,12 +740,15 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           fields: [],
         },
         async execute() {
-          await deps.shown({
-            id: record.id,
-            kind: content.kind,
-            title: content.title,
-            preview: artifactPreview(content),
-          });
+          await deps.shown(
+            {
+              id: record.id,
+              kind: content.kind,
+              title: content.title,
+              preview: artifactPreview(content),
+            },
+            { runId },
+          );
           return {
             summary: `Opened “${content.title}”.`,
             output: { shown: true, id: record.id, kind: content.kind, title: content.title },
@@ -793,7 +801,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
         .enum(['document', 'checklist', 'table', 'diagram', 'view', 'html', 'note'])
         .describe('The item’s kind, unchanged; note for a saved note (use markdown)'),
     }),
-    prepare(input, { callId }) {
+    prepare(input, { callId, runId }) {
       const record = deps.artifacts.get(input.id);
       if (!record) {
         const note = deps.notes.store.get(input.id);
@@ -801,7 +809,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           throw new Error(
             'Edi has nothing in its workspace with that id. Search the workspace first.',
           );
-        return updateNote(note.title, input, callId);
+        return updateNote(note.title, input, callId, runId);
       }
       if (input.kind === 'note') throw new Error(`That item is a ${record.kind}, not a note.`);
       const { id, ...fields } = input;
@@ -851,12 +859,15 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
               `Updated ${path}, but Edi could not update its workspace.`,
             );
           }
-          await deps.shown({
-            id,
-            kind: content.kind,
-            title: content.title,
-            preview: artifactPreview(content),
-          });
+          await deps.shown(
+            {
+              id,
+              kind: content.kind,
+              title: content.title,
+              preview: artifactPreview(content),
+            },
+            { runId },
+          );
           return {
             summary:
               `Updated “${content.title}” at ${path}.` +
@@ -873,6 +884,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     previousTitle: string,
     input: { id: string; kind: string; title: string; markdown?: string },
     callId: string,
+    runId: string,
   ) {
     if (input.kind !== 'note' && input.kind !== 'document')
       throw new Error('That item is a note. Pass kind note with its new Markdown.');
@@ -902,13 +914,16 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           title: input.title,
           body,
         });
-        await deps.shown({
-          id: callId,
-          kind: 'note',
-          title: input.title,
-          preview: artifactPreview({ kind: 'note', markdown: saved.content }),
-          noteId: input.id,
-        });
+        await deps.shown(
+          {
+            id: callId,
+            kind: 'note',
+            title: input.title,
+            preview: artifactPreview({ kind: 'note', markdown: saved.content }),
+            noteId: input.id,
+          },
+          { runId },
+        );
         return {
           summary: `Updated “${input.title}” at ${saved.path}.`,
           output: { id: input.id, path: saved.path },

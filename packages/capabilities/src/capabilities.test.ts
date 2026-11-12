@@ -426,11 +426,13 @@ test('notes.show displays a note without returning its text to the model', async
 test('a diagram is Mermaid: shown, saved as .mmd, previewed, copied as a fence, updated in place', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'edi-workspace-'));
   const shown: ArtifactSummary[] = [];
+  const shownBy: string[] = [];
   const artifacts = memoryArtifacts();
   const [show, , , update] = workspaceCapabilities({
     directory: () => folder,
-    shown: artifact => {
+    shown: (artifact, from) => {
       shown.push(artifact);
+      shownBy.push(from.runId);
     },
     artifacts,
     notes: { store: emptyStore(), directory: () => join(folder, 'Notes') },
@@ -466,6 +468,17 @@ test('a diagram is Mermaid: shown, saved as .mmd, previewed, copied as a fence, 
   assert.equal(await readFile(join(folder, path), 'utf8'), `${next}\n`);
   assert.equal(artifacts.records.length, 1);
   assert.match(shown.at(-1)?.preview ?? '', /MCP servers/);
+  // Updated content keeps its own id, so it says which run changed it: a background task that
+  // updates something the person made earlier must not put it on their screen.
+  const later = { callId: '00000000-0000-4000-8000-000000000032', runId: 'a-task-run' };
+  await (
+    await update.prepare(
+      { id: context.callId, kind: 'diagram', title: 'Architecture', mermaid },
+      later,
+    )
+  ).execute(live());
+  assert.equal(shown.at(-1)?.id, context.callId);
+  assert.deepEqual(shownBy, [run, run, 'a-task-run']);
   assert.throws(
     () =>
       update.prepare(
@@ -948,9 +961,9 @@ test('saved content is reopened by id, not shown again as a copy; a checklist ca
         store: { get: () => null } as unknown as WorkspaceDependencies['notes']['store'],
         shown: async () => {},
       } as unknown as WorkspaceDependencies['notes'],
-      shown: artifact => void shown.push(artifact),
+      shown: (artifact: ArtifactSummary) => void shown.push(artifact),
       now: () => 5,
-    } as WorkspaceDependencies;
+    } as unknown as WorkspaceDependencies;
     const tools = workspaceCapabilities(deps);
     const show = tools[0];
     // Taken by id (it is last in the list); typed for what it accepts.

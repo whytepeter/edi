@@ -841,6 +841,8 @@ export interface DesktopBridge {
   fileAccessAction(action: FileAccessAction): Promise<FileAccess>;
   onPermissions(callback: (snapshot: PermissionSnapshot) => void): () => void;
   onNavigate(callback: (view: WorkspaceView) => void): () => void;
+  /** The card lost focus to a click somewhere else on the screen; open menus close. */
+  onCardBlur(callback: () => void): () => void;
   /** Main asks the artifact window to show different content (the window is reused). */
   onOpenArtifact(callback: (ref: ArtifactRef) => void): () => void;
   artifact(ref: ArtifactRef): Promise<Artifact>;
