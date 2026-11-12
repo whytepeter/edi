@@ -447,6 +447,10 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ wander: enabled }),
     },
+    'set-hard-model': {
+      from: fromWorkspace,
+      handle: ({ model }) => settings.update({ hardModel: model }),
+    },
     'suggestion-accept': { from: ['bubble'], handle: () => suggestions.accept() },
     'suggestion-dismiss': { from: ['bubble'], handle: () => suggestions.dismiss() },
     'hold-bubble': { from: ['bubble'], handle: () => character.holdReply() },

@@ -6,9 +6,19 @@ export interface ProgressTiming {
   stepQuietMs: number;
   /** Silence before a general "still working" line. */
   stillQuietMs: number;
+  /**
+   * How long after a request starts, with no word and no tool yet, before Edi says a few words
+   * so the wait is not silence. Short enough to land before the wait feels long; long enough
+   * that a quick answer is never preceded by one.
+   */
+  thinkQuietMs?: number;
 }
 
-export const progressTiming: ProgressTiming = { stepQuietMs: 3500, stillQuietMs: 9000 };
+export const progressTiming: ProgressTiming = {
+  stepQuietMs: 3500,
+  stillQuietMs: 9000,
+  thinkQuietMs: 1200,
+};
 
 /** Looking something up versus doing something, for the acknowledgement's wording. */
 const lookup = /(?:^|[._])(?:list|search|read|events|fetch|get|find|inspect|query|check)/i;
@@ -18,6 +28,8 @@ const acknowledgements = {
   action: ['On it.', 'Sure, on it.', 'Okay, doing that now.', 'Sure thing.'],
 };
 const still = ['Still working on it.', 'Almost there, give me a second.', 'Bear with me a moment.'];
+/** A few quiet words while the answer is slow to start. */
+const thinking = ['Let me think.', 'Okay, one sec.', 'Let me see.', 'Give me a second.'];
 
 export interface SpeechQuiet {
   /** Something was already said (or queued) in this turn. */
@@ -28,8 +40,9 @@ export interface SpeechQuiet {
 
 /**
  * What Edi says aloud while a spoken request is being worked on, apart from the answer itself:
- * a quick acknowledgement when a tool starts (if the model did not already say one), what it
- * is doing when a step stays quiet for a while, and one "still working" line for long waits.
+ * a few words when the answer is slow to start, a quick acknowledgement when a tool starts (if
+ * nothing was said yet), what it is doing when a step stays quiet for a while, and one "still
+ * working" line for long waits.
  * Everything here is speech only; the bubble keeps its own progress line.
  */
 export class SpokenProgress {
@@ -39,6 +52,8 @@ export class SpokenProgress {
   private saidStill = false;
   private askedApproval = false;
   private workSince = new Map<string, number>();
+  /** When this turn was first asked what to say; the slow-start words are timed from here. */
+  private began?: number;
 
   constructor(
     private readonly timing: ProgressTiming = progressTiming,
@@ -52,10 +67,11 @@ export class SpokenProgress {
   }
 
   next(
-    state: Pick<AgentState, 'steps' | 'activity' | 'approval'>,
+    state: Pick<AgentState, 'steps' | 'activity' | 'approval'> & { text?: string },
     now: number,
     speech: SpeechQuiet,
   ): string | null {
+    this.began ??= now;
     const work = activeWork(state);
     if (work && !this.workSince.has(work.id)) this.workSince.set(work.id, now);
     if (state.approval) {
@@ -64,7 +80,23 @@ export class SpokenProgress {
       this.acknowledged = true;
       return 'I need your okay for that.';
     }
-    if (!work || work.status !== 'running') return null;
+    if (!work) {
+      // No word written and no tool started: the model is slow to begin. A few words fill it.
+      const waited = now - this.began;
+      const quietMs = this.timing.thinkQuietMs;
+      if (
+        quietMs !== undefined &&
+        !this.acknowledged &&
+        !speech.spokeAnything &&
+        !state.text?.trim() &&
+        waited >= quietMs
+      ) {
+        this.acknowledged = true;
+        return thinking[this.pick(thinking.length)] ?? null;
+      }
+      return null;
+    }
+    if (work.status !== 'running') return null;
     if (!this.acknowledged && !speech.spokeAnything) {
       this.acknowledged = true;
       const options = lookup.test(work.capability)
@@ -74,8 +106,9 @@ export class SpokenProgress {
     }
     this.acknowledged = true;
     const quiet = Math.min(speech.quietMs, now - (this.workSince.get(work.id) ?? now));
-    if (quiet >= this.timing.stepQuietMs && !this.narrated.has(work.id) && this.lines < 2) {
-      this.narrated.add(work.id);
+    // Once per kind of work: writing content and then showing it are one thing to the person.
+    if (quiet >= this.timing.stepQuietMs && !this.narrated.has(work.capability) && this.lines < 2) {
+      this.narrated.add(work.capability);
       const label = spokenLabel(work.capability, work.title);
       if (label) {
         this.lines++;

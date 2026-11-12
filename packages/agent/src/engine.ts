@@ -585,6 +585,14 @@ export function startRun(request: unknown, options: AgentRunOptions): AgentRun {
             searched = true;
             send({ type: 'activity', activity: 'searching-web' });
           }
+          // A large tool call takes the model a while to write. Saying which one has begun lets
+          // the host show it at once instead of going quiet until the call is complete.
+          if (chunk.type === 'tool-input-start')
+            send({
+              type: 'activity',
+              activity: 'writing-tool',
+              tool: chunk.toolName.slice(0, 120),
+            });
           if (chunk.type === 'tool-call' && chunk.toolName === 'web_search') {
             const query = (chunk.input as { query?: unknown } | undefined)?.query;
             stepSearch ??= { query: '', pages: [] };

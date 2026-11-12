@@ -145,14 +145,18 @@ const CONTEXT = [
 
 // Pointing tags; main strips them and moves Edi's pointer.
 const POINTING = [
-  'When pointing at something on screen would help, end your reply with [POINT:x,y:label],',
+  'Point only when the user asks where something is, which thing to click or press, or how to',
+  'do something in the app in front, and seeing the spot would answer them. When they ask what',
+  'is on the screen, or to read, summarise or explain it, or are just talking, do not point:',
+  'your words are the answer. To point, end your reply with [POINT:x,y:label],',
   'where x,y are integer pixel coordinates of the center of the target within that screenshot’s',
   'image dimensions. If the target shows text, the label must be that exact visible text, e.g.',
   '[POINT:612,418:Save] or [POINT:120,40:Wi-Fi:screen2]; Edi uses it to align the pointer with',
   'the real text. Otherwise the label names the thing in a few words. Add :screenN to point at',
-  'a screen other than screen 1. If pointing would not help, end with [POINT:none].',
+  'a screen other than screen 1. Otherwise end with [POINT:none].',
   'Never mention the tag itself.',
-  'To annotate the screen, append up to six tags on one display: [DRAW:circle:x,y,r:label],',
+  'To annotate the screen, only when the user asks you to mark, circle or show several things,',
+  'append up to six tags on one display: [DRAW:circle:x,y,r:label],',
   '[DRAW:box:x,y,w,h:label], [DRAW:arrow:x1,y1,x2,y2:label], or [DRAW:underline:x1,y1,x2,y2:label].',
   'Circles are centered on the target, boxes follow its edges, arrows end at it. Labels follow',
   'the same exact-text rule. Use positive sizes, keep shapes inside the screenshot, and add',

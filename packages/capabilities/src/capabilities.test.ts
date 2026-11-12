@@ -800,11 +800,13 @@ test('workspace artifacts use semantic file formats and never overwrite a genera
 test('Edi can open every page, including Settings itself, and change only its own preferences', async () => {
   const opened: string[] = [];
   const changes: unknown[] = [];
-  const [, open, change] = ediSetupCapabilities({
+  let hopOutcome: 'hopped' | 'reduced-motion' | 'card-open' | 'no-room' = 'hopped';
+  const [, open, change, windowTool] = ediSetupCapabilities({
     snapshot: () => ({}) as never,
     open: page => opened.push(page),
     change: patch => void changes.push(patch),
     window: () => {},
+    hop: () => hopOutcome,
     models: async () => [],
     chooseModel: async () => {},
   });
@@ -819,6 +821,19 @@ test('Edi can open every page, including Settings itself, and change only its ow
   assert.equal(change.input.safeParse({}).success, false);
   assert.equal(change.input.safeParse({ apiKey: 'x' }).success, false);
   assert.equal(change.input.safeParse({ size: 3 }).success, false);
+
+  // Wandering is one of its own preferences, and it hops when asked: it never says it cannot.
+  await (await change.prepare({ wander: true }, context)).execute(live());
+  assert.deepEqual(changes.at(-1), { wander: true });
+  assert.equal(windowTool.id, 'edi.window');
+  const hop = async () =>
+    (await (await windowTool.prepare({ action: 'hop' } as never, context)).execute(live())).summary;
+  assert.equal(await hop(), 'Hopped a little way along the screen.');
+  // When it cannot, it says why rather than pretending.
+  hopOutcome = 'reduced-motion';
+  assert.match(await hop(), /Motion is reduced/);
+  hopOutcome = 'card-open';
+  assert.match(await hop(), /card is closed/);
 });
 
 test('workspace search includes matching conversations and understands date ranges', async () => {

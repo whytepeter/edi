@@ -5,6 +5,7 @@ import {
   answerShowsWords,
   moodLingers,
   ReplyReactions,
+  spokenTurnShowsStep,
 } from '../../apps/desktop/src/main/character/reply-reactions';
 
 test('asked aloud, there is only the animation unless there is something to open or nothing to say it', () => {
@@ -35,6 +36,15 @@ test('asked aloud, there is only the animation unless there is something to open
       false,
     );
   }
+});
+
+test('asked aloud, a progress line shows only while Edi makes something to see', () => {
+  assert.equal(spokenTurnShowsStep('workspace.show'), true);
+  assert.equal(spokenTurnShowsStep('workspace.update'), true);
+  // Everything else Edi says aloud; the animation is enough.
+  assert.equal(spokenTurnShowsStep('calendar.events'), false);
+  assert.equal(spokenTurnShowsStep('web.search'), false);
+  assert.equal(spokenTurnShowsStep(undefined), false);
 });
 
 function stage() {

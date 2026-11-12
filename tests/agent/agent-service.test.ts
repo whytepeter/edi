@@ -6,8 +6,9 @@ import { AgentService } from '../../apps/desktop/src/main/agent/agent-service';
 type Options = ConstructorParameters<typeof AgentService>[0];
 
 /** An agent that gets as far as looking at the screen and is told it may not: no worker starts. */
-function service() {
+function service(extra: Partial<Options> = {}) {
   return new AgentService({
+    ...extra,
     credentials: { configured: true, model: 'test/model' },
     repositories: createRepositories(openDatabase(':memory:')),
     capabilities: [],
@@ -33,4 +34,20 @@ test('a turn knows it was spoken from its very first state, before it has a work
   });
   await other.ask('How are you doing?');
   assert.equal(typed[0], false);
+});
+
+test('each turn is weighed for which model it goes to, with what was asked and how', async () => {
+  const asked: { prompt: string; spoken: boolean }[] = [];
+  const agent = service({
+    modelFor: turn => {
+      asked.push(turn);
+      return 'strong/model';
+    },
+  });
+  await agent.ask('Write a project proposal');
+  await agent.ask('How are you?', { spoken: true });
+  assert.deepEqual(asked, [
+    { prompt: 'Write a project proposal', spoken: false },
+    { prompt: 'How are you?', spoken: true },
+  ]);
 });

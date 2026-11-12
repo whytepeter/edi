@@ -89,6 +89,7 @@ preload method, then test invalid payloads and unauthorized callers.
 - What Edi is told about itself each turn: `apps/desktop/src/main/setup-snapshot.ts`
 - The cards under each reply (what that run showed): `apps/desktop/src/main/agent/thread-artifacts.ts`
 - What Settings → Memory may do to what Edi remembers: `apps/desktop/src/main/memory-routes.ts`
+- Which model a turn goes to, everyday or hard-task: `apps/desktop/src/main/agent/model-balance.ts`
 - Tool policy: `packages/capabilities/src/broker.ts`
 
 `@edi/agent` is the brain without a host: `startRun(input, { provider, host, instructions })` runs one

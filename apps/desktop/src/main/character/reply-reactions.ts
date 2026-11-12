@@ -37,6 +37,14 @@ export function answerShowsWords(turn: {
   return turn.done && (turn.voiceIdle || hasLink(turn.text));
 }
 
+/**
+ * Whether a step's progress line shows beside Edi during a turn asked aloud. Edi says what it is
+ * doing, so mostly not; but content it is making is something the person is waiting to see, and
+ * a line there says it is coming.
+ */
+export const spokenTurnShowsStep = (capability: string | undefined) =>
+  capability === 'workspace.show' || capability === 'workspace.update';
+
 /** A web address or a Markdown link: something to open, not to hear. */
 const hasLink = (text: string) => /\bhttps?:\/\/\S|\]\(\S/.test(text);
 

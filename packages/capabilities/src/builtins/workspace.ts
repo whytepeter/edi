@@ -48,7 +48,10 @@ const showInput = z
         'document: Markdown text · checklist: items to tick · table: rows and columns · ' +
           'diagram: a flowchart, architecture, sequence, timeline or mind map in Mermaid · ' +
           'view: figures, progress, charts, choices, fields and buttons the user can tap · ' +
-          'html: an interactive page, only when the others cannot express it',
+          'html: an interactive page, only when the others cannot express it. ' +
+          'Asked to visualize, mock up or show what something looks like (a game, a screen, an ' +
+          'object), draw the thing itself as html. A diagram is only for a flow, structure or ' +
+          'timeline the user asked to map, never a stand-in for a picture of the thing.',
       ),
     title: z.string().trim().min(1).max(120).describe('Short title'),
     markdown: z.string().max(40_000).optional().describe('For document: the content in Markdown'),

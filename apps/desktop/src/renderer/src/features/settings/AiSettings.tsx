@@ -9,7 +9,15 @@ import './settings.css';
  * Settings → AI: the OpenRouter key and the model Edi uses. The saved key never comes
  * back to this window, so the page shows that one is saved instead of an empty field.
  */
-export function AiSettings() {
+interface AiSettingsProps {
+  /** The model hard tasks go to; '' when one model does everything. */
+  hardModel: string;
+  onHardModel(model: string): void;
+}
+
+export function AiSettings({ hardModel, onHardModel }: AiSettingsProps) {
+  // The second picker shows once there is a hard-task model, or the person asks to choose one.
+  const [choosingHard, setChoosingHard] = useState(false);
   const { state, loading } = useAgentState();
   const [replacingKey, setReplacingKey] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -147,6 +155,37 @@ export function AiSettings() {
             void command({ type: 'configure-agent', model: id }, 'Model saved.');
         }}
       />
+
+      {state.configured &&
+        (hardModel || choosingHard ? (
+          <>
+            <ModelPicker
+              title="Hard tasks"
+              footer="Used when you ask Edi to write, build, plan or analyse something, and for background tasks. Everything else stays on the model above, so everyday answers stay quick."
+              value={hardModel}
+              saved
+              disabled={busy}
+              onChange={id => {
+                if (id !== hardModel) onHardModel(id);
+              }}
+            />
+            <div className="settings-actions">
+              <Button
+                variant="plain"
+                onClick={() => {
+                  setChoosingHard(false);
+                  if (hardModel) onHardModel('');
+                }}
+              >
+                Use one model for everything
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="settings-actions">
+            <Button onClick={() => setChoosingHard(true)}>Choose a model for hard tasks</Button>
+          </div>
+        ))}
 
       {!state.configured && (
         <div className="settings-actions">

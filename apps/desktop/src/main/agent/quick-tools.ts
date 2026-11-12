@@ -27,6 +27,8 @@ export const QUICK_TOOLS: ReadonlySet<string> = new Set([
   'mac_open_app',
   'mac_open_url',
   'edi_open_page',
+  // "Can you hop?" should be a hop, not a search for the tool.
+  'edi_window',
   // Remembering should never cost a step.
   'edi_remember',
 ]);

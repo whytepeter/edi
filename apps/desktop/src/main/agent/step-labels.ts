@@ -47,6 +47,14 @@ export function activeWork(state: Pick<AgentState, 'steps' | 'activity'>) {
     .find(item => item.status === 'running' || item.status === 'awaiting-approval');
   if (step)
     return { id: step.callId, capability: step.capability, title: step.title, status: step.status };
+  // Written by the model before the call exists: the wait for content starts here.
+  if (state.activity === 'making-content')
+    return {
+      id: 'making-content',
+      capability: 'workspace.show',
+      title: 'Putting it together',
+      status: 'running' as const,
+    };
   if (state.activity === 'searching-web')
     return {
       id: 'web-search',

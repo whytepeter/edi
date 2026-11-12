@@ -26,13 +26,24 @@ interface ModelPickerProps {
   saved: boolean;
   disabled?: boolean;
   onChange(id: string): void;
+  /** What this model is for, when a page has more than one; "Model" otherwise. */
+  title?: string;
+  /** A line under the choice, in place of the usual note about which models are listed. */
+  footer?: string;
 }
 
 /**
  * OpenRouter models Edi can use, searchable. If the list can't load (offline), a model ID
  * can still be typed in.
  */
-export function ModelPicker({ value, saved, disabled, onChange }: ModelPickerProps) {
+export function ModelPicker({
+  value,
+  saved,
+  disabled,
+  onChange,
+  title = 'Model',
+  footer,
+}: ModelPickerProps) {
   const [models, setModels] = useState<ModelOption[] | null>(null);
   const [failed, setFailed] = useState(!window.edi);
   const [query, setQuery] = useState('');
@@ -55,8 +66,11 @@ export function ModelPicker({ value, saved, disabled, onChange }: ModelPickerPro
   const current = models?.find(model => model.id === value);
   const summary = (
     <GroupedList
-      title="Model"
-      footer="Only models that can see images and use tools are listed, since Edi needs both for screen questions and notes. Prices are per million input tokens: $ under $0.50, $$ under $3."
+      title={title}
+      footer={
+        footer ??
+        'Only models that can see images and use tools are listed, since Edi needs both for screen questions and notes. Prices are per million input tokens: $ under $0.50, $$ under $3.'
+      }
     >
       <GroupedRow
         icon="cpu"

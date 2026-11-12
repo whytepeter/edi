@@ -43,7 +43,7 @@ export interface SetupSources {
   /** Names of connected apps, for the abilities list; '' when none. */
   connectedApps(): string;
   connectorSummary(): Pick<EdiSetupSnapshot, 'connectors' | 'appsToConnect'>;
-  ai(): { connected: boolean; model: string | null };
+  ai(): { connected: boolean; model: string | null; hardTaskModel: string | null };
   /** Whether Edi may look at the screen with the app that is in front, and the wider state. */
   privacy(): { paused: PrivacyPause | null; state: PrivacyState };
   memories(): Memory[];
@@ -102,6 +102,10 @@ export function buildSetupSnapshot(from: SetupSources, question?: string): EdiSe
         asksFirst: false,
       },
       { name: 'Search and read everything in the workspace', asksFirst: false },
+      {
+        name: 'Move: hop a little way along the screen when asked (edi_window hop), and wander now and then when nothing is happening if the wander preference is on',
+        asksFirst: false,
+      },
       { name: 'Save or edit notes, and update generated content', asksFirst: true },
       { name: 'Move workspace items to the Trash', asksFirst: true },
       {
@@ -176,6 +180,7 @@ export function buildSetupSnapshot(from: SetupSources, question?: string): EdiSe
                 : 'unavailable',
       },
       speakReplies: settings.speakReplies,
+      wander: settings.wander,
       shareDesktopContext: settings.shareDesktopContext,
       taskBudgetUsd: settings.taskBudgetUsd,
       voiceInput: settings.voiceInput,
@@ -183,6 +188,7 @@ export function buildSetupSnapshot(from: SetupSources, question?: string): EdiSe
       ai: {
         connected: from.ai().connected,
         model: from.ai().model,
+        hardTaskModel: from.ai().hardTaskModel,
       },
       // As of the app that was in front when this was asked: with one the person keeps
       // private there, Edi is not looking, and must be able to say so rather than guess.

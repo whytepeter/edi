@@ -100,3 +100,7 @@ ground and when it lands (`edi:character-hop`, validated in the preload); `usePe
 and leans it 3° the way it is going while it is in the air, then lets it land through a brief squash on the
 same springs that answer a press. The amounts are `wanderShape` in `packages/contracts/src/wander.ts`. With
 reduced motion none of it happens.
+
+Asked to hop ("can you bounce?"), Edi does it at once through `edi_window` (`Wanderer.hopNow`): the stroll does
+not wait for a quiet moment or for wandering to be on, and only a drag stops it. It declines, and says why,
+when motion is reduced or the card is open. Edi can also switch the wander preference itself.

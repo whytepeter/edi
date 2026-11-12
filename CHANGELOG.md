@@ -7,6 +7,16 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- A second model for hard tasks (Settings → AI → **Choose a model for hard tasks**). When you ask Edi to
+  write, build, plan, analyse or work through something long, and for background tasks, the turn goes to
+  that model; questions, lookups, chores and small talk stay on the everyday model so they stay quick. The
+  choice is made from the request alone, with no extra model call. With no second model nothing changes.
+- Ask Edi to hop, bounce or move and it does, at once (`edi_window` hop), whether or not wandering is on. It
+  can also switch wandering on or off itself, and it is told it can move, so it no longer says it cannot.
+- When an answer is slow to start, Edi says a few words ("Let me think.") after about a second instead of
+  staying silent. A quick answer is never preceded by one.
+- While Edi makes something to show, the bubble says so ("Putting it together") from the moment the model
+  starts writing it, not only once the tool runs; by voice it says it once.
 - A hop shows on the character: wandering Edi stretches and leans a little as it leaves the ground and lands
   through a brief squash, instead of its picture sliding along an arc. Reduced motion switches it off.
 - Wandering (Settings → Behavior, off until switched on): now and then, when nothing is happening, Edi hops a
@@ -235,6 +245,10 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Changed
 
+- Edi points only when asked where something is, what to click or how to do something in the app in front.
+  Asked what is on the screen, or to read or explain it, it answers in words and leaves the pointer alone.
+- Asked to visualize or mock something up, Edi draws the thing itself as an interactive page; a diagram is
+  kept for flows, structures and timelines.
 - Asked aloud, Edi answers aloud, and beside it there is only the listening, thinking and speaking
   animation: no words, no progress line, no reply field. A bubble with content appears when there is
   something to do or to see: a review to approve, content Edi made, an answer with a link in it, or an

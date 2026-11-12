@@ -236,7 +236,12 @@ export function WorkspaceCard() {
                   onOpen={navigate}
                 />
               )}
-              {view === 'settings.ai' && <AiSettings />}
+              {view === 'settings.ai' && (
+                <AiSettings
+                  hardModel={settings.hardModel}
+                  onHardModel={model => void send({ type: 'set-hard-model', model })}
+                />
+              )}
               {view === 'settings.voice' && (
                 <VoiceSettings
                   system={system}

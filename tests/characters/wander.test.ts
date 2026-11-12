@@ -110,7 +110,9 @@ test('a hop shows on the character: a stretch in the air, a visible squash on la
   assert.ok(Math.abs(afterBreath.state.position) < 0.02, `after ${afterBreath.state.position}`);
 });
 
-function stage(options: { enabled?: () => boolean; idle?: () => boolean } = {}) {
+function stage(
+  options: { enabled?: () => boolean; idle?: () => boolean; held?: () => boolean } = {},
+) {
   let bounds = { x: 40, y: 700, ...size };
   const moves: { x: number; y: number }[] = [];
   const saved: { x: number; y: number }[] = [];
@@ -127,6 +129,7 @@ function stage(options: { enabled?: () => boolean; idle?: () => boolean } = {}) 
     area: () => area,
     enabled: options.enabled ?? (() => true),
     idle: options.idle ?? (() => true),
+    held: options.held,
     save: point => saved.push(point),
     hop: (phase, direction) => hops.push(`${phase} ${direction}`),
     // Rest the shortest time, go right, the shortest stride: 120 px in two hops (0.81 s).
@@ -205,5 +208,42 @@ test('switched off, or with motion reduced, Edi does not wander at all', t => {
   wanderer.start();
   t.mock.timers.tick(wanderRest.max * 5);
   assert.equal(moves.length, 0);
+  wanderer.stop();
+});
+
+test('asked to hop, Edi hops now: wandering off, mid-conversation, no rest first; a drag still stops it', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  let held = false;
+  const { wanderer, moves, hops, at } = stage({
+    enabled: () => false,
+    idle: () => false,
+    held: () => held,
+  });
+  wanderer.start();
+  // On its own it never moves: wandering is off and Edi is busy answering.
+  t.mock.timers.tick(wanderRest.max * 2);
+  assert.equal(moves.length, 0);
+
+  assert.equal(wanderer.hopNow(), true);
+  for (let elapsed = 0; elapsed < 150; elapsed += 30) t.mock.timers.tick(30);
+  assert.ok(at().y < 700, 'in the air at once');
+  assert.deepEqual(hops, ['up 1']);
+  // Asking again mid-hop does not start a second one on top.
+  assert.equal(wanderer.hopNow(), true);
+  for (let elapsed = 0; elapsed < 900; elapsed += 30) t.mock.timers.tick(30);
+  assert.equal(wanderer.walking, false);
+  assert.deepEqual([at().x, at().y], [160, 700]);
+
+  // The person takes hold of Edi during an asked hop: it stops where it is.
+  assert.equal(wanderer.hopNow(), true);
+  for (let elapsed = 0; elapsed < 150; elapsed += 30) t.mock.timers.tick(30);
+  held = true;
+  t.mock.timers.tick(30);
+  assert.equal(wanderer.walking, false);
+  // And afterwards it is back to not moving on its own.
+  const before = moves.length;
+  held = false;
+  t.mock.timers.tick(wanderRest.max * 2);
+  assert.equal(moves.length, before);
   wanderer.stop();
 });

@@ -31,6 +31,8 @@ export interface EdiSetupSnapshot {
       detail: string;
     };
     speakReplies: boolean;
+    /** Edi hops a little way along the screen now and then when nothing is happening. */
+    wander: boolean;
     shareDesktopContext: boolean;
     taskBudgetUsd: number;
     voiceInput: string;
@@ -38,6 +40,8 @@ export interface EdiSetupSnapshot {
     ai: {
       connected: boolean;
       model: string | null;
+      /** A second model that hard tasks go to; null when one model does everything. */
+      hardTaskModel: string | null;
     };
     /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
     privacy: { lookingAtScreen: boolean; reason: string | null };
@@ -120,6 +124,10 @@ export const ediPreferencesSchema = z
       .describe('Desktop size: 0.6 (small) to 1.6 (large); 1 is default'),
     pinned: z.boolean().optional().describe('Keep the card open when another app is focused'),
     speakReplies: z.boolean().optional().describe('Read spoken answers aloud'),
+    wander: z
+      .boolean()
+      .optional()
+      .describe('Hop a little way along the screen now and then when nothing is happening'),
     voice: voiceModelSchema.optional().describe('Speech model id from availableVoices'),
     speakingVoice: z
       .string()
@@ -259,6 +267,8 @@ export function ediSetupCapabilities(deps: {
   open(page: z.infer<typeof workspaceViewSchema>): void;
   change(patch: EdiPreferences): Promise<void> | void;
   window(action: 'close' | 'sleep'): void;
+  /** Hop a little way along the screen now; says why not when it cannot. */
+  hop(): 'hopped' | 'reduced-motion' | 'card-open' | 'no-room';
   /** Models Edi can use (OpenRouter's catalog, filtered). */
   models(): Promise<ModelOption[]>;
   /** Save the model for the next turn. */
@@ -319,8 +329,8 @@ export function ediSetupCapabilities(deps: {
     id: 'edi.change_preferences',
     title: 'Change Edi’s preferences',
     description:
-      'Change Edi’s own reversible preferences: your name, character, desktop size, pin, whether spoken ' +
-      'answers are read aloud, voice, speech recognition and its words, sharing what is in front, ' +
+      'Change Edi’s own reversible preferences: your name, character, desktop size, pin, wandering, whether ' +
+      'spoken answers are read aloud, voice, speech recognition and its words, sharing what is in front, ' +
       'the background task budget, and skills on or off. Only use values listed by ' +
       'edi_inspect_setup. It cannot change the AI key, permissions or connections; send the user to ' +
       'that page instead. To switch the AI model use edi_choose_model.',
@@ -351,14 +361,31 @@ export function ediSetupCapabilities(deps: {
 
   const windowControl = defineCapability({
     id: 'edi.window',
-    title: 'Close or sleep Edi',
+    title: 'Close, sleep or move Edi',
     description:
-      'Close Edi’s card, or put Edi to sleep (hide the character until ⌥ Space or the menu bar wakes it). ' +
-      'Use only when the user asks for it.',
+      'Close Edi’s card, put Edi to sleep (hide the character until ⌥ Space or the menu bar wakes it), or ' +
+      'hop a little way along the screen when the user asks you to move, hop, bounce, jump or walk. ' +
+      'Use only when the user asks for it. To wander now and then without being asked, set the ' +
+      'wander preference instead.',
     effect: 'read',
     timeoutMs: 2_000,
-    input: z.object({ action: z.enum(['close', 'sleep']) }).strict(),
+    input: z.object({ action: z.enum(['close', 'sleep', 'hop']) }).strict(),
     prepare({ action }) {
+      if (action === 'hop')
+        return {
+          preview: { title: 'Hop', action: 'Hop', summary: 'Hop along the screen.', fields: [] },
+          async execute() {
+            const outcome = deps.hop();
+            return {
+              summary: {
+                hopped: 'Hopped a little way along the screen.',
+                'reduced-motion': 'Motion is reduced on this Mac, so Edi stays put.',
+                'card-open': 'Edi hops only while its card is closed.',
+                'no-room': 'There is no room to hop here.',
+              }[outcome],
+            };
+          },
+        };
       return {
         preview: {
           title: action === 'close' ? 'Close the card' : 'Sleep Edi',

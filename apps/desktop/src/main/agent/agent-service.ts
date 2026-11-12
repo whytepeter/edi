@@ -64,6 +64,9 @@ const ALLOWED_BEFORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 export const SPARE_IDLE_MS = 60_000;
 const WORKER_ENTRY = () => join(__dirname, 'agent-worker.js');
 
+/** The tools whose calls are content for the person to see, by the names the model uses. */
+const CONTENT_TOOLS: ReadonlySet<string> = new Set(['workspace_show', 'workspace_update']);
+
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
   repositories: Repositories;
@@ -95,6 +98,11 @@ interface AgentServiceOptions {
   spokenEffort?: (model: string) => WorkerInput['reasoningEffort'];
   /** A fast model for reading web pages, when one is known; runs fall back to the chosen model. */
   readerModel?: () => string | null;
+  /**
+   * The model for this turn, when the person has a second one for hard tasks (see
+   * model-balance.ts). Undefined or empty keeps the chosen model.
+   */
+  modelFor?: (turn: { prompt: string; spoken: boolean }) => string | null | undefined;
   /** What the person has in front of them, gathered when they ask; null when off or unknown. */
   desktopContext?: () => Promise<DesktopContext | null>;
   /** Saved "Always allow" choices. */
@@ -281,7 +289,9 @@ export class AgentService {
     ]);
     if (this.starting !== starting) return undefined; // stopped while capturing
     this.starting = undefined;
-    const model = credentials.model;
+    const model =
+      modelIdSchema.safeParse(this.options.modelFor?.({ prompt, spoken: options.spoken === true }))
+        .data ?? credentials.model;
     if (access !== null && access !== 'granted') {
       this.options.screenPermissionRequired?.();
       this.update({
@@ -306,9 +316,7 @@ export class AgentService {
     });
     repositories.conversations.touch(conversationId, Date.now());
     const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
-    const reasoningEffort = options.spoken
-      ? this.options.spokenEffort?.(credentials.model)
-      : undefined;
+    const reasoningEffort = options.spoken ? this.options.spokenEffort?.(model) : undefined;
     const workerData: WorkerInput = {
       apiKey: credentials.apiKey,
       model,
@@ -632,7 +640,11 @@ export class AgentService {
     } else if (message.type === 'web-search') {
       recordWebSearch(this.stepRecorder, run.id, message);
     } else if (message.type === 'activity') {
-      this.update({ ...this.state, activity: message.activity });
+      // Content takes the model a while to write; the person should see it has started.
+      if (message.activity === 'searching-web')
+        this.update({ ...this.state, activity: message.activity });
+      else if (CONTENT_TOOLS.has(message.tool ?? ''))
+        this.update({ ...this.state, activity: 'making-content' });
     } else if (message.type === 'tool-call') {
       run.afterTool = true;
       void this.invokeTool(run, message.id, message.name, message.input);

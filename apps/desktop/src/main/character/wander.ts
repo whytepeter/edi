@@ -18,6 +18,8 @@ interface WandererOptions {
    * work in progress. Asked before a stroll starts and on every frame of one.
    */
   idle(): boolean;
+  /** The person has hold of Edi (a drag): even a hop they asked for stops. */
+  held?(): boolean;
   /** Where it came to rest, so the next launch finds it there. */
   save(point: { x: number; y: number }): void;
   /**
@@ -73,17 +75,38 @@ export class Wanderer {
     this.rest.unref?.();
   }
 
-  private stroll() {
+  /**
+   * A stroll the person asked for ("can you hop?"): now, whether or not wandering is switched on
+   * and whatever else is going on, since they are watching for it. Only their own hand on Edi
+   * stops it. False when there is nowhere to go.
+   */
+  hopNow() {
+    if (this.walking) return true;
+    clearTimeout(this.rest);
+    return this.stroll(true);
+  }
+
+  /** `asked` is a stroll the person requested; otherwise it is Edi's own, when idle. */
+  private stroll(asked = false): boolean {
     const { pet } = this.options;
-    if (pet.isDestroyed()) return;
+    if (pet.isDestroyed()) return false;
+    // Edi's own stroll waits for a quiet moment; one that was asked for does not.
+    const stopped = () =>
+      asked ? (this.options.held?.() ?? false) : !this.options.enabled() || !this.options.idle();
     // Not now: look again after another rest rather than waiting on the person.
-    if (!this.options.enabled() || !this.options.idle()) return this.schedule();
+    if (stopped()) {
+      this.schedule();
+      return false;
+    }
     const from = pet.getBounds();
     const to = wanderTarget(from, this.options.area(from), {
       direction: this.random(),
       distance: this.random(),
     });
-    if (!to) return this.schedule();
+    if (!to) {
+      this.schedule();
+      return false;
+    }
     const began = this.now();
     const heading = to.x >= from.x ? 1 : -1;
     // Hops, not a glide: each one a low arc, so the window lifts and lands as it goes.
@@ -91,7 +114,7 @@ export class Wanderer {
     this.frame = setInterval(() => {
       if (pet.isDestroyed()) return this.halt(false);
       // The person did something, or wandering was switched off: stay exactly here.
-      if (!this.options.enabled() || !this.options.idle()) return this.halt(true);
+      if (stopped()) return this.halt(true);
       const step = wanderStep(from, to, this.now() - began, from.height);
       if (step.airborne !== (this.airborne !== null))
         this.leaveOrLand(step.airborne ? heading : null);
@@ -100,6 +123,7 @@ export class Wanderer {
       if (step.done) this.halt(true);
     }, this.options.frameMs ?? 16);
     this.frame.unref?.();
+    return true;
   }
 
   /** Tells the character it left the ground (which way) or, with null, that it landed. */

@@ -44,7 +44,7 @@ function sources(overrides: Partial<SetupSources> = {}): SetupSources {
     libraryItems: () => [],
     connectedApps: () => '',
     connectorSummary: () => ({ connectors: [], appsToConnect: [] }),
-    ai: () => ({ connected: true, model: 'test/model' }),
+    ai: () => ({ connected: true, model: 'test/model', hardTaskModel: null }),
     privacy: () => ({ paused: null, state: { paused: null, sharingApp: null } }),
     memories: () => [],
     pushToTalk: () => ({ status: 'ready', shortcut: '⌥ Space' }),
@@ -68,6 +68,19 @@ test('the snapshot says who Edi is and what is selected right now', () => {
   assert.equal(snapshot.current.voice.speakingVoice.name, 'Heart');
   assert.equal(snapshot.current.voice.status, 'ready');
   assert.equal(snapshot.workspace.generatedContent, '/Users/me/Documents/Edi/Artifacts');
+  // Edi knows it can move, and whether it is wandering now, so it never says it cannot.
+  assert.equal(snapshot.current.wander, false);
+  // And which model hard tasks go to, so it can say so when asked.
+  assert.equal(snapshot.current.ai.hardTaskModel, null);
+  assert.equal(
+    buildSetupSnapshot(
+      sources({ ai: () => ({ connected: true, model: 'a/quick', hardTaskModel: 'b/strong' }) }),
+    ).current.ai.hardTaskModel,
+    'b/strong',
+  );
+  assert.ok(
+    snapshot.abilities.some(ability => /hop a little way along the screen/.test(ability.name)),
+  );
   // A local voice that is not set up reads as off, never as ready.
   assert.equal(buildSetupSnapshot(sources()).current.voice.status, 'off');
   // No secret ever belongs in what the model is told about Edi.

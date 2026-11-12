@@ -177,7 +177,14 @@ export const workerMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   /** A closed set of progress hints; provider output never becomes free text here. */
-  z.object({ type: z.literal('activity'), activity: z.enum(['searching-web']) }).strict(),
+  z
+    .object({
+      type: z.literal('activity'),
+      /** `writing-tool`: the model began writing a call to `tool`, before the call exists. */
+      activity: z.enum(['searching-web', 'writing-tool']),
+      tool: z.string().max(120).optional(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('error'),

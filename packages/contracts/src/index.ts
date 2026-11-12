@@ -179,7 +179,8 @@ export const agentStateSchema = z.object({
   /** The oldest pending approval; further writes wait behind it. */
   approval: approvalRequestSchema.nullable(),
   /** Work the model is doing outside Edi's own tools, for short progress in the bubble. */
-  activity: z.enum(['searching-web']).nullable().optional(),
+  /** `making-content`: the model is writing something to show, before its tool call exists. */
+  activity: z.enum(['searching-web', 'making-content']).nullable().optional(),
 });
 export type AgentState = z.infer<typeof agentStateSchema>;
 
@@ -294,6 +295,11 @@ export const settingsSchema = z.preprocess(
     suggestions: suggestionLevelSchema.catch('off').default('off'),
     /** Edi strolls along the screen when nothing is happening. Off until switched on. */
     wander: z.boolean().catch(false).default(false),
+    /**
+     * A second, stronger model for hard tasks (writing, building, planning, analysing, and
+     * background tasks); '' sends everything to the one model. Chosen in Settings → AI.
+     */
+    hardModel: z.string().max(160).catch('').default(''),
     /** When each suggestion was last made, so the same one doesn't come back for a week. */
     suggestionsShown: z.record(z.string(), z.number()).catch({}).default({}),
     /** Privacy mode: Edi doesn't look at the screen or at what's in front until turned off. */
@@ -332,6 +338,7 @@ export const defaultSettings: Settings = {
   remember: true,
   suggestions: 'off',
   wander: false,
+  hardModel: '',
   suggestionsShown: {},
   privacyPaused: false,
   pauseWhenSharing: true,
@@ -571,6 +578,10 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set-suggestions'), level: suggestionLevelSchema }).strict(),
   /** Settings → Behavior: let Edi stroll along the screen when idle. */
   z.object({ type: z.literal('set-wander'), enabled: z.boolean() }).strict(),
+  /** The model for hard tasks; '' goes back to one model for everything. */
+  z
+    .object({ type: z.literal('set-hard-model'), model: z.union([modelIdSchema, z.literal('')]) })
+    .strict(),
   z.object({ type: z.literal('suggestion-accept') }).strict(),
   z.object({ type: z.literal('suggestion-dismiss') }).strict(),
   /** The person is reading or answering the reply bubble: it stays until they are done. */

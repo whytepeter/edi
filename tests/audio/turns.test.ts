@@ -136,6 +136,57 @@ test('spoken progress: one acknowledgement, one line per quiet step, then one "s
   assert.equal(progress.next(busy, 20_000, { spokeAnything: true, quietMs: 20_000 }), null);
 });
 
+test('spoken progress: a slow start gets a few words; a quick answer and a tool never do twice', () => {
+  const idle = state([]);
+  const slow = new SpokenProgress(
+    { stepQuietMs: 1000, stillQuietMs: 5000, thinkQuietMs: 1200 },
+    () => 0,
+  );
+  // Asked from the moment the request starts: nothing at first.
+  assert.equal(slow.next(idle, 0, { spokeAnything: false, quietMs: 0 }), null);
+  assert.equal(slow.next(idle, 1100, { spokeAnything: false, quietMs: 1100 }), null);
+  // Still no word and no tool: a few words, once.
+  assert.equal(slow.next(idle, 1250, { spokeAnything: false, quietMs: 1250 }), 'Let me think.');
+  assert.equal(slow.next(idle, 4000, { spokeAnything: true, quietMs: 0 }), null);
+  // A tool that starts afterwards is not acknowledged again: something was already said.
+  const busy = state([step('calendar.events', 'Calendar')]);
+  assert.equal(slow.next(busy, 4200, { spokeAnything: true, quietMs: 200 }), null);
+
+  // The answer began in time: its own words are the response.
+  const quick = new SpokenProgress(
+    { stepQuietMs: 1000, stillQuietMs: 5000, thinkQuietMs: 1200 },
+    () => 0,
+  );
+  assert.equal(quick.next(idle, 0, { spokeAnything: false, quietMs: 0 }), null);
+  assert.equal(
+    quick.next({ ...idle, text: 'It is half past two.' }, 1500, {
+      spokeAnything: false,
+      quietMs: 1500,
+    }),
+    null,
+  );
+  // Without the setting (as older callers construct it) nothing is added.
+  const plain = new SpokenProgress({ stepQuietMs: 1000, stillQuietMs: 5000 }, () => 0);
+  assert.equal(plain.next(idle, 0, { spokeAnything: false, quietMs: 0 }), null);
+  assert.equal(plain.next(idle, 9000, { spokeAnything: false, quietMs: 9000 }), null);
+});
+
+test('spoken progress: content the model is still writing is said once, not again when it is shown', () => {
+  const progress = new SpokenProgress({ stepQuietMs: 1000, stillQuietMs: 9000 }, () => 0);
+  // The model has begun writing something to show; there is no tool call yet.
+  const writing = { steps: [], activity: 'making-content' as const, approval: null };
+  assert.equal(progress.workStarted(writing), true);
+  assert.equal(progress.next(writing, 0, { spokeAnything: true, quietMs: 0 }), null);
+  assert.equal(
+    progress.next(writing, 1500, { spokeAnything: true, quietMs: 1500 }),
+    'Putting it together.',
+  );
+  // The call exists now and runs: the same work, so it is not announced a second time.
+  const showing = state([step('workspace.show', 'Show content')]);
+  assert.equal(progress.next(showing, 3000, { spokeAnything: true, quietMs: 1500 }), null);
+  assert.equal(progress.next(showing, 5000, { spokeAnything: true, quietMs: 3500 }), null);
+});
+
 test('spoken progress: the model’s own acknowledgement is enough; actions sound like actions', () => {
   const said = new SpokenProgress(undefined, () => 0);
   const busy = state([step('reminders.create', 'Add reminder')]);

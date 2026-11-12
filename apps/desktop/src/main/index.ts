@@ -103,7 +103,7 @@ import type { PermissionManager } from './permission-manager';
 import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
-import { progressLabel } from './agent/step-labels';
+import { activeWork, progressLabel } from './agent/step-labels';
 import { batchTextUpdates } from './agent/state-batcher';
 import {
   resolveChatterboxVoice,
@@ -134,12 +134,13 @@ import { Wanderer } from './character/wander';
 import { VoiceTimingLog } from './voice/timing-log';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
+import { modelForTurn } from './agent/model-balance';
 import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
 import { taskCapabilities } from './agent/task-tools';
 import { buildSetupSnapshot } from './setup-snapshot';
 import { memoryRoutes } from './memory-routes';
-import { answerShowsWords, ReplyReactions } from './character/reply-reactions';
+import { answerShowsWords, ReplyReactions, spokenTurnShowsStep } from './character/reply-reactions';
 import { DISPLAY_CAPABILITIES, threadArtifacts } from './agent/thread-artifacts';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
@@ -416,6 +417,7 @@ async function start() {
   let showArtifact = (_artifact: ArtifactSummary, _from: { runId: string }) => {};
   let applyPreferences = async (_patch: EdiPreferences) => {};
   let windowAction = (_action: 'close' | 'sleep') => {};
+  let hopNow = (): 'hopped' | 'reduced-motion' | 'card-open' | 'no-room' => 'no-room';
   let cardOpen = () => false;
   let connectedApps = () => '';
   let connectorSummary = (): Pick<EdiSetupSnapshot, 'connectors' | 'appsToConnect'> => ({
@@ -490,6 +492,7 @@ async function start() {
         ai: () => ({
           connected: agent?.state.configured ?? false,
           model: agent?.state.model || null,
+          hardTaskModel: settings.current.hardModel || null,
         }),
         // As of the app that was in front when this was asked: with one the person keeps
         // private there, Edi is not looking, and must be able to say so rather than guess.
@@ -568,6 +571,7 @@ async function start() {
       open: page => openSetup(page),
       change: patch => applyPreferences(patch),
       window: action => windowAction(action),
+      hop: () => hopNow(),
       models: () => modelCatalog.list(),
       chooseModel: id => agent.chooseModel(id),
     }),
@@ -688,6 +692,8 @@ async function start() {
     rules: approvalRules,
     connectedTools: () => connectors.capabilities(),
     credentials: openRouter,
+    // A task is long, unattended work: it runs on the hard-task model when there is one.
+    taskModel: () => settings.current.hardModel,
     repositories,
     capabilities: toolCapabilities,
     selfContext: question => JSON.stringify(turnSetup(setupSnapshot(question))),
@@ -791,6 +797,9 @@ async function start() {
       return readerModel;
     },
     spokenEffort: model => modelCatalog.quickEffort(model),
+    // Hard tasks go to the second model when the person chose one (agent/model-balance.ts).
+    modelFor: turn =>
+      modelForTurn({ everyday: openRouter.model, hard: settings.current.hardModel || null }, turn),
     desktopContext: () => lookInFront(),
     credentials: openRouter,
     repositories,
@@ -888,9 +897,16 @@ async function start() {
       voice.phase === 'idle' &&
       agent.state.status !== 'running' &&
       !agent.state.approval,
+    held: () => petDrag.active,
     save: petPosition => void settings.update({ petPosition }),
     hop: (phase, direction) => broadcast([pet], 'edi:character-hop', { phase, direction }),
   });
+  // "Can you hop?": one stroll now, asked for, so it does not wait for a quiet moment.
+  hopNow = () => {
+    if (systemPreferences.getAnimationSettings().prefersReducedMotion) return 'reduced-motion';
+    if (cardOpen()) return 'card-open';
+    return wanderer.hopNow() ? 'hopped' : 'no-room';
+  };
   const mlx = voiceRuntime?.mlx ?? null;
   // Warm engines stay loaded for an hour while selected; Kokoro is small and also stands in
   // while Chatterbox loads.
@@ -1326,6 +1342,7 @@ async function start() {
       ...(patch.character ? { skin: patch.character } : {}),
       ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
       ...(patch.speakReplies !== undefined ? { speakReplies: patch.speakReplies } : {}),
+      ...(patch.wander !== undefined ? { wander: patch.wander } : {}),
       ...(patch.voice ? { voiceModel: patch.voice } : {}),
       ...(patch.shareDesktopContext !== undefined
         ? { shareDesktopContext: patch.shareDesktopContext }
@@ -1414,8 +1431,10 @@ async function start() {
       reactions.turnBegan(runWasSpoken);
     }
     const watching = cardOpen() && currentView === 'conversations';
-    // Asked aloud, Edi says what it is doing; beside it there is only the animation.
-    const label = running && !watching && !runWasSpoken ? progressLabel(state) : undefined;
+    // Asked aloud, Edi says what it is doing; beside it there is only the animation, except
+    // while it makes something to show, which the person is waiting to see.
+    const stepShows = !runWasSpoken || spokenTurnShowsStep(activeWork(state)?.capability);
+    const label = running && !watching && stepShows ? progressLabel(state) : undefined;
     character.setThinking(running, label);
     // A question typed in the bubble is answered there in words, as they are written; the card
     // is for looking back and for longer work. One asked aloud is answered aloud, with only the

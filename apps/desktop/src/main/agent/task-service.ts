@@ -59,6 +59,12 @@ interface TaskServiceOptions {
   capabilities: readonly Capability[];
   /** Tools from connected apps, read at the start of each run. */
   connectedTools?: () => readonly Capability[];
+  /**
+   * The model for a task's own work, when the person has one for hard tasks: a task is long,
+   * unattended work. Undefined or empty keeps the chosen model. The short check of a watch
+   * stays on the chosen model.
+   */
+  taskModel?: () => string | null | undefined;
   selfContext?: (question: string) => string;
   /** Switched-on skills the model can pick from. */
   skills?: () => { name: string; description: string }[];
@@ -301,6 +307,13 @@ export class TaskService {
     return false;
   }
 
+  /** The model a task's own work runs on. */
+  private taskModel() {
+    return (
+      modelIdSchema.safeParse(this.options.taskModel?.()).data ?? this.options.credentials.model
+    );
+  }
+
   /** One review-mode run of the worker: its answer, or null when none came. */
   private check(active: ActiveTask, prompt: string): Promise<string | null> {
     const { credentials, repositories } = this.options;
@@ -415,10 +428,11 @@ export class TaskService {
     const { credentials, repositories } = this.options;
     const runId = randomUUID();
     const at = this.now();
+    const model = this.taskModel();
     repositories.runs.start({
       id: runId,
       prompt: record.prompt,
-      model: credentials.model,
+      model,
       screens: 0,
       startedAt: at,
       taskId: record.id,
@@ -427,7 +441,7 @@ export class TaskService {
     const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
     const data: WorkerInput = {
       apiKey: credentials.apiKey,
-      model: credentials.model,
+      model,
       name: this.options.assistantName?.() ?? 'Edi',
       persona: this.options.persona?.() ?? '',
       prompt: record.prompt,
@@ -511,12 +525,7 @@ export class TaskService {
     } else if (message.type === 'done') {
       this.finish(active, 'done');
     } else if (message.type === 'error') {
-      recordFailure(
-        this.options.repositories,
-        active.runId,
-        this.options.credentials.model,
-        message,
-      );
+      recordFailure(this.options.repositories, active.runId, this.taskModel(), message);
       this.finish(active, 'failed', failures[message.kind]);
     }
   }
