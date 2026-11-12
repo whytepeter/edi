@@ -19,18 +19,30 @@ export class ApprovalQueue implements ApprovalGate {
 
   constructor(
     private readonly onChange: (head: ApprovalRequest | null) => void,
-    /** Actions the person already allowed for this conversation skip review. */
-    private readonly preapproved: (request: ApprovalRequest) => boolean = () => false,
+    /**
+     * Actions the person already allowed skip review. It may take a moment to decide (a
+     * background task's action is checked against its instructions first).
+     */
+    private readonly preapproved: (request: ApprovalRequest) => boolean | Promise<boolean> = () =>
+      false,
   ) {}
 
   get current(): ApprovalRequest | null {
     return this.entries[0]?.request ?? null;
   }
 
-  request(request: ApprovalRequest, signal: AbortSignal): Promise<Decision> {
+  /** Every run with a review waiting, shown or still in line behind the one that is. */
+  get waitingRuns(): ReadonlySet<string> {
+    return new Set(this.entries.map(entry => entry.request.runId));
+  }
+
+  async request(request: ApprovalRequest, signal: AbortSignal): Promise<Decision> {
+    if (signal.aborted) throw aborted();
+    const allowed = this.preapproved(request);
+    if (allowed === true || (allowed !== false && (await allowed))) return 'approved';
+    // Stopped while it was being checked.
+    if (signal.aborted) throw aborted();
     return new Promise((resolve, reject) => {
-      if (signal.aborted) return reject(aborted());
-      if (this.preapproved(request)) return resolve('approved');
       const onAbort = () => {
         this.remove(entry);
         reject(aborted());
@@ -44,7 +56,8 @@ export class ApprovalQueue implements ApprovalGate {
       };
       signal.addEventListener('abort', onAbort, { once: true });
       this.entries.push(entry);
-      if (this.entries.length === 1) this.onChange(request);
+      // Told for every arrival, not only the first: a run in line is waiting on the person too.
+      this.onChange(this.current);
     });
   }
 
@@ -81,6 +94,6 @@ export class ApprovalQueue implements ApprovalGate {
     const index = this.entries.indexOf(entry);
     if (index === -1) return;
     this.entries.splice(index, 1);
-    if (index === 0) this.onChange(this.current);
+    this.onChange(this.current);
   }
 }

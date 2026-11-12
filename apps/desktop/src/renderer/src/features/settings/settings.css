@@ -471,3 +471,18 @@
 .voice-remove-confirm {
   flex: none;
 }
+
+/* A choice that needs the row's full width sits under its label, inside the same group. */
+.settings-choice {
+  display: flex;
+  padding: 0 var(--space-3) var(--space-3);
+  list-style: none;
+}
+/* It belongs to the row above it: no rule between them (the list draws one between rows). */
+.settings-page .settings-choice.settings-choice {
+  border: 0;
+  box-shadow: none;
+}
+.settings-choice > * {
+  flex: 1;
+}

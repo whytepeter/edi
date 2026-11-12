@@ -13,6 +13,9 @@ import {
   modelIdSchema,
   unattendedCapabilities,
   type ApprovalRequest,
+  canAlwaysAllow,
+  isActiveTask,
+  maxTaskBudgetUsd,
   type Task,
   type TaskStatus,
   type ToolStep,
@@ -35,6 +38,12 @@ const TASK_BUDGET_MS = 15 * 60_000;
 const TASK_STEPS = 25;
 const MAX_TEXT = 32_000;
 const HISTORY_TURNS = 6;
+/** The same action failing this many times the same way means the task is stuck: it stops. */
+export const REPEATED_FAILURES = 3;
+/** A run that changes this many things is stopped and checked, in case something is wrong. */
+export const MAX_WRITES_PER_RUN = 40;
+/** How long the check of an unattended action may take before the person is asked instead. */
+const REVIEW_MS = 25_000;
 
 /** The part of a worker the service uses; tests pass a fake. */
 export interface WorkerLike {
@@ -50,10 +59,12 @@ interface TaskServiceOptions {
   capabilities: readonly Capability[];
   /** Tools from connected apps, read at the start of each run. */
   connectedTools?: () => readonly Capability[];
-  selfContext?: () => string;
+  selfContext?: (question: string) => string;
   /** Switched-on skills the model can pick from. */
   skills?: () => { name: string; description: string }[];
   assistantName?: () => string;
+  /** The selected character's manner of speaking. */
+  persona?: () => string;
   readerModel?: () => string | null;
   /** How many tasks run at once; the rest wait their turn. */
   maxRunning?: number;
@@ -63,6 +74,8 @@ interface TaskServiceOptions {
   rules?: ApprovalRules;
   /** A task finished (done, failed or stopped by its limit), for a quiet notice. */
   finished?: (task: Task) => void;
+  /** A task reached its spending cap and is waiting: the person can allow more or stop it. */
+  limited?: (task: Task) => void;
 }
 
 interface ActiveTask {
@@ -76,6 +89,9 @@ interface ActiveTask {
   text: string;
   /** Over its cap: tool results wait here until the person allows more or stops it. */
   held: HostMessage[] | null;
+  /** Watchdog: how often each exact action has failed, and how many changes went through. */
+  failed: Map<string, number>;
+  writes: number;
 }
 
 const failures = {
@@ -103,15 +119,11 @@ export class TaskService {
     () => this.onApprovals(),
     request => {
       const taskId = this.runs.get(request.runId);
-      return (
-        Boolean(this.options.rules?.allows(request)) ||
-        Boolean(taskId && this.allowed.get(taskId)?.has(request.capability.id)) ||
-        Boolean(
-          taskId &&
-            unattendedCapabilities.has(request.capability.id) &&
-            this.runsOnItsOwn(taskId),
-        )
-      );
+      if (this.options.rules?.allows(request)) return true;
+      if (taskId && this.allowed.get(taskId)?.has(request.capability.id)) return true;
+      if (taskId && unattendedCapabilities.has(request.capability.id) && this.runsOnItsOwn(taskId))
+        return this.review(taskId, request);
+      return false;
     },
   );
   private readonly broker: CapabilityBroker;
@@ -206,11 +218,31 @@ export class TaskService {
     this.publish();
   }
 
+  /**
+   * Delete every task that has ended, with its history. Tasks still running, waiting or queued
+   * are left alone. Returns how many went.
+   */
+  clearFinished() {
+    const { tasks } = this.options.repositories;
+    const ended = tasks.list(1_000).filter(record => !isActiveTask(record.status));
+    for (const record of ended) {
+      tasks.remove(record.id);
+      this.steps.delete(record.id);
+      this.allowed.delete(record.id);
+    }
+    if (ended.length) this.publish();
+    return ended.length;
+  }
+
   /** Allow more spending; a task paused at its cap carries on. */
   raiseBudget(id: string, addUsd: number) {
     const record = this.options.repositories.tasks.get(id);
     if (!record) throw new Error('That task no longer exists.');
-    const budgetUsd = Math.min(500, Math.round((record.budgetUsd + addUsd) * 100) / 100);
+    // Never past what a task may hold: a larger cap made the whole task list unreadable.
+    const budgetUsd = Math.min(
+      maxTaskBudgetUsd,
+      Math.round((record.budgetUsd + addUsd) * 100) / 100,
+    );
     this.options.repositories.tasks.update(id, { budgetUsd });
     const active = this.active.get(id);
     if (active?.held && record.spentUsd < budgetUsd) {
@@ -236,6 +268,98 @@ export class TaskService {
     return Boolean(scheduleId && this.options.repositories.schedules.get(scheduleId)?.unattended);
   }
 
+  /**
+   * An unattended schedule's run may change a few kinds of thing on its own, but each change is
+   * first checked against what the person asked that schedule to do. One that doesn't plainly fit
+   * waits for them with the reason, and so does any change the check couldn't be made for.
+   */
+  private async review(taskId: string, request: ApprovalRequest): Promise<boolean> {
+    const record = this.options.repositories.tasks.get(taskId);
+    const active = this.active.get(taskId);
+    if (!record || !active) return false;
+    const { preview } = request;
+    const action = [
+      `${request.capability.title}: ${preview.summary}`,
+      ...preview.fields.map(field => `${field.label}: ${field.value}`),
+      preview.body?.slice(0, 2000) ?? '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const verdict = await this.check(
+      active,
+      `<instructions>\n${record.prompt.slice(0, 4000)}\n</instructions>\n\n<action>\n${action}\n</action>`,
+    );
+    if (verdict !== null && /^\s*FITS\b/i.test(verdict)) return true;
+    // This request is this call's own object, made for this review: the card shows why.
+    request.concern =
+      verdict === null
+        ? 'Edi couldn’t check this against the schedule’s instructions, so it asks you.'
+        : verdict
+            .replace(/^\s*DOESN.?T FIT:?\s*/i, '')
+            .trim()
+            .slice(0, 300) || 'It may not be what this schedule was asked to do.';
+    return false;
+  }
+
+  /** One review-mode run of the worker: its answer, or null when none came. */
+  private check(active: ActiveTask, prompt: string): Promise<string | null> {
+    const { credentials, repositories } = this.options;
+    const readerModel = modelIdSchema.safeParse(this.options.readerModel?.()).data;
+    const worker = (this.options.createWorker ?? spawnWorker)({
+      apiKey: credentials.apiKey,
+      model: credentials.model,
+      name: this.options.assistantName?.() ?? 'Edi',
+      persona: this.options.persona?.() ?? '',
+      prompt,
+      history: [],
+      screenshots: [],
+      pointer: null,
+      spoken: false,
+      mode: 'review',
+      delegate: false,
+      maxSteps: 1,
+      expressiveVoice: false,
+      selfContext: '',
+      skills: [],
+      desktopContext: null,
+      ...(readerModel ? { readerModel } : {}),
+      tools: [],
+    });
+    return new Promise(resolve => {
+      let text = '';
+      let settled = false;
+      const end = (answer: string | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        active.abort.signal.removeEventListener('abort', give);
+        void worker.terminate();
+        resolve(answer);
+      };
+      const give = () => end(null);
+      const timer = setTimeout(give, REVIEW_MS);
+      timer.unref?.();
+      active.abort.signal.addEventListener('abort', give, { once: true });
+      worker.on('message', raw => {
+        const parsed = workerMessageSchema.safeParse(raw);
+        if (!parsed.success) return end(null);
+        const message = parsed.data;
+        // The check is part of the task's spending.
+        if (message.type === 'usage')
+          try {
+            repositories.usage.add(message.entry, this.now(), active.runId);
+          } catch {
+            // Usage records are best effort.
+          }
+        else if (message.type === 'text') text += message.text;
+        else if (message.type === 'done') end(text);
+        else if (message.type === 'error') end(null);
+      });
+      worker.on('error', give);
+      worker.on('exit', give);
+    });
+  }
+
   owns(callOrRunId: string) {
     return (
       this.runs.has(callOrRunId) ||
@@ -247,6 +371,8 @@ export class TaskService {
     const head = this.approvals.current;
     if (!head || head.callId !== callId) throw new Error('That approval is no longer pending.');
     const taskId = this.runs.get(head.runId);
+    // Some actions are reviewed every time, whatever was ticked.
+    if (decision === 'approve-always' && !canAlwaysAllow(head.capability.id)) decision = 'approve';
     const rule = decision === 'approve-always' ? this.options.rules?.save(head) : null;
     if (decision === 'approve-always' && !rule && taskId) {
       const set = this.allowed.get(taskId) ?? new Set<string>();
@@ -303,6 +429,7 @@ export class TaskService {
       apiKey: credentials.apiKey,
       model: credentials.model,
       name: this.options.assistantName?.() ?? 'Edi',
+      persona: this.options.persona?.() ?? '',
       prompt: record.prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS, record.conversationId),
       screenshots: [],
@@ -310,9 +437,11 @@ export class TaskService {
       pointer: null,
       spoken: false,
       mode: 'task',
+      // Long work with separate parts is where helpers pay for themselves.
+      delegate: true,
       maxSteps: TASK_STEPS,
       expressiveVoice: false,
-      selfContext: this.options.selfContext?.() ?? '',
+      selfContext: this.options.selfContext?.(record.prompt) ?? '',
       skills: this.options.skills?.() ?? [],
       desktopContext: null,
       ...(readerModel ? { readerModel } : {}),
@@ -333,6 +462,8 @@ export class TaskService {
       wrappingUp: false,
       text: '',
       held: null,
+      failed: new Map(),
+      writes: 0,
     };
     this.active.set(record.id, active);
     this.runs.set(runId, record.id);
@@ -364,6 +495,9 @@ export class TaskService {
         active.deadline.pause();
         repositories.tasks.update(active.id, { status: 'limited' });
         this.publish();
+        // It holds one of the running slots until the person decides, so they are told.
+        const paused = this.list(100).find(task => task.id === active.id);
+        if (paused) this.options.limited?.(paused);
       }
       return;
     }
@@ -395,6 +529,18 @@ export class TaskService {
       outcome = { status: 'failed', summary: 'Edi could not record or run this action.' };
     }
     if (this.active.get(active.id) !== active) return;
+    // A task that keeps making the same failing call is stuck, and each try still costs a step.
+    if (outcome.status === 'failed') {
+      const key = `${name}:${JSON.stringify(input) ?? ''}`;
+      const times = (active.failed.get(key) ?? 0) + 1;
+      active.failed.set(key, times);
+      if (times >= REPEATED_FAILURES)
+        return this.finish(
+          active,
+          'failed',
+          `Stopped: the same action failed ${times} times (${outcome.summary.slice(0, 120)}).`,
+        );
+    }
     const reply: HostMessage = { type: 'tool-result', id, outcome };
     if (active.held) active.held.push(reply);
     else active.worker.postMessage(reply);
@@ -428,9 +574,11 @@ export class TaskService {
   }
 
   private onApprovals() {
-    const head = this.approvals.current;
+    // Every task with a review waiting stops its clock, not only the one being shown: a task
+    // in line behind another's review is waiting on the person just the same.
+    const waitingRuns = this.approvals.waitingRuns;
     for (const active of this.active.values()) {
-      const waiting = head?.runId === active.runId;
+      const waiting = waitingRuns.has(active.runId);
       const record = this.options.repositories.tasks.get(active.id);
       if (!record || record.status === 'limited') continue;
       if (waiting && record.status !== 'waiting') {
@@ -446,6 +594,8 @@ export class TaskService {
 
   private recorder(): ToolCallRecorder {
     const { toolCalls } = this.options.repositories;
+    /** Calls that change something, and the task each belongs to, until they finish. */
+    const changes = new Map<string, string>();
     const patch = (callId: string, change: Partial<ToolStep>) => {
       for (const [taskId, list] of this.steps) {
         if (!list.some(step => step.callId === callId)) continue;
@@ -461,6 +611,7 @@ export class TaskService {
         toolCalls.create({ ...call, at: this.now() });
         const taskId = this.runs.get(call.runId);
         if (!taskId) return;
+        if (call.effect !== 'read') changes.set(call.id, taskId);
         const step: ToolStep = {
           callId: call.id,
           capability: call.capability,
@@ -478,6 +629,17 @@ export class TaskService {
       finished: (id, outcome) => {
         toolCalls.finish(id, outcome.status, outcome.summary, outcome.output, this.now());
         patch(id, { status: outcome.status, summary: outcome.summary.slice(0, 400) });
+        const taskId = changes.get(id);
+        changes.delete(id);
+        const active = taskId ? this.active.get(taskId) : undefined;
+        if (!active || outcome.status !== 'succeeded') return;
+        if (++active.writes >= MAX_WRITES_PER_RUN)
+          this.finish(
+            active,
+            'failed',
+            `Stopped after ${active.writes} changes in one run, in case something was wrong. ` +
+              'Check what it did, then try again if it should do more.',
+          );
       },
     };
   }

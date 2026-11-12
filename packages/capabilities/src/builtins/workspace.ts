@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { access, link, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
+import {
+  access,
+  copyFile,
+  link,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
@@ -9,6 +18,7 @@ import {
   exportFormatLabel,
   exportFormatSchema,
   exportFormats,
+  viewBlockSchema,
   type ArtifactContent,
   type ArtifactRef,
   type ArtifactSummary,
@@ -33,10 +43,11 @@ import {
 const showInput = z
   .object({
     kind: z
-      .enum(['document', 'checklist', 'table', 'diagram', 'html'])
+      .enum(['document', 'checklist', 'table', 'diagram', 'view', 'html'])
       .describe(
         'document: Markdown text · checklist: items to tick · table: rows and columns · ' +
           'diagram: a flowchart, architecture, sequence, timeline or mind map in Mermaid · ' +
+          'view: figures, progress, charts, choices, fields and buttons the user can tap · ' +
           'html: an interactive page, only when the others cannot express it',
       ),
     title: z.string().trim().min(1).max(120).describe('Short title'),
@@ -60,6 +71,17 @@ const showInput = z
         'For diagram: Mermaid source, e.g. "flowchart LR\n  app[Edi] --> api[API]". Short ' +
           'labels, left-to-right for flows; quote labels with punctuation.',
       ),
+    blocks: z
+      .array(viewBlockSchema)
+      .max(40)
+      .optional()
+      .describe(
+        'For view, top to bottom. heading/text: text · stat: text (label), value, detail ' +
+          '(stats in a row sit side by side) · progress: text, values [0–1] · list: items · ' +
+          'chart: items (labels), values, style bar|line|ring · choice: items to tap, text ' +
+          '(question) · input: text (label) · button: text · divider. On a choice or button, ' +
+          '`ask` is what the user asks you when they tap it; field values come with it.',
+      ),
     html: z
       .string()
       .max(120_000)
@@ -80,10 +102,22 @@ export function toArtifactContent(input: z.infer<typeof showInput>): ArtifactCon
         ? { kind: input.kind, title: input.title, items: input.items }
         : input.kind === 'html'
           ? { kind: input.kind, title: input.title, html: input.html ?? input.markdown }
-          : input.kind === 'diagram'
-            ? { kind: input.kind, title: input.title, mermaid: input.mermaid ?? input.markdown }
-            : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
+          : input.kind === 'view'
+            ? { kind: input.kind, title: input.title, blocks: input.blocks }
+            : input.kind === 'diagram'
+              ? { kind: input.kind, title: input.title, mermaid: input.mermaid ?? input.markdown }
+              : { kind: input.kind, title: input.title, columns: input.columns, rows: input.rows };
   const parsed = artifactContentSchema.safeParse(candidate);
+  if (!parsed.success && input.kind === 'view') {
+    // Say which block is wrong and what it needs, so the same call can be corrected.
+    const issue = parsed.error.issues.find(entry => entry.path[0] === 'blocks');
+    const at = typeof issue?.path[1] === 'number' ? ` Block ${issue.path[1] + 1}: ` : ' ';
+    throw new Error(
+      issue?.message && issue.path.length > 1
+        ? `That view has a block that cannot be drawn.${at}${issue.message}`
+        : 'A view needs at least one block, in `blocks`.',
+    );
+  }
   if (!parsed.success)
     throw new Error(
       input.kind === 'document'
@@ -116,6 +150,7 @@ const artifactFolder = {
   checklist: 'Checklists',
   table: 'Tables',
   diagram: 'Diagrams',
+  view: 'Views',
   html: 'Interactive',
 } as const;
 
@@ -192,7 +227,12 @@ export interface ArtifactStore {
 export interface WorkspaceDependencies {
   /** Trusted, host-chosen workspace root (Documents/Edi). Never taken from model input. */
   directory: () => string;
-  shown(artifact: ArtifactSummary): void | Promise<void>;
+  /**
+   * Content was shown, by the run named in `from`. The id of updated or reopened content is the
+   * content's own, so the run is the only way to tell who is showing it: the person's
+   * conversation, or a background task that must stay quiet.
+   */
+  shown(artifact: ArtifactSummary, from: { runId: string }): void | Promise<void>;
   artifacts: ArtifactStore;
   notes: { store: NoteStore; directory: () => string };
   /** Move a file to the system Trash (recoverable), never unlink it. */
@@ -244,6 +284,46 @@ async function replaceFile(path: string, body: string) {
     await unlink(temp).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * What is in a generated item's file when the person has changed it by hand; null when the file
+ * is as Edi wrote it, or is gone. Edi's stored content is what it draws and updates from, so a
+ * file edited in another app has drifted from it: that must be noticed before the file is
+ * written again, and it is the person's version that should be read.
+ */
+async function handEdits(
+  deps: Pick<WorkspaceDependencies, 'directory'>,
+  record: WorkspaceArtifact,
+): Promise<{ path: string; text: string } | null> {
+  const path = artifactFilePath(deps.directory, record.path);
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+  const same = (value: string) => value.replace(/\r\n/g, '\n').trimEnd();
+  return same(text) === same(artifactExport(contentOf(record)).file) ? null : { path, text };
+}
+
+/**
+ * Keep the person's hand-edited version beside the file before Edi writes over it, as
+ * "<name> (your edits).<ext>" (numbered when that exists). Returns the copy's name.
+ */
+async function keepHandEdits(path: string) {
+  const extension = extname(path);
+  const base = basename(path, extension);
+  for (let n = 1; n <= 100; n++) {
+    const copy = join(dirname(path), `${base} (your edits${n === 1 ? '' : ` ${n}`})${extension}`);
+    try {
+      await access(copy);
+    } catch {
+      await copyFile(path, copy);
+      return basename(copy);
+    }
+  }
+  throw new Error('Too many kept copies of this file. Tidy the folder, then try again.');
 }
 
 function locateWorkspaceItem(deps: WorkspaceDependencies, id: string) {
@@ -321,6 +401,8 @@ export async function renameWorkspaceItem(deps: WorkspaceDependencies, id: strin
     const old = artifactFilePath(deps.directory, record.path);
     const content = { ...contentOf(record), title };
     const { file } = artifactExport(content);
+    // A rename rewrites the file from Edi's copy; their own edits are kept beside it first.
+    if (await handEdits(deps, record)) await keepHandEdits(old);
     const path = namedFor(old, slug)
       ? (await replaceFile(old, file), old)
       : await writeFree(dirname(old), slug, extname(old), file);
@@ -368,11 +450,20 @@ export async function readWorkspaceItem(deps: WorkspaceDependencies, id: string)
   const record = deps.artifacts.get(id);
   if (record) {
     const content = contentOf(record);
+    const edited = await handEdits(deps, record);
     return {
       id,
       kind: content.kind,
       title: content.title,
-      text: artifactExport(content).copy.slice(0, MAX_READ_CHARS),
+      // Their file as it is now, when they have changed it since Edi wrote it.
+      text: (edited?.text ?? artifactExport(content).copy).slice(0, MAX_READ_CHARS),
+      ...(edited
+        ? {
+            note:
+              'The user edited this file by hand; this is their version. Keep their changes ' +
+              'in anything you write back.',
+          }
+        : {}),
     };
   }
   const { note, markdown } = await readLibraryNote(deps.notes.store, deps.notes.directory, id);
@@ -446,6 +537,39 @@ export async function searchWorkspace(
   return results;
 }
 
+/**
+ * Tick or untick one item of a checklist the person is looking at. It is their own mark on
+ * their own list, so it needs no review: the stored checklist and its file are both updated.
+ */
+export async function setChecklistItem(
+  deps: Pick<WorkspaceDependencies, 'artifacts' | 'directory' | 'now'>,
+  id: string,
+  index: number,
+  done: boolean,
+) {
+  const record = deps.artifacts.get(id);
+  if (!record) throw new Error('That checklist is no longer in the workspace.');
+  const content = contentOf(record);
+  if (content.kind !== 'checklist') throw new Error('Only a checklist has items to tick.');
+  if (!content.items[index]) throw new Error('That item is no longer on the list.');
+  const next: ArtifactContent = {
+    ...content,
+    items: content.items.map((item, at) => (at === index ? { ...item, done } : item)),
+  };
+  const { file } = artifactExport(next);
+  const path = artifactFilePath(deps.directory, record.path);
+  if (await handEdits(deps, record)) await keepHandEdits(path);
+  await replaceFile(path, file);
+  deps.artifacts.update({
+    id,
+    title: next.title,
+    content: next,
+    bytes: Buffer.byteLength(file),
+    updatedAt: (deps.now ?? Date.now)(),
+  });
+  return next;
+}
+
 /** Generated content is both shown and placed in Edi's workspace as one operation. */
 export function workspaceCapabilities(deps: WorkspaceDependencies) {
   const now = deps.now ?? Date.now;
@@ -461,7 +585,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     effect: 'read',
     timeoutMs: 5_000,
     input: showInput,
-    prepare(input, { callId }) {
+    prepare(input, { callId, runId }) {
       const content = toArtifactContent(input);
       return {
         preview: {
@@ -495,7 +619,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
             title: content.title,
             preview: artifactPreview(content),
           };
-          await deps.shown(artifact);
+          await deps.shown(artifact, { runId });
           return {
             summary: `Showed “${content.title}” and created ${file.relativePath}.`,
             output: {
@@ -527,7 +651,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
       .object({
         query: z.string().trim().max(200).optional().describe('Words to look for'),
         kind: z
-          .enum(['note', 'document', 'checklist', 'table', 'html'])
+          .enum(['note', 'document', 'checklist', 'table', 'diagram', 'view', 'html'])
           .optional()
           .describe('Only this kind'),
         limit: z.number().int().min(1).max(50).optional().describe('At most this many (20)'),
@@ -588,6 +712,52 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     },
   });
 
+  const open = defineCapability({
+    id: 'workspace.open',
+    title: 'Open saved content',
+    description:
+      'Show the user something that already exists in the workspace: a document, checklist, ' +
+      'table, diagram, view or interactive page, by its id from workspace.search. Use this when ' +
+      'they ask to see or open something made before. Never call workspace.show for it: that ' +
+      'makes a second copy. For a saved note use notes.show.',
+    effect: 'read',
+    timeoutMs: 5_000,
+    input: z.object({ id: itemId }).strict(),
+    prepare({ id }, { runId }) {
+      const record = deps.artifacts.get(id);
+      if (!record)
+        throw new Error(
+          deps.notes.store.get(id)
+            ? 'That item is a saved note: show it with notes_show.'
+            : 'Edi has nothing in its workspace with that id. Search the workspace first.',
+        );
+      const content = contentOf(record);
+      return {
+        preview: {
+          title: 'Open saved content',
+          action: 'Open',
+          summary: `Open “${content.title}”.`,
+          fields: [],
+        },
+        async execute() {
+          await deps.shown(
+            {
+              id: record.id,
+              kind: content.kind,
+              title: content.title,
+              preview: artifactPreview(content),
+            },
+            { runId },
+          );
+          return {
+            summary: `Opened “${content.title}”.`,
+            output: { shown: true, id: record.id, kind: content.kind, title: content.title },
+          };
+        },
+      };
+    },
+  });
+
   const read = defineCapability({
     id: 'workspace.read',
     title: 'Read from the workspace',
@@ -619,7 +789,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     title: 'Update workspace content',
     description:
       'Replace a workspace item with a new version, keeping its place: a generated document, ' +
-      'checklist, table, diagram or interactive page (same kind; for a diagram, the whole new ' +
+      'checklist, table, diagram, view or interactive page (same kind; for a diagram, the whole new ' +
       'Mermaid), or a saved note (kind note, with the ' +
       'new title and the complete Markdown). Pass its id from workspace.search. The user reviews ' +
       'the change first, and Edi opens the result.',
@@ -628,10 +798,10 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     input: showInput.extend({
       id: itemId,
       kind: z
-        .enum(['document', 'checklist', 'table', 'diagram', 'html', 'note'])
+        .enum(['document', 'checklist', 'table', 'diagram', 'view', 'html', 'note'])
         .describe('The item’s kind, unchanged; note for a saved note (use markdown)'),
     }),
-    prepare(input, { callId }) {
+    prepare(input, { callId, runId }) {
       const record = deps.artifacts.get(input.id);
       if (!record) {
         const note = deps.notes.store.get(input.id);
@@ -639,7 +809,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           throw new Error(
             'Edi has nothing in its workspace with that id. Search the workspace first.',
           );
-        return updateNote(note.title, input, callId);
+        return updateNote(note.title, input, callId, runId);
       }
       if (input.kind === 'note') throw new Error(`That item is a ${record.kind}, not a note.`);
       const { id, ...fields } = input;
@@ -649,7 +819,8 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           `That item is a ${record.kind}. Keep the kind, or show new content instead.`,
         );
       const path = artifactFilePath(deps.directory, record.path);
-      return {
+      // Bad input is still refused at once (above); only looking at the file takes a moment.
+      return handEdits(deps, record).then(edited => ({
         preview: {
           title: 'Update content',
           action: 'Update',
@@ -657,10 +828,23 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           fields: [
             { label: 'Title', value: content.title },
             { label: 'Location', value: path },
+            // Said before they approve: this file is no longer as Edi left it.
+            ...(edited
+              ? [
+                  {
+                    label: 'Your edits',
+                    value:
+                      'You changed this file by hand. Your version is kept beside it as a ' +
+                      'copy named “(your edits)”.',
+                  },
+                ]
+              : []),
           ],
         },
         async execute() {
           const { file } = artifactExport(content);
+          // Checked again now: they may have edited it while the review was waiting.
+          const kept = (await handEdits(deps, record)) ? await keepHandEdits(path) : null;
           await replaceFile(path, file);
           try {
             deps.artifacts.update({
@@ -675,15 +859,23 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
               `Updated ${path}, but Edi could not update its workspace.`,
             );
           }
-          await deps.shown({
-            id,
-            kind: content.kind,
-            title: content.title,
-            preview: artifactPreview(content),
-          });
-          return { summary: `Updated “${content.title}” at ${path}.`, output: { id, path } };
+          await deps.shown(
+            {
+              id,
+              kind: content.kind,
+              title: content.title,
+              preview: artifactPreview(content),
+            },
+            { runId },
+          );
+          return {
+            summary:
+              `Updated “${content.title}” at ${path}.` +
+              (kept ? ` The user’s own edits were kept beside it as “${kept}”.` : ''),
+            output: { id, path, ...(kept ? { yourEditsKeptAs: kept } : {}) },
+          };
         },
-      };
+      }));
     },
   });
 
@@ -692,6 +884,7 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     previousTitle: string,
     input: { id: string; kind: string; title: string; markdown?: string },
     callId: string,
+    runId: string,
   ) {
     if (input.kind !== 'note' && input.kind !== 'document')
       throw new Error('That item is a note. Pass kind note with its new Markdown.');
@@ -721,13 +914,16 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
           title: input.title,
           body,
         });
-        await deps.shown({
-          id: callId,
-          kind: 'note',
-          title: input.title,
-          preview: artifactPreview({ kind: 'note', markdown: saved.content }),
-          noteId: input.id,
-        });
+        await deps.shown(
+          {
+            id: callId,
+            kind: 'note',
+            title: input.title,
+            preview: artifactPreview({ kind: 'note', markdown: saved.content }),
+            noteId: input.id,
+          },
+          { runId },
+        );
         return {
           summary: `Updated “${input.title}” at ${saved.path}.`,
           output: { id: input.id, path: saved.path },
@@ -815,5 +1011,6 @@ export function workspaceCapabilities(deps: WorkspaceDependencies) {
     },
   });
 
-  return [show, search, read, update, remove, ...(exportItem ? [exported] : [])] as const;
+  // New tools go last: callers and tests take the earlier ones by position.
+  return [show, search, read, update, remove, ...(exportItem ? [exported] : []), open] as const;
 }

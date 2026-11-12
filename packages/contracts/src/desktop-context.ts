@@ -103,3 +103,17 @@ export function normalizeDesktopContext(
     selectedText: selected.trim() ? selected.slice(0, 4000) : null,
   };
 }
+
+/**
+ * Whether what was in front when a question was asked is no longer in front: another app, or
+ * another page in the same browser. Positions read from a screenshot only mean something while
+ * the same thing is on screen, so pointing is skipped when this is true. A changed window title
+ * alone is not enough (titles tick over with unsaved marks, timers and progress), and when
+ * either moment is unknown nothing can be said, so it counts as not moved.
+ */
+export function screenMoved(before: DesktopContext | null, now: DesktopContext | null): boolean {
+  if (!before || !now) return false;
+  const app = (context: DesktopContext) => context.bundleId ?? context.app;
+  if (app(before) !== app(now)) return true;
+  return Boolean(before.url && now.url && before.url !== now.url);
+}

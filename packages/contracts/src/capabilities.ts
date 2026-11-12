@@ -79,9 +79,23 @@ export const approvalRequestSchema = z
       .strict(),
     preview: approvalPreviewSchema,
     scope: approvalScopeSchema.optional(),
+    /**
+     * Why Edi's own check stopped a background task from doing this on its own: it didn't
+     * plainly fit what the task was asked to do.
+     */
+    concern: z.string().max(300).optional(),
+    /** How often the person allowed this action in the last 30 days, so “always” can be offered. */
+    allowedBefore: z.number().int().min(0).max(10_000).optional(),
   })
   .strict();
 export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
+
+/**
+ * Actions that are reviewed every single time: “always allow” is not offered for them, and is
+ * ignored if it arrives anyway. Undoing something is its own decision each time.
+ */
+export const reviewedEveryTime: ReadonlySet<string> = new Set(['edi.undo']);
+export const canAlwaysAllow = (capabilityId: string) => !reviewedEveryTime.has(capabilityId);
 
 export const runStatusSchema = z.enum(['running', 'done', 'stopped', 'error', 'interrupted']);
 export type RunStatus = z.infer<typeof runStatusSchema>;

@@ -66,7 +66,11 @@ export class Exporter {
   }
 
   /** Into the Exports folder under a free name, or to `destination` the person chose. */
-  async export(ref: ArtifactRef, format: ExportFormat, destination?: string): Promise<ExportResult> {
+  async export(
+    ref: ArtifactRef,
+    format: ExportFormat,
+    destination?: string,
+  ): Promise<ExportResult> {
     const content = await this.deps.resolve(ref);
     if (!exportFormats[content.kind].includes(format))
       throw new Error(

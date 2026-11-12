@@ -1,5 +1,10 @@
 import { useId, useState, type ReactNode } from 'react';
-import { alwaysAllowLabel, connectorCatalog, type ApprovalRequest } from '@edi/contracts';
+import {
+  alwaysAllowLabel,
+  canAlwaysAllow,
+  connectorCatalog,
+  type ApprovalRequest,
+} from '@edi/contracts';
 import { BrandIcon } from '../BrandIcon';
 import { Icon, type IconName } from '../ui';
 import './approval-card.css';
@@ -89,6 +94,8 @@ export function ApprovalCard({
   const headingId = titleId ?? fallbackId;
   const { label, icon } = source(approval);
   const detail = compact ? approvalDetail(approval) : '';
+  // From the third time, say so beside “always”: the person decides, nothing is switched for them.
+  const allowedBefore = approval.allowedBefore ?? 0;
 
   return (
     <section
@@ -113,22 +120,35 @@ export function ApprovalCard({
         </div>
       </header>
       {children}
-      <label className="approval-card-always">
-        <span className="approval-card-badge" aria-hidden="true">
-          <Icon name="shield" size={13} />
-        </span>
-        <span>
-          {alwaysAllowLabel(approval, compact)}
-          {!compact && <small>You can change this in Settings › Privacy.</small>}
-        </span>
-        <input
-          type="checkbox"
-          className="approval-card-check"
-          checked={always}
-          disabled={sending}
-          onChange={event => setAlways(event.target.checked)}
-        />
-      </label>
+      {approval.concern && (
+        <p className="approval-card-concern" role="note">
+          Edi’s check: {approval.concern}
+        </p>
+      )}
+      {canAlwaysAllow(approval.capability.id) && (
+        <label className="approval-card-always">
+          <span className="approval-card-badge" aria-hidden="true">
+            <Icon name="shield" size={13} />
+          </span>
+          <span>
+            {alwaysAllowLabel(approval, compact)}
+            {allowedBefore >= 2 ? (
+              <small>You’ve allowed this {allowedBefore} times this month.</small>
+            ) : (
+              // Only a rule that is saved can be changed later; a chat-only allowance ends with the chat.
+              !compact &&
+              approval.scope && <small>You can change this in Settings › Privacy.</small>
+            )}
+          </span>
+          <input
+            type="checkbox"
+            className="approval-card-check"
+            checked={always}
+            disabled={sending}
+            onChange={event => setAlways(event.target.checked)}
+          />
+        </label>
+      )}
       {error && (
         <p role="alert" className="approval-card-error">
           {error}

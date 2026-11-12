@@ -7,6 +7,46 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Added
 
+- A hop shows on the character: wandering Edi stretches and leans a little as it leaves the ground and lands
+  through a brief squash, instead of its picture sliding along an arc. Reduced motion switches it off.
+- Wandering (Settings → Behavior, off until switched on): now and then, when nothing is happening, Edi hops a
+  short way along the screen in quick, low arcs. It stops where it is the moment you talk to it, drag it, open
+  the card or have something to read, stays still when macOS reduces motion, and only ever moves its own window.
+- Conversations can be renamed; the Library has a search box; Settings → Memory can add a line; Activity has
+  **Undo last change…**; Settings can ask macOS for Accessibility.
+- A local server can be given arguments, and re-adding it with a new version or arguments updates it.
+- A conversation can be read further back than its last ten turns (**Show earlier**).
+- Checklists Edi makes can be ticked; each tick is saved to the list and its file.
+- Edi can reopen something it already made (`workspace_open`) instead of making a copy.
+- Finished tasks can be run again and cleared in one go; a task's review now shows every field and the full change.
+- Schedules can be run now, renamed, retimed and given new instructions in place; each shows how its last run went
+  and when it runs next. Edi can change one too (`schedules_update`) and stop a background task (`tasks_stop`).
+- Home updates live, says the one thing most worth knowing under the greeting, and offers one-tap requests that
+  change with the time of day, a Talk button, and Run now on the next schedule.
+- Edi's answer appears in a bubble beside the character as it is written, with what Edi is doing under it, an
+  **Open** button for the whole conversation and a field to reply without opening the card.
+- Views: generated interface made of figures, progress, charts (bar, line, ring), lists, choices, fields and
+  buttons, drawn by Edi's own components from plain data. A tap on a choice or button asks Edi for the next step.
+- A character package can say how the character talks (`persona`); Edi and Mochi each have one. It changes tone
+  only and is shown before a character is added.
+- Edi can hand independent parts of a typed request or a background task to up to four helpers that work at the
+  same time on the faster model, with tools that only look things up.
+- Spoken turns are timed and kept (numbers only); `pnpm voice:report` shows the median and 90th percentile wait to
+  the first sound.
+- `packages/agent`: the brain as its own package, with no window, worker or model service built in. A host
+  supplies where model calls go, how tools run and who the assistant is.
+- MIT licence, contributing guide, security policy, code of conduct and third-party notices.
+- Edi's eyes follow your pointer. The eyes turn toward it with a small spring, and further the farther it is. They
+  follow when Edi is idle, listening or pleased, loosely while it speaks, and not at all when the face has its own
+  look (thinking, sleepy, puzzled). They settle back to their idle wander when the pointer rests, and stay still with
+  Reduce Motion. Only Edi's own window is told the direction; nothing is captured or kept, and nothing runs while Edi
+  is hidden or asleep. Characters can scale or turn this off with `motion.gaze`.
+- Edi answers touch with springs. Pressing squashes it a little and letting go springs back with a small stretch;
+  dragging lifts it and it leans against the motion, then wobbles to rest when dropped. Poking it repeatedly wears
+  its patience down: surprised at the third poke, annoyed at the fifth, rattled at the eighth, and a pause starts the
+  count over. A poke wakes a sleepy Edi. A single tap still never starts listening, and Edi never changes its face
+  over a conversation, a reply's mood or an error. It moves half as much when sleepy, and not at all with Reduce
+  Motion.
 - Connectors. Connect Notion, Linear or Asana, or any remote MCP server by its https address, from Connectors. Signing
   in opens the app's own page in your browser and returns to Edi on a one-time 127.0.0.1 address (OAuth with dynamic
   client registration and PKCE through the official MCP SDK); sign-ins are encrypted on this Mac with a keychain-held
@@ -195,6 +235,30 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Changed
 
+- Asked aloud, Edi answers aloud, and beside it there is only the listening, thinking and speaking
+  animation: no words, no progress line, no reply field. A bubble with content appears when there is
+  something to do or to see: a review to approve, content Edi made, an answer with a link in it, or an
+  answer nothing is going to say (the voice is off or failed). A question typed in the bubble is still
+  answered there in words.
+- The documents follow the usual layout: lowercase names under `docs/`, one page per subject, indexed in
+  `docs/README.md`. `CODEBASE.md` is now `architecture.md`, `AUDIO-RUNTIME.md` is `voice.md`, `PRESENTATION.md`
+  is `pointing.md`, `RELEASE.md` is `releasing.md`, and the roadmap is one short page of what comes next. The
+  original design proposal, the milestone validation log and the resource measurements were removed (they are in
+  git history); the engineering conventions moved into `CONTRIBUTING.md`.
+- The card and content windows paint their own backdrop: a soft blue sky with faint cloud under a layer of
+  frost, a deep-blue version after dark. They look the same over any desktop and no longer depend on macOS
+  blurring what is behind the window. Panels and fields on it are white glass.
+- Speech bubbles, the character menu and the content windows re-shape their glass every time they come into
+  view, and have it rebuilt after the Mac wakes, the screen unlocks or a display changes. A window found
+  without its glass is named in the log.
+- A scheduled run that fails says so, and a schedule that fails three times running pauses itself.
+- Edi does not point when another app or page has come to the front since the question; the pointer stays while
+  Edi is still speaking about it instead of a fixed few seconds.
+- A spoken turn sends only the everyday tools with its request; the rest are found by name in one extra step.
+  Connected-app tools are found by search once there are more than eight (was forty). In recorded use each turn
+  sent about 23,000 tokens and two turns in three used no tool at all.
+- Edi's instructions now mention running the person's own Shortcuts and undoing Edi's own actions; both tools
+  existed but were never named.
 - The Edi card is native glass too: the window is the card (no transparent margin or stray outline), with
   desktop blur, a light tint, a specular rim and 22 px corners shared with the artifact window (`.glass-window`).
   Menu and bubble windows alone clear their own material, so the card's section menu stays legible.
@@ -233,6 +297,47 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Fixed
 
+- Edi laughs when its voice laughs, not before it answers. A reply said aloud shows its mood when the voice
+  starts (the mood tag arrives seconds earlier, with the first words). A glad mood smiles with the eyes and
+  no longer opens the laughing mouth, which is kept for a laugh in the voice. The model is told that most
+  replies are neutral, so a mood means something.
+- Edi no longer laughs when you start talking or when an answer finishes. A request goes straight to the
+  thinking face, the smile from the last answer ends the moment you speak again, and a reply's mood now lasts
+  for as long as Edi is saying it and fades just after, instead of nine seconds from when the text was done.
+- A spoken turn was not recognised as spoken until after its first update, so the bubble treated it as typed.
+- A background task that updated or reopened content you made earlier put it on your screen, even in the
+  middle of a spoken conversation. Shown content now says which run showed it, so a task's stays in the
+  Library and its task.
+- The section menu closes on a click anywhere outside it. A click on the card's header, or anywhere else on
+  the screen, used to leave it open.
+- A generated file you edited by hand was ignored by Edi and then overwritten. Edi now reads your version, and
+  before any update, rename or tick it keeps your version beside the file as “(your edits)”.
+- Edi wasn't told when an app you keep private was in front, so it could guess at a screen it wasn't looking at.
+- Updating a shared skill through Edi rewrote its author as “You” and dropped its licence, version and icon; the
+  version it replaced is now kept as `SKILL.previous.md`.
+- A skill's reference files couldn't be reached, only its instructions.
+- Tools left out because too many were switched on were dropped without a word; Connectors now says how many.
+- A local server being replaced could be mistaken for its successor stopping, and one still starting when Edi quit
+  was left running.
+- One background task waiting for a review held up every other task's changes until they ran out of time.
+- An open microphone took a lone “okay”, “yeah” or “mm-hmm” as a request; it now needs to answer a question Edi asked.
+- A voice list that couldn't be read was treated as empty and saved over, orphaning the recordings.
+- A voice download that stopped arriving never ended; what arrived of a stopped download couldn't be removed.
+- Skill files using YAML lists or wrapped values were refused outright.
+- Skills edited in Finder weren't picked up until the Skills page was reopened.
+- Apps connected over the network were never tried again after a dropped connection or the Mac waking.
+- Undo could no longer find a change once two hundred lookups had followed it.
+- A failed voice key always said the key was refused, even when the Mac was offline.
+- Raising a task's cap past $50 made the whole Tasks page come up empty.
+- A task that paused at its spending cap told nobody while holding a running slot.
+- “Always allow” could be ticked for undo, after which later undos ran without review.
+- Memories about the question are now the ones kept when they don't all fit; the ranking existed but never ran.
+- Editing a memory in Settings skipped the check that refuses passwords and keys.
+- More than 60 switched-on skills made every question fail.
+- The button for adding a server by address disappeared once every listed app was connected.
+- Searching the workspace by kind refused diagrams and views.
+- Adding a 31st folder reset every added folder at the next launch.
+- Settings → Privacy said voice stays on this Mac even with a cloud voice or cloud recognition selected.
 - Asking Edi to look something up ("where I went to school") hunted through code files and folders, then timed out
   with nothing. File search now ranks what a person means: name matches first, documents over other files, code
   projects last, and dependency/environment folders (node_modules, site-packages, venvs, app bundles) skipped, so
@@ -268,6 +373,8 @@ Meaningful product and architecture changes are recorded here. The format follow
 
 ### Removed
 
+- The Jev shadow-mode experiment, its report script and tests.
+- The Pocket TTS screening results (Pocket TTS is no longer used) and the `AGENTS.md` and `GEMINI.md` stubs.
 - Pocket TTS and the PyTorch Chatterbox environment. Kokoro is the default local voice and stands in while
   Chatterbox Turbo (MLX) loads and when a cloud voice fails; a saved Pocket choice moves to Kokoro. The ~5 GB of
   Pocket and PyTorch Chatterbox environments and models were moved to the Trash.

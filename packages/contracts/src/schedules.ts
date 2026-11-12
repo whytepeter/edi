@@ -171,8 +171,28 @@ const dayNames: Record<Weekday, string> = {
   sat: 'Saturday',
 };
 
-/** “Every weekday at 9:00”, “Every 4 hours”, “Once on Sep 20 at 15:00”. */
-export function describeWhen(when: ScheduleWhen): string {
+/** “Mon–Sat”, “Mon, Wed, Fri”: chosen days in the fewest words, runs of three or more joined. */
+function compactDays(days: ReadonlySet<Weekday>) {
+  // Monday first, as a week is read.
+  const week = [...weekdays.slice(1), weekdays[0]!];
+  const parts: string[] = [];
+  for (let index = 0; index < week.length; index++) {
+    if (!days.has(week[index]!)) continue;
+    let end = index;
+    while (end + 1 < week.length && days.has(week[end + 1]!)) end++;
+    const name = (at: number) => dayNames[week[at]!].slice(0, 3);
+    if (end - index >= 2) parts.push(`${name(index)}–${name(end)}`);
+    else for (let at = index; at <= end; at++) parts.push(name(at));
+    index = end;
+  }
+  return parts.join(', ');
+}
+
+/**
+ * “Every weekday at 9:00”, “Every 4 hours”, “Once on Sep 20 at 15:00”. `short` names chosen
+ * days compactly (“Mon–Sat at 07:15”) for a line that must fit a card.
+ */
+export function describeWhen(when: ScheduleWhen, options: { short?: boolean } = {}): string {
   if (when.kind === 'every') return when.hours === 1 ? 'Every hour' : `Every ${when.hours} hours`;
   if (when.kind === 'once') {
     const [date, time] = when.at.split('T') as [string, string];
@@ -193,9 +213,11 @@ export function describeWhen(when: ScheduleWhen): string {
       ? 'Every weekday'
       : weekend
         ? 'Every weekend day'
-        : `Every ${weekdays
-            .filter(day => days.has(day))
-            .map(day => dayNames[day])
-            .join(', ')}`;
+        : options.short
+          ? compactDays(days)
+          : `Every ${weekdays
+              .filter(day => days.has(day))
+              .map(day => dayNames[day])
+              .join(', ')}`;
   return `${which} at ${when.time}`;
 }

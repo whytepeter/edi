@@ -16,8 +16,12 @@ interface BrokerDependencies {
   id?: () => string;
 }
 
-/** Connected-app tools sent to the model directly; more than this and they are found by search. */
-export const DIRECT_APP_TOOLS = 40;
+/**
+ * Connected-app tools sent to the model directly; more than this and they are found by search.
+ * Their schemas are large and rarely needed: in recorded use, under one model call in ten
+ * touched a connected app, while forty of them added tens of thousands of tokens to every call.
+ */
+export const DIRECT_APP_TOOLS = 8;
 
 /** Model-facing names cannot contain dots: `notes.save` → `notes_save`. */
 export const toolNameFor = (capabilityId: string) => capabilityId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -32,7 +36,8 @@ export const toolNameFor = (capabilityId: string) => capabilityId.replace(/[^a-z
  */
 export class CapabilityBroker {
   private readonly fixed = new Map<string, Capability>();
-  private writeQueue: Promise<unknown> = Promise.resolve();
+  /** Changes wait their turn within a run; runs do not wait for each other. */
+  private readonly writeQueues = new Map<string, Promise<unknown>>();
   private readonly id: () => string;
 
   /**
@@ -66,18 +71,26 @@ export class CapabilityBroker {
   /**
    * Every tool, for the model. Past `DIRECT_APP_TOOLS` connected-app tools, all of them are
    * deferred: the model finds the ones it needs by search, keeping each request small and within
-   * providers' tool limits. Built-in tools are never deferred.
+   * providers' tool limits.
+   *
+   * `direct` makes a quick turn (a spoken one): only the named tools are sent with the request,
+   * and every other tool, built-in or connected, is found by search. Most turns use no tool at
+   * all, so sending every schema with every question only makes the first word later.
    */
-  manifest(): ToolManifestEntry[] {
+  manifest(options: { direct?: ReadonlySet<string> } = {}): ToolManifestEntry[] {
     const entries = [...this.byName];
-    const defer = entries.filter(([, capability]) => capability.app).length > DIRECT_APP_TOOLS;
+    const { direct } = options;
+    const deferApps =
+      Boolean(direct) ||
+      entries.filter(([, capability]) => capability.app).length > DIRECT_APP_TOOLS;
     return entries.map(([name, capability]) => ({
       name,
       description: capability.description,
       inputSchema:
         capability.inputSchema ?? (z.toJSONSchema(capability.input) as Record<string, unknown>),
       ...(capability.app ? { app: capability.app } : {}),
-      ...(defer && capability.app ? { deferred: true } : {}),
+      ...(capability.effect === 'read' ? { readOnly: true } : {}),
+      ...((capability.app ? deferApps : direct && !direct.has(name)) ? { deferred: true } : {}),
     }));
   }
 
@@ -132,7 +145,7 @@ export class CapabilityBroker {
       });
     }
     const run = () => this.review(capability, parsed.data, { callId, runId }, signal);
-    const outcome = needsReview ? await this.serialized(run) : await run();
+    const outcome = needsReview ? await this.serialized(runId, run) : await run();
     return finish(outcome);
   }
 
@@ -210,9 +223,19 @@ export class CapabilityBroker {
     }
   }
 
-  private serialized<T>(work: () => Promise<T>): Promise<T> {
-    const result = this.writeQueue.then(work, work);
-    this.writeQueue = result.catch(() => {});
+  /**
+   * One change at a time within a run, in the order the model asked for them. Each run has its
+   * own line: when every run shared one, a review left unanswered in one background task held
+   * up every other task's changes until those tasks ran out of time.
+   */
+  private serialized<T>(runId: string, work: () => Promise<T>): Promise<T> {
+    const result = (this.writeQueues.get(runId) ?? Promise.resolve()).then(work, work);
+    const settled = result.catch(() => {});
+    this.writeQueues.set(runId, settled);
+    // The line goes once its last change is through, so finished runs leave nothing behind.
+    void settled.then(() => {
+      if (this.writeQueues.get(runId) === settled) this.writeQueues.delete(runId);
+    });
     return result;
   }
 }

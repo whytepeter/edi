@@ -22,7 +22,13 @@ function setup() {
   });
   const seen: PrivacyState[] = [];
   guard.onChange(state => seen.push(state));
-  return { settings, guard, seen, protectedCalls, share: (list: typeof windows) => (windows = list) };
+  return {
+    settings,
+    guard,
+    seen,
+    protectedCalls,
+    share: (list: typeof windows) => (windows = list),
+  };
 }
 
 test('a screen share pauses looking and keeps Edi out of the share until it ends', async () => {
@@ -61,5 +67,9 @@ test('pausing by hand, pausing for shares off, and private apps', async () => {
   settings.pauseWhenSharing = false;
   share([{ owner: 'Google Chrome', name: 'meet.google.com is sharing your screen.' }]);
   await guard.check();
-  assert.deepEqual(guard.state, { paused: null, sharingApp: null }, 'not watched when switched off');
+  assert.deepEqual(
+    guard.state,
+    { paused: null, sharingApp: null },
+    'not watched when switched off',
+  );
 });

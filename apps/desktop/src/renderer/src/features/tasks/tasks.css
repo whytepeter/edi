@@ -238,40 +238,57 @@
 }
 .schedule-list {
   display: grid;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+/* One schedule, one card: what it is, how the last run went, and what you can do with it. */
+.schedule-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
   border-radius: 14px;
   background: var(--fill);
-  overflow: hidden;
 }
-.schedule-row {
+.schedule-card:not([data-enabled]):not([data-editing]) .schedule-text,
+.schedule-card:not([data-enabled]):not([data-editing]) .schedule-card-icon {
+  opacity: 0.55;
+}
+.schedule-card-top {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 10px var(--space-3) 10px var(--space-4);
+  gap: var(--space-3);
 }
-.schedule-row + .schedule-row {
-  box-shadow: inset 0 0.5px 0 var(--separator);
-}
-.schedule-row:not([data-enabled]) .schedule-text {
-  opacity: 0.6;
+.schedule-card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 .schedule-text {
   display: grid;
   flex: 1;
   min-width: 0;
-  gap: 2px;
+  gap: 1px;
 }
 .schedule-title {
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
   font: var(--text-body);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--label);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .schedule-badge {
+  flex: none;
   padding: 1px 6px;
   border-radius: 6px;
   background: var(--accent-softer);
@@ -279,28 +296,189 @@
   font: var(--text-caption);
   font-weight: 600;
 }
-.schedule-detail,
-.schedule-latest {
+.schedule-detail {
   overflow: hidden;
   font: var(--text-footnote);
   color: var(--label-secondary);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Quiet until it is on: a schedule that acts on its own says so. */
-.schedule-own {
+/* How the last run went: a dot for the outcome, a line for the detail; opens that run. */
+.schedule-last {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 6px var(--space-2);
   border: 0;
-  background: var(--fill);
+  border-radius: var(--radius-small);
+  background: var(--content-base);
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+  text-align: left;
+  cursor: pointer;
+}
+.schedule-last:disabled {
+  cursor: default;
+}
+.schedule-last span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.schedule-last i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label-quaternary);
+}
+.schedule-last[data-tone='ok'] i {
+  background: #34a853;
+}
+.schedule-last[data-tone='failed'] i {
+  background: #e0533d;
+}
+.schedule-last[data-tone='failed'] {
+  color: var(--label);
+}
+.schedule-last[data-tone='running'] i {
+  background: var(--accent-fill);
+  animation: schedule-pulse 1.4s ease-in-out infinite;
+}
+@keyframes schedule-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.schedule-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.schedule-spacer {
+  flex: 1;
+}
+.schedule-ask {
+  flex: 1;
+  font: var(--text-footnote);
   color: var(--label-secondary);
 }
+/* Quiet until it is on: a schedule that acts on its own says so. */
+.schedule-own {
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: var(--content-base);
+  color: var(--label-secondary);
+  cursor: pointer;
+}
 .schedule-own[aria-pressed='true'] {
-  background: var(--accent-softer);
+  background: var(--accent-soft);
   color: var(--accent-strong);
 }
 
-.schedule-controls {
+/* Editing in place. */
+.schedule-editor {
+  display: grid;
+  gap: var(--space-3);
+}
+.schedule-editor .ds-input {
+  box-sizing: border-box;
+  width: 100%;
+}
+.schedule-label {
+  display: block;
+  margin-bottom: 4px;
+  font: var(--text-footnote);
+  color: var(--label-tertiary);
+}
+.schedule-rhythm {
   display: flex;
-  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--content-base);
+}
+.schedule-rhythm button {
+  flex: 1;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--text-callout);
+  cursor: pointer;
+}
+.schedule-rhythm button[aria-checked='true'] {
+  background: var(--glass-thick-fill);
+  color: var(--label);
+  font-weight: 600;
+  box-shadow: var(--shadow-control);
+}
+.schedule-when {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font: var(--text-callout);
+  color: var(--label-secondary);
+}
+.schedule-when input[type='time'],
+.schedule-when input[type='datetime-local'],
+.schedule-when .task-hours input {
+  padding: 5px 9px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: var(--content-base);
+  color: var(--label);
+  font: var(--text-callout);
+  outline: none;
+}
+.schedule-when input:focus {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.schedule-days {
+  display: flex;
+  gap: 4px;
+}
+.schedule-days button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--content-base);
+  color: var(--label-secondary);
+  font: var(--text-callout);
+  font-weight: 600;
+  cursor: pointer;
+}
+.schedule-days button[aria-pressed='true'] {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.schedule-preview {
+  margin: var(--space-2) 0 0;
+  font: var(--text-footnote);
+  color: var(--label-tertiary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .schedule-last[data-tone='running'] i {
+    animation: none;
+  }
+}
+
+/* A task's review sits in its card, full width, with the whole change inside. */
+.task-review {
+  border-radius: 14px;
+  background: var(--content-base);
+  overflow: hidden;
+}
+.task-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }

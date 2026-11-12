@@ -20,7 +20,7 @@ const context = {
 const live = () => new AbortController().signal;
 
 /** An MCP server with two tools; with `auth`, a minimal OAuth server guards it. */
-async function fakeServer({ auth }: { auth: boolean }) {
+async function fakeServer({ auth, port = 0 }: { auth: boolean; port?: number }) {
   const calls: unknown[] = [];
   const codes = new Map<string, string>();
   const mcp = () => {
@@ -125,9 +125,18 @@ async function fakeServer({ auth }: { auth: boolean }) {
     }
     response.writeHead(404).end();
   });
-  await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => http.listen(port, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
-  return { url: `${base}/mcp`, calls, close: () => new Promise(resolve => http.close(resolve)) };
+  return {
+    url: `${base}/mcp`,
+    calls,
+    // Open connections are dropped too, so a server can go away while a client is attached.
+    close: () =>
+      new Promise(resolve => {
+        http.closeAllConnections();
+        http.close(resolve);
+      }),
+  };
 }
 
 function manager() {
@@ -566,7 +575,8 @@ test('an expired Composio sign-in or refused key says so, and Test Connection ch
     // and the model is told it can offer to reconnect.
     composio.state.execute = 'fail';
     composio.state.account = 'EXPIRED';
-    await assert.rejects(run(), /sign-in has expired\. Offer to reconnect it \(edi_connect_app\)/);
+    // The advice names something the model can actually do: open the page with Reconnect.
+    await assert.rejects(run(), /sign-in has expired, so this could not be done\..*edi_open_page/);
     assert.equal(status(), 'needs-sign-in');
 
     // A failed call on an active account is just the app's own answer.
@@ -589,5 +599,37 @@ test('an expired Composio sign-in or refused key says so, and Test Connection ch
     assert.deepEqual(opened.length, 1); // checking never opens a browser
   } finally {
     await connectors.dispose();
+  }
+});
+
+test('an app that stopped answering is tried again quietly, without opening a browser', async () => {
+  const first = await fakeServer({ auth: false });
+  const port = Number(new URL(first.url).port);
+  const { connectors, settled, opened } = manager();
+  let second: Awaited<ReturnType<typeof fakeServer>> | undefined;
+  try {
+    const id = connectors.add({ url: first.url, name: 'Team Notes' });
+    await settled(list => list[0]?.status === 'connected');
+
+    // The server goes away (the Mac slept, the network dropped). Looking again finds it gone.
+    await first.close();
+    connectors.recover();
+    const [down] = await settled(list => list[0]?.status === 'error');
+    assert.ok(down!.error.length > 0);
+
+    // It comes back at the same address. Nothing had to be clicked: recovering reconnects it.
+    second = await fakeServer({ auth: false, port });
+    connectors.recover(id);
+    const [up] = await settled(list => list[0]?.status === 'connected');
+    assert.equal(up!.tools.length, 2);
+    assert.deepEqual(opened, []);
+
+    // An app that is switched off, or waiting for a sign-in, is left alone.
+    connectors.setEnabled(id, false);
+    connectors.recover();
+    assert.equal(connectors.list()[0]?.status, 'off');
+  } finally {
+    await connectors.dispose();
+    await second?.close();
   }
 });

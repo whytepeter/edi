@@ -110,6 +110,13 @@ export function WorkspaceCard() {
     navButton.current?.focus();
   }
 
+  // A click anywhere else on the screen takes focus from the card: the menu closes then too.
+  // Main says so, since it is the one that knows which window has focus.
+  useEffect(() => {
+    if (!menuOpen) return;
+    return window.edi?.onCardBlur(() => setMenuOpen(false));
+  }, [menuOpen]);
+
   // Shown content opens in its own window beside the card; the page underneath stays put.
   const openArtifact = (ref: ArtifactRef) => void send({ type: 'open-artifact', ref });
 
@@ -282,6 +289,8 @@ export function WorkspaceCard() {
                 <BehaviorSettings
                   suggestions={settings.suggestions}
                   onSuggestions={level => void send({ type: 'set-suggestions', level })}
+                  wander={settings.wander}
+                  onWander={enabled => void send({ type: 'set-wander', enabled })}
                 />
               )}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}

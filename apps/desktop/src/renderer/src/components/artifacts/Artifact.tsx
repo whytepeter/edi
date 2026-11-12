@@ -13,6 +13,7 @@ import { characterById, useCharacters } from '../../hooks/useCharacters';
 import { Icon, IconButton, Menu, type IconName } from '../ui';
 import { Markdown } from './Markdown';
 import { Diagram } from './Diagram';
+import { View } from './View';
 import './artifacts.css';
 
 const kindIcon: Record<ArtifactKind, IconName> = {
@@ -21,6 +22,7 @@ const kindIcon: Record<ArtifactKind, IconName> = {
   checklist: 'check',
   table: 'window',
   diagram: 'chart',
+  view: 'sparkles',
   html: 'code',
 };
 export const kindLabel: Record<ArtifactKind, string> = {
@@ -29,6 +31,7 @@ export const kindLabel: Record<ArtifactKind, string> = {
   checklist: 'Checklist',
   table: 'Table',
   diagram: 'Diagram',
+  view: 'View',
   html: 'Interactive',
 };
 
@@ -60,6 +63,7 @@ const previewLabel: Record<ArtifactKind, string> = {
   checklist: 'Checklist',
   table: 'Table',
   diagram: 'Diagram',
+  view: 'View',
   html: 'Interactive page',
 };
 
@@ -184,16 +188,23 @@ export function ArtifactBody({
     );
   if (artifact.kind === 'html')
     return <InteractivePage reference={reference} title={artifact.title} />;
+  if (artifact.kind === 'view')
+    return (
+      <View
+        blocks={artifact.blocks}
+        // On the export page there is nobody to tap; in Edi's own window a tap asks Edi.
+        {...(light || !window.edi
+          ? {}
+          : { onAsk: prompt => window.edi!.command({ type: 'ask-agent', prompt }) })}
+      />
+    );
   if (artifact.kind === 'checklist')
     return (
-      <ul className="artifact-checklist">
-        {artifact.items.map((item, index) => (
-          <li key={index} data-done={item.done || undefined}>
-            <span className="md-check" aria-hidden="true" />
-            <span>{item.text}</span>
-          </li>
-        ))}
-      </ul>
+      <Checklist
+        items={artifact.items}
+        // On the export page there is nobody to tick; a note's list is the note's own text.
+        {...(!light && 'callId' in reference ? { id: reference.callId } : {})}
+      />
     );
   if (artifact.kind === 'table')
     return (
@@ -221,6 +232,66 @@ export function ArtifactBody({
   return <Markdown source={artifact.markdown} />;
 }
 
+/**
+ * A checklist the person can tick. Each tick is saved at once, to the stored list and to its
+ * file; if saving fails the box goes back, so what is shown is always what is kept.
+ */
+function Checklist({
+  items,
+  id,
+}: {
+  items: readonly { text: string; done: boolean }[];
+  /** The checklist's id; without it the list is only shown. */
+  id?: string;
+}) {
+  const [done, setDone] = useState(() => items.map(item => item.done));
+  const [failed, setFailed] = useState(false);
+  async function tick(index: number) {
+    if (!id || !window.edi) return;
+    const next = !done[index];
+    setFailed(false);
+    setDone(current => current.map((value, at) => (at === index ? next : value)));
+    try {
+      await window.edi.command({ type: 'set-checklist-item', id, index, done: next });
+    } catch {
+      setDone(current => current.map((value, at) => (at === index ? !next : value)));
+      setFailed(true);
+    }
+  }
+  return (
+    <>
+      <ul className="artifact-checklist">
+        {items.map((item, index) => (
+          <li key={index} data-done={done[index] || undefined}>
+            {id ? (
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={done[index] ?? false}
+                className="artifact-check"
+                onClick={() => void tick(index)}
+              >
+                <span className="md-check" aria-hidden="true" />
+                <span>{item.text}</span>
+              </button>
+            ) : (
+              <>
+                <span className="md-check" aria-hidden="true" />
+                <span>{item.text}</span>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      {failed && (
+        <p role="alert" className="artifact-check-error">
+          That tick couldn’t be saved.
+        </p>
+      )}
+    </>
+  );
+}
+
 /** Main's own reason (e.g. a note's file was deleted), without Electron's IPC wrapping. */
 function loadProblem(error: unknown) {
   const text =
@@ -237,6 +308,7 @@ const canCopy: Record<ArtifactKind, boolean> = {
   checklist: true,
   table: true,
   diagram: true,
+  view: true,
   html: true,
 };
 

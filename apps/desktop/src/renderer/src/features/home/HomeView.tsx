@@ -6,16 +6,19 @@ import {
   type Connector,
   type LibraryItem,
   type CharacterDescriptor,
-  type Schedule,
   type SystemInfo,
   type Task,
   type UsageSummary,
   type WorkspaceView,
 } from '@edi/contracts';
-import { GroupedList, GroupedRow, Icon } from '../../components/ui';
+import { Button, GroupedList, GroupedRow, Icon } from '../../components/ui';
 import { CharacterArt } from '../../components/character/CharacterArt';
 import './home.css';
 import { useAssistantName } from '../../hooks/useAssistantName';
+import { useTasks } from '../../hooks/useTasks';
+import { useSchedules } from '../../hooks/useSchedules';
+import { untilLabel } from '../../lib/schedule-text';
+import { quickActions, statusLine } from './home-brief';
 
 interface HomeViewProps {
   character: CharacterDescriptor;
@@ -89,11 +92,15 @@ function outcome(task: Task) {
 }
 
 /** Things to try, for someone who has not asked anything yet. */
-const openers = [
-  'What can you do?',
-  'What’s on my calendar today?',
-  'Summarize what’s on my screen.',
-];
+/** The clock, refreshed twice a minute, so countdowns and the time of day stay true. */
+function useNow() {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
 
 /**
  * Where the card opens. Before setup it is a short checklist, and after it the page answers
@@ -104,8 +111,10 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [saved, setSaved] = useState<LibraryItem[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  // Live: a task that starts, moves on or finishes shows here without leaving and coming back.
+  const tasks = useTasks() ?? [];
+  const schedules = useSchedules() ?? [];
+  const now = useNow();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
 
@@ -128,8 +137,6 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
         ]),
       setSaved,
     );
-    load(window.edi.tasks(), setTasks);
-    load(window.edi.schedules(), setSchedules);
     load(window.edi.connectors(), setConnectors);
     void window.edi.usage(7).then(
       value => alive && setUsage(value),
@@ -146,6 +153,14 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
     if (!prompt || sending) return;
     setSending(true);
     if (await onAsk(prompt)) setDraft('');
+    setSending(false);
+  }
+
+  /** A quick action asks straight away; there is nothing to type. */
+  async function askNow(prompt: string) {
+    if (sending) return;
+    setSending(true);
+    await onAsk(prompt);
     setSending(false);
   }
 
@@ -244,8 +259,20 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
           .join(' · ')
       : null;
   const next = schedules
-    .flatMap(schedule => (schedule.nextRunAt ? [{ schedule, at: schedule.nextRunAt }] : []))
+    .flatMap(schedule =>
+      schedule.enabled && schedule.nextRunAt ? [{ schedule, at: schedule.nextRunAt }] : [],
+    )
     .sort((a, b) => a.at - b.at)[0];
+  const actions = quickActions(new Date(now).getHours(), {
+    calendar: true,
+    savedItems: saved.length > 0,
+    finishedTask: finished.some(task => task.status === 'done'),
+    asked: agent.messages.length > 0,
+  });
+  const line = statusLine(
+    { approval: Boolean(agent.approval), attention: attention.length, tasks, schedules },
+    now,
+  );
 
   return (
     <section className="home-view">
@@ -253,8 +280,11 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
         <span className="home-avatar">
           <CharacterArt character={character} />
         </span>
-        <h1 className="ds-large-title">{greeting()}</h1>
-        <p className="ds-body ds-secondary">What can I help with?</p>
+        <h1 className="ds-large-title">{greeting(new Date(now).getHours())}</h1>
+        {/* The one thing most worth knowing right now; it changes as work starts and ends. */}
+        <p className="ds-body ds-secondary" role="status">
+          {agent.configured ? line : 'What can I help with?'}
+        </p>
       </header>
 
       {agent.configured && (
@@ -282,6 +312,33 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
             <Icon name="arrow-up" size={15} />
           </button>
         </form>
+      )}
+
+      {agent.configured && setupLeft.length === 0 && (
+        <div className="home-actions" role="group" aria-label="Quick actions">
+          {canTalk && hasVoice && (
+            <button
+              type="button"
+              className="home-action"
+              data-primary
+              onClick={() => void window.edi?.command({ type: 'start-listening' }).catch(() => {})}
+            >
+              <Icon name="mic" size={14} />
+              Talk
+            </button>
+          )}
+          {actions.map(action => (
+            <button
+              key={action.label}
+              type="button"
+              className="home-action"
+              disabled={running || sending}
+              onClick={() => void askNow(action.prompt)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
       )}
 
       {setupLeft.length > 0 ? (
@@ -337,7 +394,20 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
             <GroupedRow
               icon="calendar"
               title={next.schedule.title}
-              detail={when(next.at)}
+              detail={`Next ${untilLabel(next.at, now)} · ${when(next.at, now)}`}
+              control={
+                <Button
+                  size="small"
+                  onClick={event => {
+                    event.stopPropagation();
+                    void window.edi
+                      ?.command({ type: 'run-schedule', id: next.schedule.id })
+                      .catch(() => {});
+                  }}
+                >
+                  Run now
+                </Button>
+              }
               onOpen={() => onOpen('tasks')}
             />
           )}
@@ -367,15 +437,7 @@ export function HomeView({ character, agent, system, refreshKey, onOpen, onAsk }
             onOpen={() => onOpen('conversations')}
           />
         </GroupedList>
-      ) : (
-        agent.configured && (
-          <GroupedList title="Try saying">
-            {openers.map(opener => (
-              <GroupedRow key={opener} icon="chat" title={opener} onOpen={() => setDraft(opener)} />
-            ))}
-          </GroupedList>
-        )
-      )}
+      ) : null}
 
       {saved.length > 0 && (
         <GroupedList

@@ -11,7 +11,7 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
   formatSkill,
   parseSkill,
@@ -81,7 +81,8 @@ export interface SkillIssue {
 /**
  * Every skill Edi can use: those by Fewerlabs that ship with it, and the person's own in
  * Documents › Edi › Skills (made with Skill Creator, or a folder someone shared). The folder is
- * read again whenever it's listed, so a skill added or edited in Finder shows up without a
+ * read by `refresh`, which main calls when the Skills page opens, when the card comes to the
+ * front and when a question is asked, so a skill added or edited in Finder shows up without a
  * restart, and every file passes the same check. A skill with a built-in name is ignored.
  */
 export class SkillLibrary {
@@ -104,6 +105,34 @@ export class SkillLibrary {
 
   /** Names of the person's skills whose folders have helper scripts. */
   private scripted = new Set<string>();
+
+  /**
+   * The other files in one of the person's skills (references, templates), so its
+   * instructions can point at them and they can be read. Scripts are left out: Edi never
+   * runs them. Empty for a skill by Fewerlabs, which is instructions only.
+   */
+  async files(name: string): Promise<{ folder: string; names: string[] } | null> {
+    if (!this.yours.some(skill => skill.name === name)) return null;
+    const folder = join(this.options.folder(), name);
+    try {
+      const entries = await readdir(folder, { withFileTypes: true, recursive: true });
+      const names = entries
+        .filter(entry => entry.isFile())
+        .map(entry => relative(folder, join(entry.parentPath, entry.name)))
+        .filter(
+          file =>
+            file !== 'SKILL.md' &&
+            file !== 'SKILL.previous.md' &&
+            !file.split(sep).some(part => part.startsWith('.')) &&
+            /\.(md|txt|json|csv|ya?ml|html?)$/i.test(file),
+        )
+        .sort()
+        .slice(0, 40);
+      return names.length ? { folder, names } : null;
+    } catch {
+      return null;
+    }
+  }
 
   /** Reads the person's skills folder again. */
   async refresh() {
@@ -194,12 +223,25 @@ export class SkillLibrary {
     const name = skillNameSchema.parse(skill.name);
     if (this.options.builtIn.some(entry => entry.name === name))
       throw new Error('A skill by Fewerlabs has that name. Choose another name.');
-    const text = formatSkill({ ...skill, name });
+    // Replacing a skill changes what it does, not who wrote it or under what licence: a skill
+    // someone shared used to come back as written by “You” with its licence gone.
+    const previous = this.yours.find(entry => entry.name === name);
+    const text = formatSkill({
+      ...skill,
+      name,
+      ...(previous?.author ? { author: previous.author } : {}),
+      ...(previous?.license ? { license: previous.license } : {}),
+      ...(previous?.version ? { version: previous.version } : {}),
+      ...(previous?.icon ? { icon: previous.icon } : {}),
+    });
     const { skill: checked, problems } = parseSkill(text, { folderName: name });
     if (!checked) throw new Error(problems[0]?.message ?? 'That skill isn’t valid.');
-    const replaced = this.yours.some(entry => entry.name === name);
+    const replaced = Boolean(previous);
     const folder = join(this.options.folder(), name);
     await mkdir(folder, { recursive: true });
+    // The version being replaced is kept beside the new one, so an update can be taken back.
+    if (replaced)
+      await copyFile(join(folder, 'SKILL.md'), join(folder, 'SKILL.previous.md')).catch(() => {});
     const temp = join(folder, `.edi-${randomUUID()}.tmp`);
     await writeFile(temp, text, { flag: 'wx', mode: 0o644 });
     try {
@@ -233,11 +275,14 @@ export class SkillLibrary {
       throw new Error('There’s no SKILL.md in that folder, so it isn’t a skill.');
     }
     const { skill, problems } = parseSkill(text);
-    if (!skill) throw new Error(`That SKILL.md needs fixing: ${problems[0]?.message ?? 'unreadable'}`);
+    if (!skill)
+      throw new Error(`That SKILL.md needs fixing: ${problems[0]?.message ?? 'unreadable'}`);
     if (this.options.builtIn.some(entry => entry.name === skill.name))
       throw new Error(`A skill by Fewerlabs is already called ${skill.name}.`);
     if (this.yours.some(entry => entry.name === skill.name))
-      throw new Error(`You already have a skill called ${skill.name}. Remove it first to replace it.`);
+      throw new Error(
+        `You already have a skill called ${skill.name}. Remove it first to replace it.`,
+      );
 
     await mkdir(skills, { recursive: true });
     const temp = join(skills, `.edi-import-${randomUUID()}`);

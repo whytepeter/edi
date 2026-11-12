@@ -37,6 +37,18 @@ export const characterManifestSchema = z
       .regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/, 'Use a version like 1.0.0')
       .default('1.0.0'),
     description: z.string().trim().max(120).default(''),
+    /**
+     * How this character talks, in a sentence or two ("Cheerful and bouncy; short, upbeat
+     * sentences"). It shapes manner only: the person reads it before adding the character, and
+     * it can never change what the companion may do or what needs their approval. One line of
+     * plain words, so a package cannot smuggle in markup or a second set of instructions.
+     */
+    persona: z
+      .string()
+      .trim()
+      .max(300)
+      .regex(/^[^\n\r<>{}[\]`]*$/, 'Describe the manner in plain words on one line')
+      .default(''),
     author: z
       .object({
         name: z.string().trim().min(1).max(60),
@@ -67,9 +79,11 @@ export const characterManifestSchema = z
         intensity: z.number().min(0.5).max(1.5).default(1),
         /** Whether Edi blinks the eyes. Turn off for characters without eyelids. */
         blink: z.boolean().default(true),
+        /** How far the pupils follow the pointer: 0 keeps them still, 1.5 is a wide look. */
+        gaze: z.number().min(0).max(1.5).default(1),
       })
       .strict()
-      .default({ intensity: 1, blink: true }),
+      .default({ intensity: 1, blink: true, gaze: 1 }),
     /** Edi's floating hearts, question marks and z's around the head, unless the art has its own. */
     effects: z.boolean().default(true),
   })

@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import {
   type ApprovalRequest,
   type ArtifactSummary,
@@ -6,9 +6,11 @@ import {
   type StatusBubbleState,
 } from '@edi/contracts';
 import { ArtifactPreview } from '../../components/artifacts/Artifact';
+import { ReplyText } from '../../components/ReplyText';
 import { ApprovalCard, type ApprovalDecision } from '../../components/approval/ApprovalCard';
 import {
   Button,
+  IconButton,
   ListeningBars,
   SpeakingBars,
   SpeechBubble,
@@ -18,7 +20,10 @@ import './pet.css';
 
 const announcement = (
   name: string,
-): Record<Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact' | 'suggestion'>, string> => ({
+): Record<
+  Exclude<StatusBubbleState, 'notice' | 'approval' | 'artifact' | 'suggestion' | 'reply'>,
+  string
+> => ({
   unavailable: 'Set up voice in Settings',
   thinking: `${name} is thinking`,
   // Main selects these states only while capture or playback is active.
@@ -42,11 +47,28 @@ interface ApprovalBubbleBridge {
   showContent(): Promise<void>;
   openArtifact(callId: string): Promise<void>;
   subscribeText(callback: (text: string) => void): () => void;
+  reply(): Promise<BubbleReply | null>;
+  subscribeReply(callback: (reply: BubbleReply) => void): () => void;
+  ask(prompt: string): Promise<void>;
+  hold(): Promise<void>;
+  openLink(url: string): Promise<void>;
+}
+
+/** Edi's answer as the bubble shows it. */
+interface BubbleReply {
+  text: string;
+  progress: string;
+  done: boolean;
+  /** Asked aloud: only the words show until the person touches the bubble. */
+  spoken: boolean;
 }
 
 const approvalBridge = () => (window as unknown as { ediBubble?: ApprovalBubbleBridge }).ediBubble;
 
-/** A side-of-head state bubble. Ordinary chat text is deliberately not accepted here. */
+/**
+ * The bubble beside the character: live voice states, a review to approve, content to open, and
+ * Edi's answer in words with a field to reply. Most of a conversation happens here.
+ */
 export function StatusBubble({
   state,
   side,
@@ -127,6 +149,18 @@ export function StatusBubble({
     }
   }
 
+  if (state === 'reply')
+    return (
+      <div
+        className="status-bubble-surface"
+        data-accent
+        data-side={side}
+        data-state={state}
+        style={{ '--accent': accent } as CSSProperties}
+      >
+        <ReplyBubble side={side} name={name} />
+      </div>
+    );
   if (state === 'artifact')
     return (
       <div
@@ -223,5 +257,123 @@ export function StatusBubble({
         )}
       </SpeechBubble>
     </div>
+  );
+}
+
+/**
+ * Edi's answer, as it is written, with what Edi is doing under it. The field sends the next
+ * question without opening the card; Open shows the whole conversation.
+ */
+function ReplyBubble({ side, name }: { side: BubbleSide; name: string }) {
+  const [reply, setReply] = useState<BubbleReply | null>(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const words = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const bridge = approvalBridge();
+    if (!bridge) return;
+    let alive = true;
+    const stop = bridge.subscribeReply(value => alive && setReply(value));
+    void bridge
+      .reply()
+      .then(value => alive && value && setReply(current => current ?? value))
+      .catch(() => {});
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, []);
+  // New words stay in view while the answer is being written.
+  useEffect(() => {
+    if (reply && !reply.done) words.current?.scrollTo({ top: words.current.scrollHeight });
+  }, [reply]);
+
+  const hold = () =>
+    void approvalBridge()
+      ?.hold()
+      .catch(() => {});
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const prompt = draft.trim();
+    if (!prompt || sending) return;
+    setSending(true);
+    try {
+      await approvalBridge()?.ask(prompt);
+      setDraft('');
+    } catch {
+      // The words stay in the field, to send again.
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <SpeechBubble side={side} className="reply-bubble">
+      <div
+        ref={words}
+        className="reply-bubble-words"
+        role="status"
+        aria-label={`${name} says`}
+        onPointerDown={hold}
+      >
+        {reply ? (
+          <>
+            <ReplyText
+              text={reply.text}
+              openLink={url =>
+                void approvalBridge()
+                  ?.openLink(url)
+                  .catch(() => {})
+              }
+            />
+            {!reply.done && <span className="bubble-caret" aria-hidden="true" />}
+          </>
+        ) : (
+          <ThinkingDots />
+        )}
+      </div>
+      {/* What Edi is doing while it writes, or a note about a finished answer. */}
+      {reply?.progress && (
+        <span key={reply.progress} className="bubble-progress reply-bubble-progress">
+          {reply.progress}
+        </span>
+      )}
+      {/* Asked aloud: only the words. Touching them (hold, above) brings this row. */}
+      {reply && !reply.spoken && (
+        <form className="reply-bubble-row" onSubmit={event => void send(event)}>
+          <input
+            className="reply-bubble-field"
+            value={draft}
+            placeholder={`Reply to ${name}…`}
+            aria-label={`Reply to ${name}`}
+            maxLength={8000}
+            onFocus={hold}
+            onChange={event => setDraft(event.target.value)}
+          />
+          {draft.trim() ? (
+            <IconButton
+              type="submit"
+              icon="arrow-up"
+              label="Send"
+              disabled={sending}
+              className="reply-bubble-send"
+            />
+          ) : (
+            <Button
+              size="small"
+              variant="plain"
+              onClick={() =>
+                void approvalBridge()
+                  ?.showContent()
+                  .catch(() => {})
+              }
+            >
+              Open
+            </Button>
+          )}
+        </form>
+      )}
+    </SpeechBubble>
   );
 }

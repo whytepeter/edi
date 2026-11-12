@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   describeRule,
+  voicePrivacyLines,
   type ApprovalRule,
   type FileAccess,
   type FileAccessAction,
@@ -13,6 +14,7 @@ import {
 } from '@edi/contracts';
 import { Button, type IconName, GroupedList, GroupedRow, Switch } from '../../components/ui';
 import { usePrivacy } from '../../hooks/usePrivacy';
+import { useSettings } from '../../hooks/useSettings';
 import './settings.css';
 
 const permissionCopy: Record<PermissionId, { title: string; detail: string; icon: IconName }> = {
@@ -89,6 +91,8 @@ export function PrivacySettings({
   privateApps: readonly PrivateApp[];
   onOpen(view: WorkspaceView): void;
 }) {
+  // What is actually selected for voice decides what this page may promise about it.
+  const { settings } = useSettings();
   const [error, setError] = useState('');
   const privacy = usePrivacy();
 
@@ -97,7 +101,9 @@ export function PrivacySettings({
     try {
       await window.edi?.command(command);
     } catch {
-      setError(command.type === 'add-private-app' ? 'Couldn’t add that app.' : 'Couldn’t change that.');
+      setError(
+        command.type === 'add-private-app' ? 'Couldn’t add that app.' : 'Couldn’t change that.',
+      );
     }
   }
   const [files, setFiles] = useState<FileAccess | null>(null);
@@ -151,6 +157,15 @@ export function PrivacySettings({
   }
 
   /** Only for a permission macOS has turned off: everything else is asked for when it's needed. */
+  async function requestPermission(permission: PermissionId) {
+    setError('');
+    try {
+      await window.edi?.command({ type: 'permission-request', permission });
+    } catch {
+      setError('Couldn’t ask macOS for that. Try again.');
+    }
+  }
+
   async function openPermissionSettings(permission: PermissionId) {
     setError('');
     try {
@@ -182,8 +197,8 @@ export function PrivacySettings({
         title="Permissions"
         footer="Edi asks for each one the first time a feature needs it."
       >
-        {/* Only a permission macOS has turned off needs a button here; the rest are asked for
-            when a feature first needs them, in the moment. */}
+        {/* A permission macOS has turned off needs a button here, and so does Accessibility,
+            which nothing asks for in the moment; the rest are asked for when first needed. */}
         {permissions.permissions.map(({ id, status }) => {
           const copy = permissionCopy[id];
           return (
@@ -192,12 +207,25 @@ export function PrivacySettings({
               icon={copy.icon}
               title={copy.title}
               detail={copy.detail}
-              value={status === 'denied' ? undefined : statusLabel[status]}
+              value={
+                status === 'denied' || (id === 'accessibility' && status === 'not-determined')
+                  ? undefined
+                  : statusLabel[status]
+              }
               control={
-                status === 'denied' && (
+                status === 'denied' ? (
                   <Button size="small" onClick={() => void openPermissionSettings(id)}>
                     Open Settings
                   </Button>
+                ) : (
+                  // No feature stops to ask for Accessibility in the moment (Edi simply knows
+                  // less about the window in front without it), so it is asked for here.
+                  id === 'accessibility' &&
+                  status === 'not-determined' && (
+                    <Button size="small" onClick={() => void requestPermission(id)}>
+                      Allow
+                    </Button>
+                  )
                 )
               }
             />
@@ -294,7 +322,9 @@ export function PrivacySettings({
               icon="folder"
               title={folderNames(standardFolders)}
               detail="macOS asks the first time Edi reads one"
-              value={standardFolders.some(folder => folder.status === 'allowed') ? 'Ready' : undefined}
+              value={
+                standardFolders.some(folder => folder.status === 'allowed') ? 'Ready' : undefined
+              }
             />
           )}
           {blockedFolders.map(folder => (
@@ -302,7 +332,9 @@ export function PrivacySettings({
               key={folder.id}
               icon="folder"
               title={folder.name}
-              detail={folder.status === 'off' ? 'Turned off for Edi in System Settings' : 'Not found'}
+              detail={
+                folder.status === 'off' ? 'Turned off for Edi in System Settings' : 'Not found'
+              }
               value={folder.status === 'missing' ? folderStatus.missing : undefined}
               control={
                 folder.status === 'off' && (
@@ -383,7 +415,11 @@ export function PrivacySettings({
               When Edi reads one of your files to answer, that text goes to OpenRouter too. Your
               files themselves stay on this Mac.
             </li>
-            <li>Voice recordings, transcription and speech stay on this Mac.</li>
+            {voicePrivacyLines({ model: settings.voiceModel, input: settings.voiceInput }).map(
+              line => (
+                <li key={line}>{line}</li>
+              ),
+            )}
             <li>Edi doesn’t collect usage analytics.</li>
           </ul>
         </li>

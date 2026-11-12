@@ -11,6 +11,8 @@ import {
   characterInspectionSchema,
   characterListSchema,
   characterMoodSchema,
+  gazeSchema,
+  wanderHopEventSchema,
   commandSchema,
   librarySchema,
   modelCatalogSchema,
@@ -21,6 +23,7 @@ import {
   fileAccessSchema,
   usagePeriodSchema,
   conversationListSchema,
+  earlierMessagesSchema,
   taskListSchema,
   scheduleListSchema,
   approvalRulesSchema,
@@ -43,6 +46,11 @@ const bridge: DesktopBridge = {
     };
     ipcRenderer.on('edi:navigate', listener);
     return () => ipcRenderer.removeListener('edi:navigate', listener);
+  },
+  onCardBlur: callback => {
+    const listener = () => callback();
+    ipcRenderer.on('edi:card-blur', listener);
+    return () => ipcRenderer.removeListener('edi:card-blur', listener);
   },
   onOpenArtifact: callback => {
     const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
@@ -160,6 +168,8 @@ const bridge: DesktopBridge = {
     ),
   conversations: async query =>
     conversationListSchema.parse(await ipcRenderer.invoke('edi:conversations:get', query ?? '')),
+  earlierMessages: async before =>
+    earlierMessagesSchema.parse(await ipcRenderer.invoke('edi:conversation:earlier', before)),
   usage: async days =>
     usageSummarySchema.parse(
       await ipcRenderer.invoke('edi:usage:get', usagePeriodSchema.parse(days)),
@@ -207,6 +217,22 @@ const bridge: DesktopBridge = {
     };
     ipcRenderer.on('edi:character-mood', listener);
     return () => ipcRenderer.removeListener('edi:character-mood', listener);
+  },
+  onCharacterGaze: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = gazeSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:character-gaze', listener);
+    return () => ipcRenderer.removeListener('edi:character-gaze', listener);
+  },
+  onCharacterHop: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = wanderHopEventSchema.safeParse(value);
+      if (parsed.success) callback(parsed.data);
+    };
+    ipcRenderer.on('edi:character-hop', listener);
+    return () => ipcRenderer.removeListener('edi:character-hop', listener);
   },
   characters: async () => characterListSchema.parse(await ipcRenderer.invoke('edi:characters:get')),
   onCharacters: callback => {

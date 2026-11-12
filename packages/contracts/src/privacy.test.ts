@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { privacyReason, screenSharingApp, settingsSchema } from './index';
+import { privacyReason, screenSharingApp, settingsSchema, voicePrivacyLines } from './index';
 
 test('a screen share is noticed by the bar the call app puts up', () => {
   for (const [owner, name, app] of [
@@ -13,7 +13,13 @@ test('a screen share is noticed by the bar the call app puts up', () => {
     ['FaceTime', 'Screen Sharing', 'FaceTime'],
     ['QuickTime Player', 'Screen Recording', 'QuickTime Player'],
   ] as const)
-    assert.equal(screenSharingApp([{ owner: 'Finder', name: 'Desktop' }, { owner, name }]), app);
+    assert.equal(
+      screenSharingApp([
+        { owner: 'Finder', name: 'Desktop' },
+        { owner, name },
+      ]),
+      app,
+    );
 });
 
 test('ordinary windows, and windows without titles, are not a share', () => {
@@ -43,4 +49,22 @@ test('privacy settings default to looking, pausing for shares, and no extra priv
     'The user is sharing their screen in Zoom.',
   );
   assert.equal(privacyReason({ paused: null, sharingApp: null }), null);
+});
+
+test('Settings only says voice stays on this Mac when it does', () => {
+  assert.deepEqual(voicePrivacyLines({ model: 'kokoro', input: 'local' }), [
+    'Voice recordings, transcription and speech stay on this Mac.',
+  ]);
+  // A cloud voice sends the words it speaks; hearing is still local.
+  assert.deepEqual(voicePrivacyLines({ model: 'elevenlabs', input: 'local' }), [
+    'What you say is turned into words on this Mac.',
+    'What Edi says aloud goes to ElevenLabs as text to be spoken.',
+  ]);
+  // Cloud recognition streams the microphone; a local voice still speaks here.
+  assert.deepEqual(voicePrivacyLines({ model: 'chatterbox', input: 'cartesia' }), [
+    'While you talk, your microphone audio goes to Cartesia to be turned into words.',
+    'Edi’s voice is made on this Mac.',
+  ]);
+  for (const line of voicePrivacyLines({ model: 'cartesia', input: 'cartesia' }))
+    assert.doesNotMatch(line, /stay on this Mac|on this Mac\.$/);
 });

@@ -56,7 +56,9 @@ export class PrivacyGuard {
 
   /** Why Edi mustn't look now with this app in front; null when it may. */
   pauseFor(frontBundleId: string | null | undefined): PrivacyPause | null {
-    return this.state.paused ?? (frontBundleId && this.isPrivate(frontBundleId) ? 'private-app' : null);
+    return (
+      this.state.paused ?? (frontBundleId && this.isPrivate(frontBundleId) ? 'private-app' : null)
+    );
   }
 
   isPrivate(bundleId: string) {
@@ -131,14 +133,16 @@ export async function readPrivateApp(path: string): Promise<PrivateApp> {
   if (!path.endsWith('.app')) throw new Error('Choose an app.');
   const plist = join(path, 'Contents/Info.plist');
   const read = async (key: string) =>
-    (await run('plutil', ['-extract', key, 'raw', '-expect', 'string', plist]).catch(() => null))
-      ?.stdout.trim() ?? '';
+    (
+      await run('plutil', ['-extract', key, 'raw', '-expect', 'string', plist]).catch(() => null)
+    )?.stdout.trim() ?? '';
   const bundleId = await read('CFBundleIdentifier');
   const name = (await read('CFBundleDisplayName')) || (await read('CFBundleName'));
   const parsed = privateAppSchema.safeParse({
     bundleId,
     name: name || basename(path, '.app'),
   });
-  if (!parsed.success) throw new Error('That app doesn’t say who it is, so Edi can’t recognise it.');
+  if (!parsed.success)
+    throw new Error('That app doesn’t say who it is, so Edi can’t recognise it.');
   return parsed.data;
 }

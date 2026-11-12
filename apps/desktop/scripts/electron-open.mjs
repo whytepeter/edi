@@ -9,6 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ediApp = join(root, 'build', 'Edi.app');
 
 if (!existsSync(ediApp)) {
+  // eslint-disable-next-line no-console -- tells the developer how to fix it
   console.error('Edi.app is missing. Run pnpm dev so prepare-electron can create it.');
   process.exit(1);
 }

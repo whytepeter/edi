@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import {
   app,
   BrowserWindow,
@@ -35,7 +34,6 @@ function recordMicrophoneStatus(phase: string) {
 }
 recordMicrophoneStatus('boot');
 import {
-  defineCapability,
   deleteWorkspaceItem,
   renameWorkspaceItem,
   activityCapabilities,
@@ -46,7 +44,9 @@ import {
   macCapabilities,
   notesCapabilities,
   readLibraryNote,
+  setChecklistItem,
   toArtifactContent,
+  turnSetup,
   webCapabilities,
   workspaceCapabilities,
   type EdiPreferences,
@@ -69,31 +69,22 @@ import {
 import { EncryptedSecretStore } from './connectors/secrets';
 import {
   artifactExport,
-  artifactPreview,
   exportFileName,
   exportFormatLabel,
   exportFormats,
   type ExportFormat,
-  taskBudgetSchema,
-  describeWhen,
-  normalizeScheduleWhen,
-  scheduleWhenHelp,
-  scheduleWhenSchema,
   assistantName,
   isCloudVoiceModel,
-  voiceCatalog,
   voiceName,
   connectorCatalog,
   voiceSelectionSchema,
   voiceWordsSchema,
-  privacyReason,
-  memoriesForPrompt,
   suggestNow,
   suggestionQuietStartMs,
   type Suggestion,
   type VoiceSelection,
   defaultCharacterId,
-  replyMood,
+  bubbleReplyText,
   type Artifact,
   type ArtifactRef,
   type ArtifactSummary,
@@ -113,6 +104,7 @@ import { MlxVoice } from './voice/mlx-process';
 import { CARTESIA_MODEL, ELEVENLABS_MODEL, listCloudVoices, speakCloud } from './voice/cloud-voice';
 import { VoiceKeys } from './voice/voice-keys';
 import { progressLabel } from './agent/step-labels';
+import { batchTextUpdates } from './agent/state-batcher';
 import {
   resolveChatterboxVoice,
   resolveKokoro,
@@ -128,6 +120,7 @@ import { SileroVad, SpeechDetector } from './voice/speech-detector';
 import { VoicePacks } from './voice/voice-packs';
 import {
   glossaryWords,
+  asksSomething,
   settleTranscript,
   transcriptionPrompt,
 } from './voice/transcription-process';
@@ -137,10 +130,17 @@ import {
   spokenFailure,
   VoiceController,
 } from './voice/voice-controller';
+import { Wanderer } from './character/wander';
+import { VoiceTimingLog } from './voice/timing-log';
 import { OpenRouterCredentials } from './agent/credentials';
 import { ModelCatalog, readerModelFrom } from './agent/model-catalog';
 import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
+import { taskCapabilities } from './agent/task-tools';
+import { buildSetupSnapshot } from './setup-snapshot';
+import { memoryRoutes } from './memory-routes';
+import { answerShowsWords, ReplyReactions } from './character/reply-reactions';
+import { DISPLAY_CAPABILITIES, threadArtifacts } from './agent/thread-artifacts';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
 import { randomUUID } from 'node:crypto';
@@ -158,6 +158,8 @@ import { maxPackageBytes, packageExtension } from './characters/package-file';
 import { createCommandRoutes } from './ipc/commands';
 import { registerIpc } from './ipc/router';
 import { PetDrag } from './character/pet-drag';
+import { GazeTracker } from './character/gaze-tracker';
+import { PetPokes } from './character/pet-pokes';
 import { SettingsStore } from './settings/settings-store';
 import { WindowPlacement } from './windows/placement';
 import { ArtifactWindow } from './windows/artifact-window';
@@ -172,12 +174,14 @@ import {
   createStatusBubbleWindow,
   createExportWindow,
   createWorkspaceWindow,
+  refreshGlass,
   resizePetWindow,
 } from './windows/factory';
 import { Exporter } from './exports/exporter';
 
 /** Display tools whose successful calls become artifacts in the conversation. */
-const DISPLAY_CAPABILITIES = ['workspace.show', 'notes.show'] as const;
+/** The most skills a run is told about (the brain's own limit, `packages/agent` protocol). */
+const MAX_SKILLS_PER_RUN = 60;
 /** A shortcut press shorter than this is a tap: it starts (or ends) a hands-free conversation. */
 const TAP_MS = 350;
 /** How long a request waits for an app the person agreed to connect. */
@@ -204,54 +208,7 @@ function moveLegacyNotes(
   }
 }
 
-/** A stored display call as a conversation card; malformed history is skipped. */
-function summarizeShown(call: { id: string; capability: string; input: unknown; output: unknown }) {
-  try {
-    if (call.capability === 'workspace.show') {
-      const content = toArtifactContent(call.input as Parameters<typeof toArtifactContent>[0]);
-      return {
-        id: call.id,
-        kind: content.kind,
-        title: content.title,
-        preview: artifactPreview(content),
-      } satisfies ArtifactSummary;
-    }
-    const noteId = String((call.input as { id?: unknown }).id ?? '');
-    const title = String((call.output as { title?: unknown } | null)?.title ?? 'Note').slice(
-      0,
-      120,
-    );
-    return { id: call.id, kind: 'note', title, preview: '', noteId } satisfies ArtifactSummary;
-  } catch {
-    return null;
-  }
-}
-
 /** Composition root: construct services, wire them together, own app lifecycle. */
-/**
- * What `schedules_create` takes, as the model is shown it: `when` is described with the exact
- * shape and an example of each kind, so a daily schedule doesn't fail on a guessed format.
- */
-const scheduleInput = z
-  .object({
-    title: z.string().trim().min(1).max(80).describe('A short name'),
-    instructions: z.string().trim().min(1).max(8000).describe('What each run should do'),
-    when: scheduleWhenSchema.describe(scheduleWhenHelp),
-    notify: z
-      .enum(['always', 'on-change'])
-      .describe('always: tell the user each result; on-change: a watch'),
-    budgetUsd: taskBudgetSchema.optional().describe('Spending cap per run, if the user named one'),
-    unattended: z
-      .boolean()
-      .optional()
-      .describe(
-        'true when the user wants it to run without asking them each time (“just do it”, “don’t ' +
-          'ask me”): its runs then add reminders and calendar events and save notes on their own, ' +
-          'and anything else still waits for the user',
-      ),
-  })
-  .strict();
-
 async function start() {
   // One SQLite writer, owned here. Nothing in flight at the last quit is replayed.
   const database = openDatabase(join(app.getPath('userData'), 'edi.sqlite'));
@@ -307,8 +264,22 @@ async function start() {
       return entry ? [{ id, name: entry.name, connected: connected.has(id) }] : [];
     });
   });
-  const enabledSkills = () =>
-    skills.enabled().map(({ name, description }) => ({ name, description }));
+  // A skill edited or dropped into the folder in Finder is picked up when the person comes
+  // back to Edi or asks something, not only when the Skills page is opened.
+  let skillsReadAt = 0;
+  const freshenSkills = () => {
+    if (Date.now() - skillsReadAt < 5_000) return;
+    skillsReadAt = Date.now();
+    void skills.refresh().catch(() => {});
+  };
+  // A run accepts at most sixty skills; past that the whole question was refused.
+  const enabledSkills = () => {
+    freshenSkills();
+    return skills
+      .enabled()
+      .slice(0, MAX_SKILLS_PER_RUN)
+      .map(({ name, description }) => ({ name, description }));
+  };
   const permissionPort: { current?: PermissionManager } = {};
   // Local speech/transcription assets are resolved before the agent so its setup skill
   // reports the same availability used by the voice controller.
@@ -442,7 +413,7 @@ async function start() {
   };
   let openSetup = (_page: WorkspaceView) => {};
   // Filled in once windows exist; capabilities call these lazily.
-  let showArtifact = (_artifact: ArtifactSummary) => {};
+  let showArtifact = (_artifact: ArtifactSummary, _from: { runId: string }) => {};
   let applyPreferences = async (_patch: EdiPreferences) => {};
   let windowAction = (_action: 'close' | 'sleep') => {};
   let cardOpen = () => false;
@@ -462,7 +433,7 @@ async function start() {
   /** One set of workspace dependencies for Edi's tools and the Library's own Delete. */
   const workspaceDeps: WorkspaceDependencies = {
     directory: () => workspaceFolder,
-    shown: artifact => showArtifact(artifact),
+    shown: (artifact, from) => showArtifact(artifact, from),
     artifacts: repositories.artifacts,
     notes: { store: repositories.notes, directory: notesFolder },
     // Recoverable: files go to the Trash, never straight to deletion.
@@ -484,184 +455,53 @@ async function start() {
         regenerable: false,
       }));
     const artifacts: LibraryItem[] = repositories.artifacts
-      .list(500)
-      .map(({ id, kind, title, bytes, updatedAt, pinnedAt }) => ({
+      .summaries(500)
+      .map(({ id, kind, title, bytes, updatedAt, pinnedAt, regenerable }) => ({
         id,
         kind,
         title,
         bytes,
         createdAt: updatedAt,
         pinned: Boolean(pinnedAt),
-        regenerable: Boolean(repositories.toolCalls.origin(id)?.prompt.trim()),
+        regenerable,
       }));
     return [...notes, ...artifacts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 500);
   };
-  const setupSnapshot = (): EdiSetupSnapshot => {
-    const character = currentCharacter().manifest;
-    const selectedModel =
-      voiceModels().find(item => item.id === settings.current.voiceModel) ?? voiceModels()[0]!;
-    const speaking = selectedVoice();
-    const items = libraryItems();
-    const notes = items.filter(item => item.kind === 'note');
-    return {
-      identity: {
-        name: companion(),
-        customName: settings.current.name !== null,
-        app: 'Edi',
+  /** The app in front the last time Edi looked, for saying whether it may look at the screen. */
+  let frontBundleId: string | null = null;
+  /** `question` puts the memories about what was asked first when they don't all fit. */
+  const setupSnapshot = (question?: string): EdiSetupSnapshot =>
+    buildSetupSnapshot(
+      {
         version: app.getVersion(),
-      },
-      location: { page: currentView, cardOpen: cardOpen(), pinned: settings.current.pinned },
-      workspace: {
-        root: workspaceFolder,
-        generatedContent: join(workspaceFolder, 'Artifacts'),
-        behavior:
-          'Generated content is saved automatically and opens in its own window beside the card.',
-      },
-      library: {
-        items: items.length,
-        notes: notes.length,
-        artifacts: items.length - notes.length,
-        recent: items.slice(0, 8).map(({ id, title }) => ({ id, title })),
-      },
-      abilities: [
-        { name: 'Answer questions, including about what is on screen', asksFirst: false },
-        {
-          name: 'Know the app, window, page address, open document and selected text in front when asked (Settings → Privacy & Permissions)',
-          asksFirst: false,
-        },
-        {
-          name: 'Search the public web for current information and link the sources it used',
-          asksFirst: false,
-        },
-        {
-          name: 'Create documents, checklists, tables and sandboxed interactive pages, save them to the workspace and show them in their own window',
-          asksFirst: false,
-        },
-        { name: 'Search and read everything in the workspace', asksFirst: false },
-        { name: 'Save or edit notes, and update generated content', asksFirst: true },
-        { name: 'Move workspace items to the Trash', asksFirst: true },
-        {
-          name: 'Search, list and read files in allowed folders (Desktop, Documents, Downloads, added folders)',
-          asksFirst: false,
-        },
-        {
-          name: 'Rename, move, create folders and move files to the Trash in allowed folders',
-          asksFirst: true,
-        },
-        {
-          name: 'Open apps, links in the browser and files in allowed folders; show files in Finder',
-          asksFirst: true,
-        },
-        {
-          name: 'Read and add Reminders and Calendar events (Settings → Privacy & Permissions)',
-          asksFirst: true,
-        },
-        {
-          name: `Use connected apps (Connectors)${connectedApps() ? `: ${connectedApps()}` : ', none connected yet'}`,
-          asksFirst: true,
-        },
-        {
-          name: 'Use skills (ways of working, listed in Skills) and make new ones with Skill Creator',
-          asksFirst: true,
-        },
-        { name: 'Open any page in Edi, including Settings', asksFirst: false },
-        {
-          name: 'Change its name, character, size, pin, voice, spoken replies, speech recognition and its words, sharing what is in front, the task budget, and skills on or off',
-          asksFirst: false,
-        },
-        { name: 'Switch the AI model it answers with', asksFirst: true },
-        { name: 'Run the shortcuts you made in the Shortcuts app, by name', asksFirst: true },
-        {
-          name: 'Tell you what it did, and undo its own moves, renames, new folders and added events',
-          asksFirst: true,
-        },
-        { name: 'Close its card or go to sleep', asksFirst: false },
-        {
-          name: 'Run longer work as background tasks with a spending cap, and report how they are going',
-          asksFirst: true,
-        },
-        {
-          name: 'Schedule tasks for later or on repeat, and watch things, telling you only when they change',
-          asksFirst: true,
-        },
-        { name: 'Point at and draw on the screen', asksFirst: false },
-      ],
-      notYetAvailable: [
-        'Installing skills from a community catalog',
-        'Clicking or typing in other apps',
-        'Opening, reading or using logged-in websites in a browser',
-        'Changing the keyboard shortcut',
-      ],
-      current: {
-        size: settings.current.petScale,
-        character: { id: character.id, name: character.name },
-        voice: {
-          id: selectedModel.id,
-          name: selectedModel.name,
-          speakingVoice: { id: speaking.voice, name: spokenVoiceName(speaking) },
-          available: selectedModel.available,
-          expressions: selectedModel.expressions,
-          detail: selectedModel.detail,
-          status:
-            selectedModel.id === 'chatterbox'
-              ? (chatterboxVoice()?.status ?? 'off')
-              : selectedModel.id === 'kokoro'
-                ? (kokoroVoice()?.status ?? 'off')
-                : selectedModel.available
-                  ? 'ready'
-                  : 'unavailable',
-        },
-        speakReplies: settings.current.speakReplies,
-        shareDesktopContext: settings.current.shareDesktopContext,
-        taskBudgetUsd: settings.current.taskBudgetUsd,
-        voiceInput: settings.current.voiceInput,
-        voiceWords: settings.current.voiceWords,
-        ai: {
+        workspaceFolder,
+        settings: () => settings.current,
+        character: () => currentCharacter().manifest,
+        companion,
+        voiceModels,
+        selectedVoice,
+        spokenVoiceName,
+        voiceStatus: model => (model === 'chatterbox' ? chatterboxVoice() : kokoroVoice())?.status,
+        cloudVoices: provider => cloudVoiceLists[provider] ?? [],
+        location: () => ({ page: currentView, cardOpen: cardOpen() }),
+        libraryItems,
+        connectedApps: () => connectedApps(),
+        connectorSummary: () => connectorSummary(),
+        ai: () => ({
           connected: agent?.state.configured ?? false,
           model: agent?.state.model || null,
-        },
-        privacy: {
-          lookingAtScreen: !privacy.state.paused,
-          reason: privacyReason(privacy.state),
-        },
-        memory: {
-          remembering: settings.current.remember,
-          items: memoriesForPrompt(repositories.memories.list()),
-        },
-        pushToTalk: pushToTalk(),
+        }),
+        // As of the app that was in front when this was asked: with one the person keeps
+        // private there, Edi is not looking, and must be able to say so rather than guess.
+        privacy: () => ({ paused: privacy.pauseFor(frontBundleId), state: privacy.state }),
+        memories: () => repositories.memories.list(),
+        pushToTalk: () => pushToTalk(),
+        skills: () => skills.list(),
+        permissions: () => permissionPort.current?.snapshot().permissions ?? [],
+        characters: () => characters.list(),
       },
-      // Built-in abilities are listed above; skills are add-ons, and none exist yet.
-      skills: skills.list().map(skill => ({
-        id: skill.name,
-        name: skill.title,
-        active: skill.enabled,
-      })),
-      ...connectorSummary(),
-      permissions: (permissionPort.current?.snapshot().permissions ?? []).map(({ id, status }) => ({
-        id,
-        status,
-      })),
-      availableCharacters: characters.list().map(({ manifest }) => ({
-        id: manifest.id,
-        name: manifest.name,
-      })),
-      availableVoices: voiceModels().map(({ id, name, available, expressions, detail }) => ({
-        id,
-        name,
-        available,
-        expressions,
-        detail,
-        voices: isCloudVoiceModel(id)
-          ? (cloudVoiceLists[id] ?? []).map(({ id: voice, name: voiceLabel, gender, accent }) => ({
-              id: voice,
-              name: voiceLabel,
-              gender,
-              accent,
-            }))
-          : voiceCatalog[id].map(voice => ({ ...voice })),
-      })),
-    };
-  };
+      question,
+    );
   // EDI_MODEL_CATALOG=off keeps automated desktop tests off the network.
   const modelCatalog: Pick<ModelCatalog, 'list' | 'quickEffort'> =
     process.env.EDI_MODEL_CATALOG === 'off'
@@ -699,7 +539,7 @@ async function start() {
     ...notesCapabilities({
       directory: notesFolder,
       store: repositories.notes,
-      shown: artifact => showArtifact(artifact),
+      shown: (artifact, from) => showArtifact(artifact, from),
     }),
     ...workspaceCapabilities(workspaceDeps),
     ...fileCapabilities(fileDeps),
@@ -724,7 +564,7 @@ async function start() {
     broadcast([workspace], 'edi:memories', repositories.memories.list());
   const ediTools = [
     ...ediSetupCapabilities({
-      snapshot: setupSnapshot,
+      snapshot: () => setupSnapshot(),
       open: page => openSetup(page),
       change: patch => applyPreferences(patch),
       window: action => windowAction(action),
@@ -751,213 +591,19 @@ async function start() {
     }),
     // What Edi did, and undoing its own reversible actions through the same reviewed tools.
     ...activityCapabilities({
-      recent: limit => repositories.toolCalls.recent(limit),
+      recent: (limit, options) => repositories.toolCalls.recent(limit, options),
       tool: id => toolCapabilities.find(capability => capability.id === id),
       home: app.getPath('home'),
     }),
   ];
-  const taskTools = [
-    defineCapability({
-      id: 'tasks.start',
-      title: 'Start a background task',
-      description:
-        'Hand longer work to a background task that keeps running while the user does other ' +
-        'things: research across many pages, comparing options, organizing lots of files, ' +
-        'drafting a report. Use it when the user asks for something to happen in the background ' +
-        'or while they work, or when the work clearly needs many steps. Give a short title and ' +
-        'complete instructions (the task cannot ask questions). Pass budgetUsd only when the user ' +
-        'named an amount; otherwise their default cap applies. Then tell the user it is running ' +
-        'and that they can follow it in Tasks.',
-      effect: 'write',
-      timeoutMs: 5_000,
-      input: z
-        .object({
-          title: z.string().trim().min(1).max(80).describe('A short name for the task'),
-          instructions: z
-            .string()
-            .trim()
-            .min(1)
-            .max(8000)
-            .describe('Everything the task needs to know, written as a request'),
-          budgetUsd: taskBudgetSchema
-            .optional()
-            .describe('Spending cap in US dollars, only if the user named one'),
-        })
-        .strict(),
-      prepare({ title, instructions, budgetUsd }) {
-        const budget = budgetUsd ?? settings.current.taskBudgetUsd;
-        return {
-          preview: {
-            title: 'Start a background task',
-            action: 'Start Task',
-            summary: `Work on “${title}” in the background, spending up to $${budget.toFixed(2)}.`,
-            fields: [{ label: 'Spending cap', value: `$${budget.toFixed(2)}` }],
-            body: instructions.slice(0, 4000),
-          },
-          async execute() {
-            const task = tasks.start({
-              prompt: instructions,
-              title,
-              budgetUsd: budget,
-              conversationId: agent.state.conversationId,
-            });
-            return {
-              summary: `Started “${task.title}” in the background (up to $${budget.toFixed(2)}).`,
-              output: { taskId: task.id, status: task.status },
-            };
-          },
-        };
-      },
-    }),
-    defineCapability({
-      id: 'tasks.list',
-      title: 'Check background tasks',
-      description:
-        'See background tasks: status, progress, spending, and the results of finished ones. Use ' +
-        'it when the user asks how a task is going or what it found.',
-      effect: 'read',
-      timeoutMs: 5_000,
-      input: z.object({}).strict(),
-      prepare() {
-        return {
-          preview: { title: 'Check tasks', action: 'Check', summary: 'Check tasks.', fields: [] },
-          async execute() {
-            const list = tasks.list(10).map(task => ({
-              title: task.title,
-              status: task.status,
-              progress: task.progress,
-              spent: `$${task.spentUsd.toFixed(2)} of $${task.budgetUsd.toFixed(2)}`,
-              result: task.result.slice(0, 2000),
-              error: task.error,
-            }));
-            return {
-              summary: list.length === 1 ? '1 task.' : `${list.length} tasks.`,
-              output: { tasks: list },
-            };
-          },
-        };
-      },
-    }),
-    defineCapability({
-      id: 'schedules.create',
-      title: 'Schedule a task',
-      description:
-        'Run a task later or repeatedly, as a background task each time: “every weekday at 9 ' +
-        'summarize my tech news”, “tomorrow at 3pm check the order status”, “every 4 hours”. For ' +
-        '“tell me when X changes” make it a watch (notify on-change): it compares each check with ' +
-        'the last and only tells the user when something changed. Instructions must stand on ' +
-        'their own. Use local times. Pass budgetUsd only when the user named an amount per run.',
-      effect: 'write',
-      timeoutMs: 5_000,
-      // Shorthand timings ("09:00", {"time": "9:00"}) are read the way they were meant; the
-      // model is shown the exact shape, with examples, and told precisely what didn't fit.
-      input: scheduleInput
-        .extend({ when: z.preprocess(normalizeScheduleWhen, scheduleWhenSchema) })
-        .strict(),
-      inputSchema: z.toJSONSchema(scheduleInput) as Record<string, unknown>,
-      prepare({ title, instructions, when, notify, budgetUsd, unattended }) {
-        const budget = budgetUsd ?? settings.current.taskBudgetUsd;
-        const rhythm = describeWhen(when);
-        return {
-          preview: {
-            title: notify === 'on-change' ? 'Start a watch' : 'Schedule a task',
-            action: notify === 'on-change' ? 'Start Watch' : 'Schedule',
-            summary: `${rhythm}: “${title}”, up to $${budget.toFixed(2)} each time.`,
-            fields: [
-              { label: 'When', value: rhythm },
-              {
-                label: 'Tells you',
-                value: notify === 'on-change' ? 'Only when something changes' : 'Each result',
-              },
-              {
-                label: 'Each run',
-                value: unattended
-                  ? 'Adds reminders, events and notes without asking'
-                  : 'Asks you before it changes anything',
-              },
-            ],
-            body: instructions.slice(0, 4000),
-          },
-          async execute() {
-            const schedule = scheduler.create({
-              title,
-              prompt: instructions,
-              when,
-              notify,
-              budgetUsd: budget,
-              unattended: unattended ?? false,
-            });
-            return {
-              summary: `${notify === 'on-change' ? 'Watching' : 'Scheduled'} “${schedule.title}”: ${rhythm.toLowerCase()}.`,
-              output: {
-                scheduleId: schedule.id,
-                nextRun: schedule.nextRunAt ? new Date(schedule.nextRunAt).toString() : null,
-              },
-            };
-          },
-        };
-      },
-    }),
-    defineCapability({
-      id: 'schedules.list',
-      title: 'Check schedules',
-      description:
-        'List schedules and watches: what they do, when they run next, and their latest result. ' +
-        'Use it before changing or removing one, or when the user asks what is scheduled.',
-      effect: 'read',
-      timeoutMs: 5_000,
-      input: z.object({}).strict(),
-      prepare() {
-        return {
-          preview: {
-            title: 'Check schedules',
-            action: 'Check',
-            summary: 'Check schedules.',
-            fields: [],
-          },
-          async execute() {
-            const list = scheduler.list().map(schedule => ({
-              id: schedule.id,
-              title: schedule.title,
-              when: describeWhen(schedule.when),
-              watch: schedule.notify === 'on-change',
-              enabled: schedule.enabled,
-              nextRun: schedule.nextRunAt ? new Date(schedule.nextRunAt).toString() : null,
-              latest: schedule.lastResult.slice(0, 1000),
-            }));
-            return {
-              summary: list.length === 1 ? '1 schedule.' : `${list.length} schedules.`,
-              output: { schedules: list },
-            };
-          },
-        };
-      },
-    }),
-    defineCapability({
-      id: 'schedules.delete',
-      title: 'Remove a schedule',
-      description: 'Stop and remove a schedule or watch by id from schedules_list.',
-      effect: 'write',
-      timeoutMs: 5_000,
-      input: z.object({ id: z.string().uuid() }).strict(),
-      prepare({ id }) {
-        const schedule = repositories.schedules.get(id);
-        if (!schedule) throw new Error('That schedule no longer exists.');
-        return {
-          preview: {
-            title: 'Remove a schedule',
-            action: 'Remove',
-            summary: `Stop “${schedule.title}” (${describeWhen(schedule.when).toLowerCase()}).`,
-            fields: [],
-          },
-          async execute() {
-            scheduler.remove(id);
-            return { summary: `Removed “${schedule.title}”.` };
-          },
-        };
-      },
-    }),
-  ];
+  // Tasks and schedules: tools for work that outlives a reply (agent/task-tools.ts).
+  const taskTools = taskCapabilities({
+    tasks: () => tasks,
+    scheduler: () => scheduler,
+    schedules: repositories.schedules,
+    defaultBudgetUsd: () => settings.current.taskBudgetUsd,
+    conversationId: () => agent.state.conversationId,
+  });
   const approvalRules = new ApprovalRules(repositories);
   const composioCredentials = new ComposioCredentials();
   await composioCredentials.load();
@@ -1044,10 +690,24 @@ async function start() {
     credentials: openRouter,
     repositories,
     capabilities: toolCapabilities,
-    selfContext: () => JSON.stringify(setupSnapshot()),
+    selfContext: question => JSON.stringify(turnSetup(setupSnapshot(question))),
     skills: enabledSkills,
     assistantName: () => companion(),
+    persona: () => currentCharacter().manifest.persona,
     readerModel: () => readerModel,
+    limited: task => {
+      if (!cardOpen())
+        character.showVoiceStatus({ notice: ('Paused at its cap: ' + task.title).slice(0, 60) });
+      if (Notification.isSupported()) {
+        const note = new Notification({
+          title: task.title + ' is paused',
+          body: 'It reached its spending cap. Allow more or stop it in Tasks.',
+          silent: true,
+        });
+        note.on('click', () => openSetup('tasks'));
+        note.show();
+      }
+    },
     finished: task => {
       // Scheduled runs speak through the scheduler: watches stay quiet unless something changed.
       if (scheduler.finished(task)) return;
@@ -1065,17 +725,30 @@ async function start() {
   const scheduler = new Scheduler({
     repositories,
     tasks,
-    notify: (schedule, task, summary) => {
-      const watch = schedule.notify === 'on-change';
-      if (!cardOpen())
-        character.showVoiceStatus({
-          notice: `${watch ? 'Changed' : 'Ready'}: ${schedule.title}`,
-        });
+    notify: (schedule, task, summary, kind) => {
+      // What happened, in a few words: the bubble says it, Notification Center keeps it.
+      const heading = {
+        ready: schedule.title,
+        changed: `${schedule.title} changed`,
+        failed: `${schedule.title} didn’t finish`,
+        paused: `${schedule.title} is paused`,
+      }[kind];
+      const notice = {
+        ready: `Ready: ${schedule.title}`,
+        changed: `Changed: ${schedule.title}`,
+        failed: `Couldn’t finish: ${schedule.title}`,
+        paused: `Paused after three failed runs: ${schedule.title}`,
+      }[kind];
+      if (!cardOpen()) character.showVoiceStatus({ notice: notice.slice(0, 60) });
       // Results can arrive while the person is away, so they also go to Notification Center.
       if (Notification.isSupported()) {
+        const body =
+          kind === 'paused'
+            ? `It failed three times in a row, so it is paused. Last reason: ${summary}`
+            : summary;
         const note = new Notification({
-          title: watch ? `${schedule.title} changed` : schedule.title,
-          body: summary.replace(/\s+/g, ' ').slice(0, 180) || `${task.title} is ready.`,
+          title: heading,
+          body: body.replace(/\s+/g, ' ').slice(0, 180) || `${task.title} is ready.`,
           silent: true,
         });
         note.on('click', () => openSetup('tasks'));
@@ -1096,6 +769,7 @@ async function start() {
   const lookInFront = async () => {
     if (!settings.current.shareDesktopContext || privacy.state.paused) return null;
     const context = await captureDesktopContext();
+    frontBundleId = context?.bundleId ?? null;
     return context?.bundleId && privacy.isPrivate(context.bundleId)
       ? { ...context, windowTitle: null, url: null, document: null, selectedText: null }
       : context;
@@ -1105,6 +779,7 @@ async function start() {
     captureScreensForPrompt(prompt, async () => {
       if (privacy.state.paused) return false;
       const front = await captureDesktopContext().catch(() => null);
+      if (front) frontBundleId = front.bundleId;
       return !privacy.pauseFor(front?.bundleId);
     });
 
@@ -1127,40 +802,22 @@ async function start() {
       connectApp,
       createSkill,
     ],
-    threadArtifacts: runIds => {
-      const byRun = new Map<string, ArtifactSummary[]>();
-      for (const call of repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { runIds })) {
-        // Deleted content leaves the conversation too; updated content shows its current title.
-        const record =
-          call.capability === 'workspace.show' ? repositories.artifacts.get(call.id) : null;
-        if (call.capability === 'workspace.show' && !record) continue;
-        const summary = record
-          ? (() => {
-              try {
-                const content = toArtifactContent(
-                  record.content as Parameters<typeof toArtifactContent>[0],
-                );
-                return {
-                  id: record.id,
-                  kind: content.kind,
-                  title: content.title,
-                  preview: artifactPreview(content),
-                } satisfies ArtifactSummary;
-              } catch {
-                return null;
-              }
-            })()
-          : summarizeShown(call);
-        if (summary) byRun.set(call.runId, [...(byRun.get(call.runId) ?? []), summary].slice(-6));
-      }
-      return byRun;
-    },
+    threadArtifacts: runIds =>
+      threadArtifacts(
+        {
+          shown: filter => repositories.toolCalls.shown(DISPLAY_CAPABILITIES, filter),
+          artifact: id => repositories.artifacts.get(id),
+        },
+        runIds,
+      ),
     captureScreens: screensForPrompt,
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
-    selfContext: () => JSON.stringify(setupSnapshot()),
+    pointSkipped: () => character.note('The screen changed, so I didn’t point.'),
+    selfContext: question => JSON.stringify(turnSetup(setupSnapshot(question))),
     skills: enabledSkills,
     assistantName: () => companion(),
+    persona: () => currentCharacter().manifest.persona,
   });
   await agent.load();
 
@@ -1171,6 +828,8 @@ async function start() {
     pet,
     character: () => currentCharacter().manifest,
     create: createPointerWindow,
+    // The hand stays while Edi is still saying or showing the answer it belongs to.
+    keepWhile: () => voice.phase === 'speaking' || character.openReply !== null,
   });
   // The person's own marks: drawing while Edi listens says “this bit” better than a cursor can.
   const annotations = new Annotations({
@@ -1214,6 +873,24 @@ async function start() {
     () => placement.place(),
     petPosition => settings.update({ petPosition }),
   );
+  // Wandering: opt-in, and only when nothing at all is going on. Everything the person does
+  // (talking, dragging, opening the card, a bubble to read) stops it where it stands.
+  const wanderer = new Wanderer({
+    pet,
+    area: bounds => screen.getDisplayMatching(bounds).workArea,
+    enabled: () =>
+      settings.current.wander && !systemPreferences.getAnimationSettings().prefersReducedMotion,
+    idle: () =>
+      pet.isVisible() &&
+      !cardOpen() &&
+      !petDrag.active &&
+      character.quiet &&
+      voice.phase === 'idle' &&
+      agent.state.status !== 'running' &&
+      !agent.state.approval,
+    save: petPosition => void settings.update({ petPosition }),
+    hop: (phase, direction) => broadcast([pet], 'edi:character-hop', { phase, direction }),
+  });
   const mlx = voiceRuntime?.mlx ?? null;
   // Warm engines stay loaded for an hour while selected; Kokoro is small and also stands in
   // while Chatterbox loads.
@@ -1354,18 +1031,26 @@ async function start() {
     return server.transcribe(pcm, signal);
   };
   const cartesiaListening = () => voiceKeys.has('cartesia');
+  const voiceTimings = new VoiceTimingLog(join(app.getPath('userData'), 'voice-timings.jsonl'));
   const voice = new VoiceController({
     runtime: voiceRuntime,
     send: event => broadcast([pet], 'edi:voice', event),
-    status: status => character.showVoiceStatus(status),
+    status: status => {
+      reactions.voice(status);
+      character.showVoiceStatus(status);
+    },
     microphoneAccess: async () => permissionPort.current?.require('microphone') ?? false,
     captureScreens: screensForPrompt,
-    ask: (prompt, options) =>
-      agent.ask(prompt, options).catch((error: unknown) => {
+    ask: (prompt, options) => {
+      // A spoken question replaces whatever is running, as a new hold already does; in a
+      // hands-free conversation the clash failed the turn and ended the conversation.
+      if (agent.state.status === 'running') agent.stop();
+      return agent.ask(prompt, options).catch((error: unknown) => {
         if (error instanceof Error && error.message === 'Set up OpenRouter first.')
           placement.reveal();
         throw error;
-      }),
+      });
+    },
     whenFinished: (runId, signal, onUpdate) => agent.whenFinished(runId, signal, onUpdate),
     stopAgent: () => agent.stop(),
     // Whisper hears the room as the words it was primed with; those turns are noise.
@@ -1374,19 +1059,29 @@ async function start() {
       settleTranscript(
         heard,
         glossaryWords({ name: companion(), words: settings.current.voiceWords }),
+        // "Yes" and "okay" are an answer only when Edi has just asked something.
+        {
+          answering: asksSomething(
+            bubbleReplyText(
+              agent.state.text ||
+                (agent.state.messages.findLast(message => message.role === 'assistant')?.text ??
+                  ''),
+            ),
+          ),
+        },
       ),
     // Why a spoken turn broke, in the terminal running Edi; the bubble shows a short version.
     failed: error =>
       // eslint-disable-next-line no-console -- a deliberate diagnostic line
       console.error('[voice]', error instanceof Error ? (error.stack ?? error.message) : error),
-    // Timings only, never words: where a spoken reply's wait goes, in the terminal running Edi.
-    timed: timing =>
+    // Timings only, never words: where a spoken reply's wait goes. Printed in the terminal
+    // running Edi and kept for `pnpm voice:report`.
+    timed: timing => {
+      const reasoning = modelCatalog.quickEffort(openRouter.model) ?? 'default';
       // eslint-disable-next-line no-console -- a deliberate diagnostic line, numbers only
-      console.info(
-        `${describeTiming(timing)} · ${openRouter.model}, reasoning ${
-          modelCatalog.quickEffort(openRouter.model) ?? 'default'
-        }`,
-      ),
+      console.info(`${describeTiming(timing)} · ${openRouter.model}, reasoning ${reasoning}`);
+      void voiceTimings.add({ ...timing, at: Date.now(), model: openRouter.model, reasoning });
+    },
     // Cartesia recognition only with its key; any failure falls back to whisper for the same audio.
     // Chosen whisper with no model yet: Cartesia listens when it can.
     listen: () =>
@@ -1498,15 +1193,23 @@ async function start() {
   const permissions = mediaPermissions.manager;
   permissionPort.current = permissions;
   const mood = new CharacterMoodController(value => broadcast([pet], 'edi:character-mood', value));
+  // Edi's face in step with a turn: listening, thinking, the reply's mood while it is said.
+  const reactions = new ReplyReactions(mood);
   pet.webContents.on('did-finish-load', () =>
     pet.webContents.send('edi:character-mood', mood.current),
   );
+  // The eyes follow the pointer while Edi is on screen; hidden or asleep, nothing runs.
+  new GazeTracker(pet, gaze => broadcast([pet], 'edi:character-gaze', gaze));
   const character = new CharacterActions({
     pet,
     card: workspace,
     character: () => currentCharacter().manifest,
     name: () => companion(),
-    startVoice: mode => voice.start(mode),
+    startVoice: mode => {
+      // A spoken question is on its way: load the agent worker while the person talks.
+      agent.warm();
+      return voice.start(mode);
+    },
     showContent: () => placement.show(),
     openSettings: () => {
       workspace.webContents.send('edi:navigate', 'settings');
@@ -1525,6 +1228,8 @@ async function start() {
     quit: () => app.quit(),
   });
 
+  const pokes = new PetPokes(() => character.currentExpression, mood);
+
   // Global hold-to-talk: the same turn as holding the character, and it wakes Edi
   // from Sleep. Registered whenever voice is possible, so a model or key added later works at
   // once; before that, a hold says where to set voice up. A quick tap
@@ -1539,6 +1244,7 @@ async function start() {
     {
       down: () => {
         pressedAt = Date.now();
+        agent.warm();
         conversingAtPress = voice.mode === 'conversation';
         pet.showInactive();
         // Held: a drag now draws on their screen instead of reaching the app underneath.
@@ -1572,9 +1278,10 @@ async function start() {
     if (action === 'reveal') return shell.showItemInFolder(artifactPath(ref));
     clipboard.writeText(artifactExport(await resolveArtifact(ref)).copy);
   };
-  showArtifact = artifact => {
+  showArtifact = (artifact, from) => {
     // A background task's content goes quietly to Library and its task, not onto the screen.
-    if (tasks.owns(artifact.id)) return;
+    // Asked by run: content a task updates or reopens keeps its own id, which no task owns.
+    if (tasks.owns(from.runId) || tasks.owns(artifact.id)) return;
     agent.addArtifact(artifact);
     if (agent.runningSpoken && !cardOpen()) character.showArtifact(artifact);
     else openArtifact({ callId: artifact.id });
@@ -1681,8 +1388,10 @@ async function start() {
   });
   let runWasSpoken = false;
   let previousAgentStatus = agent.state.status;
+  // The card gets streamed words in batches; voice and the character still see every change.
+  const sendAgentState = batchTextUpdates(state => broadcast([workspace], 'edi:agent', state));
   agent.onChange(state => {
-    broadcast([workspace], 'edi:agent', state);
+    sendAgentState(state);
     if (state.status === 'running') pointer.dismiss(); // a new question clears the old answer
     // Asking again is the answer to "something stopped last time", so that notice goes.
     if (state.status === 'running' && recovered.runs + recovered.tasks > 0) {
@@ -1697,28 +1406,40 @@ async function start() {
     // One place to decide: the card's own review while it is open, the bubble otherwise.
     character.showApproval(cardOpen() ? null : (state.approval ?? tasks.currentApproval));
     const running = state.status === 'running' && !state.approval;
-    // A new request gets a warm nod; progress follows unless the person is already watching
+    // A new request shows Edi thinking; progress follows unless the person is already watching
     // the conversation, where the steps are shown in full.
     if (state.status === 'running' && previousAgentStatus !== 'running') {
       character.acknowledge();
       runWasSpoken = agent.runningSpoken ?? false;
+      reactions.turnBegan(runWasSpoken);
     }
     const watching = cardOpen() && currentView === 'conversations';
-    character.setThinking(running, running && !watching ? progressLabel(state) : undefined);
-    if (state.status === 'done' && previousAgentStatus !== 'done') character.showHappy();
+    // Asked aloud, Edi says what it is doing; beside it there is only the animation.
+    const label = running && !watching && !runWasSpoken ? progressLabel(state) : undefined;
+    character.setThinking(running, label);
+    // A question typed in the bubble is answered there in words, as they are written; the card
+    // is for looking back and for longer work. One asked aloud is answered aloud, with only the
+    // animation beside Edi unless there is something to open or nothing to say it
+    // (character/reply-reactions.ts answerShowsWords).
+    const words = watching ? '' : bubbleReplyText(state.text);
+    const done = state.status === 'done' && previousAgentStatus === 'running';
+    const inWords = answerShowsWords({
+      spoken: runWasSpoken,
+      done,
+      voiceIdle: voice.phase === 'idle',
+      text: words,
+    });
+    if (running && words && inWords) character.showReply(words, { progress: label });
+    if (done && words && inWords) character.showReply(words, { done: true, spoken: runWasSpoken });
     // The reply's mood shows as soon as its tag streams in and lingers a little after it ends;
     // a failure looks briefly sad.
-    if (state.status === 'running') {
-      mood.noteActivity();
-      const felt = replyMood(state.text);
-      if (felt && felt !== mood.current) mood.set(felt);
-    } else if (previousAgentStatus === 'running') {
-      if (state.status === 'error') mood.set('sad', 5000);
+    if (state.status === 'running') reactions.replyGrew(state.text);
+    else if (previousAgentStatus === 'running') {
+      reactions.replyEnded(state.status === 'done' ? state.text : '', state.status === 'error');
       // Voice turns report their own outcome; a typed question someone isn't watching must not
       // fail silently.
       if (state.status === 'error' && !runWasSpoken && !watching)
         character.showVoiceStatus({ notice: spokenFailure(state.error) });
-      else mood.set(replyMood(state.text) ?? 'neutral', 9000);
     }
     previousAgentStatus = state.status;
     // A new review appears beside Edi first. The person can act there or reveal
@@ -1733,8 +1454,25 @@ async function start() {
   };
   screen.on('display-removed', onDisplayChange);
   screen.on('display-metrics-changed', onDisplayChange);
+  // Glass is rebuilt after what only a long-running Edi goes through, once the Mac has settled.
+  let glassTimer: NodeJS.Timeout | undefined;
+  const restoreGlass = (reason: string) => {
+    clearTimeout(glassTimer);
+    glassTimer = setTimeout(() => refreshGlass(reason), 500);
+  };
+  screen.on('display-added', () => restoreGlass('a display was added'));
+  screen.on('display-removed', () => restoreGlass('a display was removed'));
+  screen.on('display-metrics-changed', (_event, _display, changed) => {
+    // The Dock or menu bar moving changes only the work area; the glass has nothing to do with it.
+    if (changed.includes('bounds') || changed.includes('scaleFactor'))
+      restoreGlass('a display changed');
+  });
+  powerMonitor.on('unlock-screen', () => restoreGlass('the screen was unlocked'));
   pet.once('ready-to-show', () => pet.showInactive());
   workspace.on('focus', () => {
+    // The card in front usually means a typed question is coming.
+    agent.warm();
+    freshenSkills();
     permissions?.refresh();
     void fileAccess.refresh();
   });
@@ -1744,6 +1482,10 @@ async function start() {
     workspace.hide();
   });
   workspace.on('blur', hideOnBlur);
+  // A click anywhere else on the screen: the card's open menu closes, as it would in any app.
+  // Asked of the app, not the window: the card also loses focus when Edi's own windows move or
+  // take it for a moment, and a menu must not close under the pointer for that.
+  app.on('did-resign-active', () => broadcast([workspace], 'edi:card-blur', null));
   const approvalSurface = () =>
     character.showApproval(cardOpen() ? null : (agent.state.approval ?? tasks.currentApproval));
   tasks.onChange(list => {
@@ -1839,8 +1581,14 @@ async function start() {
   connectors.onChange(() => broadcast([workspace], 'edi:skills', skillSummaries()));
   connectors.start();
   scheduler.start();
+  wanderer.start();
   // A Mac waking from sleep checks for anything that came due meanwhile.
-  powerMonitor.on('resume', () => scheduler.tick());
+  powerMonitor.on('resume', () => {
+    scheduler.tick();
+    // Connections rarely survive sleep; apps that were working are tried again quietly.
+    connectors.recover();
+    restoreGlass('the Mac woke');
+  });
   workspace.on('show', approvalSurface);
   workspace.on('hide', approvalSurface);
 
@@ -1988,26 +1736,17 @@ async function start() {
         },
         dismiss: () => void closeSuggestion(),
       },
-      memory: {
-        edit: (id, text) => {
-          repositories.memories.update(id, { text, at: Date.now() });
-          publishMemories();
-        },
-        remove: id => {
-          repositories.memories.remove(id);
-          publishMemories();
-        },
-        clear: () => {
-          repositories.memories.clear();
-          publishMemories();
-        },
-      },
+      memory: memoryRoutes(repositories.memories, publishMemories),
       placement,
       petDrag,
+      pokes,
       character,
       voice,
       permissions,
       openArtifact,
+      tickChecklist: async (id, index, done) => {
+        await setChecklistItem(workspaceDeps, id, index, done);
+      },
       artifactAction,
       revealExport: () => {
         if (exporter.lastPath) shell.showItemInFolder(exporter.lastPath);
@@ -2126,12 +1865,14 @@ async function start() {
     },
     models: () => modelCatalog.list(),
     conversations: query => agent.conversations(query),
+    earlierMessages: before => agent.earlier(before),
     tasks: () => tasks.list(),
     schedules: () => scheduler.list(),
     approvalRules: () => approvalRules.list(),
     privacy: () => privacy.state,
     memories: () => repositories.memories.list(),
     openSuggestion: () => character.openSuggestion,
+    openReply: () => character.openReply,
     connectors: () => connectors.list(),
     skills: async () => {
       await skills.refresh();

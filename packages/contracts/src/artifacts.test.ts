@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  artifactContentSchema,
   artifactExport,
+  artifactPreview,
+  viewAsk,
   artifactTextExport,
   exportFileName,
   exportFormats,
@@ -89,4 +92,74 @@ test('export file names keep the title but nothing Finder refuses', () => {
   assert.equal(exportFileName('..hidden', 'md'), 'hidden.md');
   assert.equal(exportFileName('a\u0007b', 'csv'), 'a-b.csv');
   assert.equal(exportFileName('   ', 'png'), 'Edi.png');
+});
+
+test('a view is plain data: each block says what it needs, and nothing else is accepted', () => {
+  const view = (blocks: unknown[]) =>
+    artifactContentSchema.safeParse({ kind: 'view', title: 'Trip', blocks });
+  assert.ok(
+    view([
+      { type: 'heading', text: 'Lisbon' },
+      { type: 'stat', text: 'Total', value: '$952', detail: '4 nights' },
+      { type: 'progress', text: 'Budget used', values: [0.63] },
+      { type: 'chart', style: 'ring', items: ['Flights', 'Hotel'], values: [412, 540] },
+      { type: 'choice', text: 'Which hotel?', items: ['Alfama Loft'], ask: 'Book the hotel:' },
+      { type: 'input', text: 'Anything to add?' },
+      { type: 'button', text: 'Add to calendar', ask: 'Add the trip to my calendar' },
+      { type: 'divider' },
+    ]).success,
+  );
+  const problem = (block: unknown) => view([block]).error?.issues[0]?.message;
+  assert.equal(
+    problem({ type: 'stat', text: 'Total' }),
+    'A stat needs `text` (its label) and `value`.',
+  );
+  assert.match(problem({ type: 'progress', text: 'Done', values: [63] })!, /between 0 and 1/);
+  assert.match(problem({ type: 'chart', items: ['A', 'B'], values: [1] })!, /same number/);
+  assert.match(problem({ type: 'choice', text: 'Pick' })!, /needs `items`/);
+  // No markup, script or unknown block can ride along.
+  assert.equal(view([{ type: 'text', text: 'Hi', html: '<b>x</b>' }]).success, false);
+  assert.equal(view([{ type: 'iframe', text: 'x' }]).success, false);
+  assert.equal(view([]).success, false);
+});
+
+test('a tap in a view becomes the person’s next request, with what they typed', () => {
+  const choice = { type: 'choice' as const, text: 'Which hotel?', items: ['Baixa House'] };
+  // Without `ask`, the option is the request; with it, the option completes it.
+  assert.equal(viewAsk(choice, 'Baixa House'), 'Baixa House');
+  assert.equal(
+    viewAsk({ ...choice, ask: 'Book the hotel:' }, 'Baixa House'),
+    'Book the hotel: Baixa House',
+  );
+  const button = { type: 'button' as const, text: 'Add to calendar' };
+  assert.equal(viewAsk(button, null), 'Add to calendar');
+  assert.equal(
+    viewAsk({ ...button, ask: 'Add the trip to my calendar' }, null, [
+      { label: 'Note', value: ' Late checkout ' },
+      { label: 'Empty', value: '  ' },
+    ]),
+    'Add the trip to my calendar (Note: Late checkout)',
+  );
+});
+
+test('a view copies and previews as what it says, without what could be tapped', () => {
+  const content = {
+    kind: 'view' as const,
+    title: 'Trip',
+    blocks: [
+      { type: 'stat' as const, text: 'Total', value: '$952', detail: '4 nights' },
+      { type: 'progress' as const, text: 'Budget used', values: [0.63] },
+      { type: 'chart' as const, items: ['Thu', 'Fri'], values: [310, 180] },
+      { type: 'button' as const, text: 'Add to calendar', ask: 'Add it' },
+    ],
+  };
+  assert.equal(
+    artifactExport(content).copy,
+    '# Trip\n\n- **Total:** $952 (4 nights)\n- Budget used: 63%\n- Thu: 310\n- Fri: 180\n',
+  );
+  assert.equal(
+    artifactPreview(content),
+    '• Total: $952 (4 nights)\n• Budget used: 63%\n• Thu: 310\n• Fri: 180',
+  );
+  assert.deepEqual(exportFormats.view, ['md']);
 });

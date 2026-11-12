@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron';
 import type {
   ArtifactRef,
   CloudProviderId,
+  MemoryKind,
   Settings,
   VoicePackId,
   VoiceSelection,
@@ -16,6 +17,7 @@ import type { SkillLibrary } from '../skills/library';
 import type { CharacterActions } from '../character/character-actions';
 import type { CommandRoutes } from './router';
 import type { PetDrag } from '../character/pet-drag';
+import type { PetPokes } from '../character/pet-pokes';
 import type { SettingsStore } from '../settings/settings-store';
 import type { WindowPlacement } from '../windows/placement';
 import type { VoiceController } from '../voice/voice-controller';
@@ -43,6 +45,7 @@ interface CommandDependencies {
   suggestions: { accept(): void; dismiss(): void };
   /** Settings → Memory: the person's own edits to what Edi remembers. */
   memory: {
+    add(kind: MemoryKind, text: string): void;
     edit(id: string, text: string): void;
     remove(id: string): void;
     clear(): void;
@@ -51,6 +54,7 @@ interface CommandDependencies {
   revealSkill(name: string): void;
   placement: WindowPlacement;
   petDrag: PetDrag;
+  pokes: PetPokes;
   character: CharacterActions;
   voice: VoiceController<unknown>;
   permissions: PermissionManager;
@@ -58,6 +62,8 @@ interface CommandDependencies {
   revealLibraryItem(id: string): void;
   /** Show an artifact in its own window beside the card. */
   openArtifact(ref: ArtifactRef): void;
+  /** Tick or untick one item of a checklist Edi made; updates the stored list and its file. */
+  tickChecklist(id: string, index: number, done: boolean): Promise<void>;
   /** Copy or reveal shown content; main resolves everything from the ref. */
   artifactAction(action: 'copy' | 'reveal', ref: ArtifactRef): Promise<void>;
   /** Show the most recent export in Finder. */
@@ -114,11 +120,13 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     revealSkill,
     placement,
     petDrag,
+    pokes,
     character,
     voice,
     permissions,
     revealLibraryItem,
     openArtifact,
+    tickChecklist,
     artifactAction,
     revealExport,
     exportReady,
@@ -167,6 +175,11 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
         character.requestListening(mode);
       },
     },
+    // Home's Talk button: the same hands-free conversation the menu bar's Listen starts.
+    'start-listening': {
+      from: fromWorkspace,
+      handle: () => character.requestListening('conversation'),
+    },
     'release-listening': {
       from: fromPet,
       handle: () => {
@@ -178,6 +191,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'character-menu': { from: fromPet, handle: ({ point }) => character.showMenu(point) },
     'character-action': { from: ['menu'], handle: ({ action }) => character.action(action) },
     'pet-drag': { from: fromPet, handle: command => petDrag.handle(command) },
+    'pet-poke': { from: fromPet, handle: () => pokes.poke() },
     'voice-event': {
       from: fromPet,
       handle: ({ generation, event }) => voice.clientEvent(generation, event),
@@ -291,6 +305,11 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       },
     },
     'open-artifact': { from: ['workspace', 'bubble'], handle: ({ ref }) => openArtifact(ref) },
+    // A tick on a checklist, from the window showing it.
+    'set-checklist-item': {
+      from: ['artifact', 'workspace'],
+      handle: ({ id, index, done }) => tickChecklist(id, index, done),
+    },
     'artifact-copy': { from: fromArtifact, handle: ({ ref }) => artifactAction('copy', ref) },
     'artifact-fix': {
       from: fromArtifact,
@@ -337,7 +356,8 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       from: fromWorkspace,
       handle: ({ provider }) => setVoiceKey(provider, null),
     },
-    'open-link': { from: fromWorkspace, handle: ({ url }) => openLink(url) },
+    // A link in an answer opens in the browser, from the card or the reply bubble.
+    'open-link': { from: ['workspace', 'bubble'], handle: ({ url }) => openLink(url) },
     'reveal-library-item': { from: fromWorkspace, handle: ({ id }) => revealLibraryItem(id) },
 
     'configure-agent': {
@@ -345,13 +365,22 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ apiKey, model }) => agent.configure(apiKey, model),
     },
     'disconnect-agent': { from: fromWorkspace, handle: () => agent.disconnect() },
-    'ask-agent': { from: fromWorkspace, handle: ({ prompt }) => agent.ask(prompt) },
+    // In an open hands-free conversation, a typed (or pasted) message is answered aloud too.
+    // From the card, typed into the reply bubble beside Edi, or a tap in a view Edi generated.
+    'ask-agent': {
+      from: ['workspace', 'bubble', 'artifact'],
+      handle: ({ prompt }) => (voice.typed(prompt) ? undefined : agent.ask(prompt)),
+    },
     'stop-agent': { from: fromWorkspace, handle: () => agent.stop() },
     'new-conversation': { from: fromWorkspace, handle: () => agent.newConversation() },
     'open-conversation': { from: fromWorkspace, handle: ({ id }) => agent.openConversation(id) },
     'delete-conversation': {
       from: fromWorkspace,
       handle: ({ id }) => agent.deleteConversation(id),
+    },
+    'rename-conversation': {
+      from: fromWorkspace,
+      handle: ({ id, title }) => agent.renameConversation(id, title),
     },
     'respond-approval': {
       from: ['workspace', 'bubble'],
@@ -374,6 +403,7 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
     'stop-task': { from: fromWorkspace, handle: ({ id }) => tasks.stop(id) },
     'delete-task': { from: fromWorkspace, handle: ({ id }) => tasks.remove(id) },
     'retry-task': { from: fromWorkspace, handle: ({ id }) => void tasks.retry(id) },
+    'clear-finished-tasks': { from: fromWorkspace, handle: () => void tasks.clearFinished() },
     'raise-task-budget': {
       from: fromWorkspace,
       handle: ({ id, addUsd }) => tasks.raiseBudget(id, addUsd),
@@ -398,17 +428,33 @@ export function createCommandRoutes(deps: CommandDependencies): CommandRoutes {
       handle: ({ id, unattended }) => scheduler.setUnattended(id, unattended),
     },
     'delete-schedule': { from: fromWorkspace, handle: ({ id }) => scheduler.remove(id) },
+    'run-schedule': { from: fromWorkspace, handle: ({ id }) => void scheduler.runNow(id) },
+    'update-schedule': {
+      from: fromWorkspace,
+      handle: ({ id, title, prompt, when }) =>
+        void scheduler.update(id, {
+          ...(title !== undefined ? { title } : {}),
+          ...(prompt !== undefined ? { prompt } : {}),
+          ...(when !== undefined ? { when } : {}),
+        }),
+    },
     'remove-approval-rule': { from: fromWorkspace, handle: ({ id }) => approvalRules.remove(id) },
     'set-suggestions': {
       from: fromWorkspace,
       handle: ({ level }) => settings.update({ suggestions: level }),
     },
+    'set-wander': {
+      from: fromWorkspace,
+      handle: ({ enabled }) => settings.update({ wander: enabled }),
+    },
     'suggestion-accept': { from: ['bubble'], handle: () => suggestions.accept() },
     'suggestion-dismiss': { from: ['bubble'], handle: () => suggestions.dismiss() },
+    'hold-bubble': { from: ['bubble'], handle: () => character.holdReply() },
     'set-remember': {
       from: fromWorkspace,
       handle: ({ enabled }) => settings.update({ remember: enabled }),
     },
+    'add-memory': { from: fromWorkspace, handle: ({ kind, text }) => memory.add(kind, text) },
     'edit-memory': { from: fromWorkspace, handle: ({ id, text }) => memory.edit(id, text) },
     'remove-memory': { from: fromWorkspace, handle: ({ id }) => memory.remove(id) },
     'forget-everything': { from: fromWorkspace, handle: () => memory.clear() },

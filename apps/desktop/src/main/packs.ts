@@ -46,6 +46,9 @@ async function diskFree(dir: string) {
 
 const megabytes = (bytes: number) => `${Math.ceil(bytes / 1_000_000)} MB`;
 
+/** A download with no bytes for this long has stalled. */
+const STALL_MS = 60_000;
+
 /**
  * Downloads, resumes and removes packs of pinned files in Edi's own models folder. A file
  * downloads to `<name>.partial`, continues from where it stopped (HTTP Range) after Pause, a
@@ -65,6 +68,8 @@ export class PackDownloader<Id extends string> {
       elsewhere?: (id: Id) => boolean;
       fetch?: typeof fetch;
       freeBytes?: (dir: string) => Promise<number>;
+      /** How long a download may go without a byte before it is given up; tests shorten it. */
+      stallMs?: number;
     },
   ) {}
 
@@ -192,10 +197,28 @@ export class PackDownloader<Id extends string> {
     let received = offset;
     // Fetch the rest, unless it all arrived last time and was never checked (Edi quit then).
     if (offset < file.bytes) {
+      // A connection that stops sending never ends on its own: without this the row said
+      // "downloading" for ever. What arrived stays on disk, so Try Again carries on from it.
+      const stalled = new AbortController();
+      const stallMs = this.options.stallMs ?? STALL_MS;
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const alive = () => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => stalled.abort(), stallMs);
+      };
+      const whenStalled = (error: unknown) => {
+        if (stalled.signal.aborted && !active.abort.signal.aborted)
+          return new PackError('The download stopped arriving. Try again to carry on.');
+        return error;
+      };
+      alive();
       const response = await (this.options.fetch ?? fetch)(file.url, {
         headers: offset > 0 ? { range: `bytes=${offset}-` } : {},
-        signal: active.abort.signal,
+        signal: AbortSignal.any([active.abort.signal, stalled.signal]),
         redirect: 'follow',
+      }).catch((error: unknown) => {
+        clearTimeout(watchdog);
+        throw whenStalled(error);
       });
       if (response.status === 200 && offset > 0) {
         // The server sent the whole file instead of the rest: start over.
@@ -209,13 +232,17 @@ export class PackDownloader<Id extends string> {
       const handle = await open(partial, offset > 0 ? 'a' : 'w');
       try {
         for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+          alive();
           received += chunk.byteLength;
           if (received > file.bytes) throw new PackError('The download was larger than expected.');
           hash.update(chunk);
           await handle.write(chunk);
           progress(received);
         }
+      } catch (error) {
+        throw whenStalled(error);
       } finally {
+        clearTimeout(watchdog);
         await handle.close();
       }
     }

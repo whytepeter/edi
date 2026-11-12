@@ -9,6 +9,8 @@ import {
 } from '@edi/contracts';
 import { CharacterArt } from '../../components/character/CharacterArt';
 import { useAssistantName } from '../../hooks/useAssistantName';
+import { useGaze } from './useGaze';
+import { usePetMotion } from './usePetMotion';
 
 interface Gesture {
   pointerId: number;
@@ -37,6 +39,16 @@ export function DesktopPet({
   const interactive = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
+  const { gaze, intensity } = character.manifest.motion;
+  useGaze(button, { expression, mood, scale: gaze * intensity });
+  // A sleepy Edi moves slowly: the same touch, half the bounce.
+  const motion = usePetMotion(button, intensity * (mood === 'sleepy' ? 0.5 : 1));
+  const lastMove = useRef<{ x: number; at: number; velocity: number } | null>(null);
+  // Wandering: each hop shows in Edi's shape, not only in where its window is.
+  useEffect(
+    () => window.edi?.onCharacterHop(hop => motion.hop(hop.phase, hop.direction)),
+    [motion],
+  );
 
   async function send(command: Command) {
     try {
@@ -61,8 +73,14 @@ export function DesktopPet({
         Math.hypot(event.screenX - current.x, event.screenY - current.y) >= petDragThreshold;
     gesture.current = null;
     interactive.current = false;
+    lastMove.current = null;
     if (current.holding) void send({ type: 'release-listening', cancelled: cancel });
     setDragging(false);
+    // A quick tap springs back and counts as a poke; every other ending just settles.
+    if (!cancel && !current.holding && !current.moved) {
+      motion.poke();
+      void send({ type: 'pet-poke' });
+    } else motion.settle();
     if (!current.holding)
       void send({
         type: 'pet-drag',
@@ -117,6 +135,7 @@ export function DesktopPet({
           holding: false,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
+        motion.press();
         void send({
           type: 'pet-drag',
           phase: 'start',
@@ -127,6 +146,7 @@ export function DesktopPet({
           const current = gesture.current;
           if (!current || current.moved) return;
           current.holding = true;
+          motion.hold();
           void send({
             type: 'pet-drag',
             phase: 'cancel',
@@ -143,8 +163,18 @@ export function DesktopPet({
           Math.hypot(event.screenX - current.x, event.screenY - current.y) >= petDragThreshold;
         if (current.moved) {
           clearTimeout(holdTimer.current);
+          if (!dragging) motion.lift();
           setDragging(true);
-        }
+          // Smoothed sideways speed, so one jittery event cannot tip Edi over.
+          const before = lastMove.current;
+          const speed =
+            before && event.timeStamp > before.at
+              ? ((event.screenX - before.x) / (event.timeStamp - before.at)) * 1000
+              : 0;
+          const velocity = before ? before.velocity * 0.6 + speed * 0.4 : 0;
+          lastMove.current = { x: event.screenX, at: event.timeStamp, velocity };
+          motion.drag(velocity);
+        } else lastMove.current = { x: event.screenX, at: event.timeStamp, velocity: 0 };
         void send({
           type: 'pet-drag',
           phase: 'move',

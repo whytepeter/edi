@@ -1,4 +1,4 @@
-# Edi's hand and speech bubble
+# Pointing, drawing and the speech bubble
 
 The presentation layer adds temporary annotations over one display. It never clicks, types, or changes another app.
 
@@ -17,12 +17,17 @@ Models estimate positions roughly on a screenshot scaled to 1280 pixels, where 1
 
 On the Retina fixture in `tests/fixtures`, real Vision recognition moves typical model misses from a mean of 25.3 to 1.4 image pixels (`pnpm test:grounding:native`). `pnpm test:pointer:visual` renders the overlay over that fixture before and after alignment and checks where the hand comes to rest. Main passes the resolved script to a click-through window. The renderer traces fixed SVG paths with the selected skin's hand; it never renders model-provided markup. Circles, ellipses (from alignment), boxes, arrows and underlines are supported, not free-form illustrations yet. Every finished shape keeps its label under the target. After pointing, the hand settles just below the target, pointing up (or above it near the bottom edge), so it never covers what it points at.
 
-The overlay expires automatically and is destroyed when replaced or stopped. Reduced-motion users see immediate drawing rather than progressive tracing.
+Before pointing, Edi checks what is in front again: if the person has moved to another app, or another page in the same browser, since asking, it does not point (the positions would land on something else) and says so under the answer. A changed window title alone does not count. The overlay stays while Edi is still speaking or showing the answer it belongs to, for at most 45 seconds, and otherwise leaves after a few seconds; it is destroyed when replaced or stopped. Reduced-motion users see immediate drawing rather than progressive tracing.
 
-Ordinary reply text stays in the conversation card and never streams into the character bubble. The bubble shows live listening, thinking, and speaking animation. When a capability needs approval, the same surface becomes a compact action card with a validated summary, a request-specific approve/deny action, and **View details** for the full review in the content card. Its isolated preload exposes only those approval actions; it cannot ask the agent, change settings, or access native APIs.
+A question typed in the bubble is answered there: the words appear beside the character as they are written (tags removed), with what Edi is doing under them, an **Open** button for the whole conversation and a field to reply; the bubble lingers long enough to read, then leaves. A question asked aloud is answered aloud, with only the listening, thinking and speaking animation beside Edi; a bubble with content appears when there is something to approve or to see, when the answer holds a link, or when nothing is going to say it (`answerShowsWords` in `main/character/reply-reactions.ts`). The bubble also shows live listening, thinking, and speaking animation. When a capability needs approval, the same surface becomes a compact action card with a validated summary, a request-specific approve/deny action, and **View details** for the full review in the content card. Its isolated preload exposes only these: answer an approval or suggestion, read the answer on show, send a reply, open a link, open content, and reveal the conversation. It cannot change settings or access native APIs.
 
-The character itself receives only semantic state: an expression (idle, listening, thinking, speaking, happy, attention), a mood, and cues timed to the voice. These are validated at the preload boundary and remain independent of the active voice provider. Every character package implements the same parts-and-variants contract; reduced motion keeps the face while removing movement. See `docs/CHARACTER.md`.
+The character itself receives only semantic state: an expression (idle, listening, thinking, speaking, happy, attention), a mood, and cues timed to the voice. These are validated at the preload boundary and remain independent of the active voice provider. Every character package implements the same parts-and-variants contract; reduced motion keeps the face while removing movement. See `docs/characters.md`.
 
-## Verification still needed
+## Verification
 
-Check alignment on the real desktop (the capture path needs Screen Recording and is not covered by automated tests), fingertip alignment for all skins, content that scrolls while the model is answering, tracing across several shapes, negative-origin displays, edge placement and interruption during drawing. Character expressions and reduced motion now have a native automated check; final visual acceptance and Sleep leaving no overlay remain manual. The synthetic native approval check verifies compact layout, arming and response without a live tool call; a packaged approval flow still needs a manual check.
+- `pnpm test:grounding:native`: real Vision recognition on the Retina fixture in `tests/fixtures`.
+- `pnpm test:pointer:visual`: renders the overlay over that fixture before and after alignment and checks where
+  the hand comes to rest.
+
+The capture path needs Screen Recording, so alignment on a real desktop, mixed-scale displays, content that
+scrolls while the model answers and interruption mid-drawing are in the [manual checks](manual-checks.md).

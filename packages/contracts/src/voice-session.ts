@@ -38,6 +38,8 @@ export type VoiceEvent =
         | 'converse'
         /** Hands-free listening went on too long without anyone speaking. */
         | 'idle-timeout'
+        /** Conversation: the person typed (or pasted) their next turn instead of saying it. */
+        | 'typed'
         | 'failed';
       generation: number;
     }
@@ -139,6 +141,18 @@ export function transitionVoice(
         'submit-turn',
       );
     }
+  }
+  if (event.type === 'typed' && state.mode === 'conversation') {
+    // Answered aloud like a spoken turn; anything Edi was still saying gives way to it.
+    const next = { ...state, phase: 'processing', turn: state.turn + 1 } as const;
+    if (state.phase === 'listening')
+      return result({ ...next, speechDetected: false }, 'submit-turn');
+    if (talking)
+      return result(
+        { ...next, speechDetected: false, interrupting: false },
+        'cancel-reply',
+        'submit-turn',
+      );
   }
   if (event.type === 'idle-timeout' && state.mode === 'conversation') {
     if (state.phase === 'listening' && !state.speechDetected) return result(idle(), 'cancel-all');

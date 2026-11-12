@@ -16,7 +16,7 @@ Each check takes a few minutes. Fill in the result fields as you go. A failure w
 
 3. Wait for Edi to appear near the bottom-right corner of your main display. The card stays hidden at launch.
 
-   The packaged app does not bundle local voice yet, so clicking or holding Edi shows a "voice unavailable" bubble and never opens the microphone. Hold-to-talk in `pnpm dev` (commit `c501449`) needs its own check with a real microphone and is not covered here.
+   Run these on a fresh profile, before downloading a voice in Settings → Voice: clicking or holding Edi then shows a "voice unavailable" bubble and never opens the microphone. Talking to Edi needs its own check with a real microphone and is not covered here.
 4. Fill in this header once:
 
 | Field | Value |
@@ -245,4 +245,4 @@ Then send `What’s on my screen?` Screen Recording should be requested just in 
 
 ---
 
-When you are done, choose **Quit Edi**. Copy failures and surprises into [foundation validation](FOUNDATION-VALIDATION.md) with the date and your Mac.
+When you are done, choose **Quit Edi**. Report failures and surprises as an issue, with the date, your Mac and the header above.

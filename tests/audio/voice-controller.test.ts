@@ -7,6 +7,7 @@ import {
   cleanTranscript,
   speakable,
   takeSpeech,
+  type PauseOutcome,
   type VoiceDependencies,
   type VoiceStatus,
   type VoiceTurnTiming,
@@ -542,6 +543,51 @@ test('hands-free: a long pause ends the turn even on a trailing word', async () 
   assert.equal(h.asked.length, 1);
 });
 
+test('hands-free: each judged pause is reported, then what followed an unfinished one', async () => {
+  // Real time plus jumps: a frozen clock would never let the reply's audio drain.
+  const start = Date.now();
+  let jumped = 0;
+  let words = 'Remind me to call mum and';
+  const judged: [string, boolean][] = [];
+  const followed: PauseOutcome[] = [];
+  const h = harness({
+    listen: fakeListener(() => words).listen,
+    now: () => Date.now() - start + jumped,
+    pauseJudged: (heard, unfinished) => {
+      judged.push([heard, unfinished]);
+      return outcome => followed.push(outcome);
+    },
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  jumped += 400;
+  h.voice.clientEvent(generation, 'speech-detected'); // they carried on
+  words = 'Remind me to call mum and dad at';
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  jumped += 1_200;
+  h.voice.clientEvent(generation, 'long-pause');
+  await wait(10);
+  stopPlaying();
+  assert.deepEqual(judged, [
+    ['Remind me to call mum and', true],
+    ['Remind me to call mum and dad at', true],
+  ]);
+  assert.deepEqual(
+    followed.map(outcome => outcome.next),
+    ['resumed', 'long-pause'],
+  );
+  // Each counts from its own judged pause: the jump, plus the few real milliseconds between.
+  [400, 1_200].forEach((jump, index) => {
+    const afterMs = followed[index]?.afterMs ?? -1;
+    assert.ok(afterMs >= jump && afterMs < jump + 250, `${afterMs} ms after a ${jump} ms wait`);
+  });
+  assert.equal(h.asked.length, 1, 'the judgement is only reported; the turn ends as before');
+});
+
 test('talking over Edi pauses her; words stop the reply and the work, then ask again', async () => {
   let words = 'Check my emails from today.';
   const runs: AbortSignal[] = [];
@@ -576,6 +622,48 @@ test('talking over Edi pauses her; words stop the reply and the work, then ask a
     ['Check my emails from today.', 'Actually, only emails from Sarah.'],
   );
   assert.equal(h.voice.phase, 'processing');
+  h.voice.stop();
+});
+
+test('a link typed into an open conversation is answered aloud; with none open it is not taken', async () => {
+  const outside = harness();
+  assert.equal(outside.voice.typed('https://example.com'), false, 'no conversation: typed path');
+  await holdAndSpeak(outside);
+  assert.equal(outside.voice.typed('https://example.com'), false, 'a hold is not a conversation');
+  outside.voice.stop();
+
+  const runs: AbortSignal[] = [];
+  let answer: ((state: AgentState) => void) | undefined;
+  const h = harness({
+    listen: fakeListener(() => 'Have a look at this link.').listen,
+    whenFinished: (_runId, signal) => {
+      runs.push(signal);
+      return new Promise((resolve, reject) => {
+        answer = resolve;
+        signal.addEventListener('abort', () => reject(new Error('Stopped')));
+      });
+    },
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  assert.equal(h.voice.phase, 'processing');
+
+  // Pasted while Edi is still on the spoken request: the link wins, and is answered aloud.
+  assert.equal(h.voice.typed('  https://glow.example.app  '), true);
+  await wait(5);
+  assert.equal(runs[0]?.aborted, true, 'the earlier reply gave way');
+  assert.deepEqual(
+    h.asked.map(item => item.prompt),
+    ['Have a look at this link.', 'https://glow.example.app'],
+  );
+  answer?.({ ...runningState, status: 'done', text: 'A salon booking app. Looks clean.' });
+  await wait(30);
+  stopPlaying();
+  assert.ok(h.types().includes('pcm'), 'the answer to the link was spoken');
+  assert.equal(h.voice.phase, 'listening', 'and the conversation goes on');
   h.voice.stop();
 });
 
@@ -642,6 +730,155 @@ test('hands-free: the room heard as a primed word is noise, not a question or an
   assert.deepEqual(
     held.asked.map(item => item.prompt),
     ['OAuth.'],
+  );
+});
+
+test('hands-free: words from the room are no turn; Edi keeps listening and says nothing', async () => {
+  const sifted: [string, boolean][] = [];
+  const h = harness({
+    listen: fakeListener(() => 'And now, the weather.').listen,
+    sift: async (heard, interrupting) => {
+      sifted.push([heard, interrupting]);
+      return '';
+    },
+  });
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  assert.deepEqual(sifted, [['And now, the weather.', false]]);
+  assert.equal(h.asked.length, 0);
+  assert.equal(h.voice.phase, 'listening');
+  assert.ok(h.types().includes('utterance-done'), 'the next words start a new utterance');
+  assert.ok(
+    h.statuses.every(status => typeof status === 'string'),
+    'no “I didn’t catch that”',
+  );
+  h.voice.stop();
+
+  // A sift that fails keeps every word.
+  const failing = harness({
+    sift: async () => {
+      throw new Error('offline');
+    },
+  });
+  const stopPlaying = failing.autoPlay();
+  const again = await converse(failing);
+  failing.voice.clientEvent(again, 'speech-detected');
+  failing.voice.clientEvent(again, 'pause');
+  await wait(20);
+  stopPlaying();
+  assert.deepEqual(
+    failing.asked.map(item => item.prompt),
+    ['What is this button?'],
+  );
+  failing.voice.stop();
+});
+
+test('hands-free: talk from the room over Edi lets her carry on', async () => {
+  let words = 'What time is it?';
+  let finish!: (state: AgentState) => void;
+  const sifted: [string, boolean][] = [];
+  const h = harness({
+    listen: fakeListener(() => words).listen,
+    whenFinished: () => new Promise(resolve => (finish = resolve)),
+    sift: async (heard, interrupting) => {
+      sifted.push([heard, interrupting]);
+      return interrupting ? '' : heard;
+    },
+  });
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  const stops = () => h.types().filter(type => type === 'stop-audio').length;
+  const stopsBefore = stops();
+  h.voice.clientEvent(generation, 'speech-detected');
+  words = 'Stay tuned after the break.';
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  assert.deepEqual(sifted, [
+    ['What time is it?', false],
+    ['Stay tuned after the break.', true],
+  ]);
+  assert.ok(h.types().includes('resume-audio'), 'her reply carries on');
+  assert.equal(stops(), stopsBefore, 'nothing was cut off');
+  assert.equal(h.asked.length, 1);
+  assert.equal(h.voice.phase, 'processing');
+  finish({ ...runningState, status: 'done', text: 'It is noon.' });
+  h.voice.stop();
+});
+
+test('hands-free: the long pause reuses the first pause’s sifting, and the kept words are asked', async () => {
+  const sifted: string[] = [];
+  const timings: VoiceTurnTiming[] = [];
+  const h = harness({
+    listen: fakeListener(() => 'Stay tuned. Remind me to call mum and').listen,
+    sift: async heard => {
+      sifted.push(heard);
+      return 'Remind me to call mum and';
+    },
+    timed: timing => timings.push(timing),
+  });
+  const stopPlaying = h.autoPlay();
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  assert.equal(h.asked.length, 0, 'a trailing "and" waits');
+  h.voice.clientEvent(generation, 'long-pause');
+  for (let i = 0; i < 20 && !timings.length; i++) await wait(5);
+  stopPlaying();
+  assert.deepEqual(sifted, ['Stay tuned. Remind me to call mum and'], 'asked once');
+  assert.deepEqual(
+    h.asked.map(item => item.prompt),
+    ['Remind me to call mum and'],
+  );
+  assert.ok(timings[0], 'the turn reported its timing');
+  assert.match(
+    describeTiming(timings[0]),
+    /^voice turn: transcript \d+ ms · sifted \d+ ms · screens /,
+  );
+  h.voice.stop();
+});
+
+test('hands-free: speech resuming while words are sifted keeps the turn open', async () => {
+  let release!: (kept: string) => void;
+  const h = harness({
+    listen: fakeListener(() => 'Check my emails.').listen,
+    sift: () =>
+      new Promise<string>(resolve => {
+        release = resolve;
+      }),
+  });
+  const generation = await converse(h);
+  h.voice.clientEvent(generation, 'speech-detected');
+  h.voice.clientEvent(generation, 'pause');
+  await wait(5);
+  h.voice.clientEvent(generation, 'speech-detected'); // they carried on
+  release('Check my emails.');
+  await wait(5);
+  assert.equal(h.asked.length, 0);
+  assert.equal(h.voice.phase, 'listening');
+  h.voice.stop();
+});
+
+test('a hold is deliberate: its words are never sifted', async () => {
+  let sifts = 0;
+  const h = harness({
+    sift: async () => {
+      sifts++;
+      return '';
+    },
+  });
+  const stopPlaying = h.autoPlay();
+  h.voice.clientEvent(await holdAndSpeak(h), 'captured');
+  await wait(20);
+  stopPlaying();
+  assert.equal(sifts, 0);
+  assert.deepEqual(
+    h.asked.map(item => item.prompt),
+    ['What is this button?'],
   );
 });
 
@@ -925,6 +1162,7 @@ test('Edi’s name is spelled right where she is addressed, and nowhere else', a
   assert.equal(addressName('Oh, hey, Eddy. How are you?'), 'Oh, hey, Edi. How are you?');
   assert.equal(addressName('Edy, what time is it?'), 'Edi, what time is it?');
   assert.equal(addressName('Thanks Eddie.'), 'Thanks Edi.');
+  assert.equal(addressName("Hey, Heddy. What's up?"), "Hey, Edi. What's up?");
   assert.equal(addressName('Email Eddie about the launch.'), 'Email Eddie about the launch.');
   assert.equal(addressName('Hey Eddie, hi.', 'Mochi'), 'Hey Eddie, hi.', 'only for Edi');
 
@@ -1025,4 +1263,10 @@ test('audio longer than a second reaches the player in one-second pieces, so a r
   assert.deepEqual(chunks, [24_000, 24_000, 12_000]);
   assert.equal(h.voice.phase, 'idle', 'the reply finished instead of stalling');
   assert.equal(h.statuses.at(-1), 'hidden');
+});
+
+test('sound annotations a recognizer writes are not words', () => {
+  assert.equal(cleanTranscript('[BLANK_AUDIO]'), '');
+  assert.equal(cleanTranscript('(music) What time is it? *coughs*'), 'What time is it?');
+  assert.equal(cleanTranscript('♪♪ Play it again ♪'), 'Play it again');
 });

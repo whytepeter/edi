@@ -313,3 +313,106 @@ test('skills by Fewerlabs only name apps Edi can connect and tools Edi has', asy
       assert.ok(tools.has(name!), `${folder} names unknown tool ${name}`);
   }
 });
+
+test('frontmatter written for other tools still reads: lists, wrapped values, kept block scalars', () => {
+  const text = [
+    '---',
+    'name: tidy-notes',
+    'description: >+',
+    '  Tidy the notes folder',
+    '  when asked to clean up.',
+    'allowed-tools:',
+    '  - Read',
+    '  - Write',
+    'license: MIT',
+    '---',
+    '',
+    'Sort the notes by date.',
+  ].join('\n');
+  const { skill, problems } = parseSkill(text, { folderName: 'tidy-notes' });
+  assert.deepEqual(
+    problems.filter(problem => problem.level === 'error'),
+    [],
+  );
+  assert.equal(skill?.name, 'tidy-notes');
+  assert.equal(skill?.description, 'Tidy the notes folder when asked to clean up.');
+  assert.equal(skill?.body.trim(), 'Sort the notes by date.');
+
+  // A line that is neither a key nor part of the key above is still refused, with the line.
+  const bad = parseSkill(['---', 'name: x', '- stray', '---', 'Body'].join('\n'));
+  assert.match(bad.problems[0]?.message ?? '', /Couldn’t read this frontmatter line: “- stray”/);
+});
+
+test('updating a shared skill keeps who wrote it and its licence, and keeps the old version', async () => {
+  const { folder, skills, put } = await library();
+  await put(
+    'tidy-notes',
+    [
+      '---',
+      'name: tidy-notes',
+      'description: Tidies notes. Use when asked to clean up notes.',
+      'license: CC-BY-4.0',
+      'metadata:',
+      '  title: "Tidy Notes"',
+      '  author: "Priya"',
+      '  version: "1.2.0"',
+      '  icon: "notes"',
+      '---',
+      'Sort the notes by date.',
+    ].join('\n'),
+  );
+  await skills.refresh();
+
+  const saved = await skills.save({
+    name: 'tidy-notes',
+    title: 'Tidy Notes',
+    description: 'Tidies notes. Use when asked to clean up notes.',
+    body: 'Sort the notes by date, newest first.',
+  });
+  assert.equal(saved.replaced, true);
+  const updated = skills.get('tidy-notes')!;
+  assert.equal(updated.body, 'Sort the notes by date, newest first.');
+  // Changing what it does is not changing whose it is.
+  assert.deepEqual(
+    [updated.author, updated.license, updated.version, updated.icon],
+    ['Priya', 'CC-BY-4.0', '1.2.0', 'notes'],
+  );
+  // The version it replaced is still there to take back.
+  const previous = await readFile(join(folder, 'tidy-notes', 'SKILL.previous.md'), 'utf8');
+  assert.match(previous, /Sort the notes by date\.$/);
+
+  // A new skill made in Edi is the person's own.
+  await skills.save({
+    name: 'mine',
+    title: 'Mine',
+    description: 'Use when asked.',
+    body: 'Do it.',
+  });
+  assert.equal(skills.get('mine')?.author, 'You');
+});
+
+test('a skill’s reference files come with it, so its instructions can point at them', async () => {
+  const { folder, skills, put } = await library();
+  await put(
+    'style-guide',
+    '---\nname: style-guide\ndescription: Writes in house style. Use when writing.\n---\nFollow references/tone.md.',
+  );
+  await mkdir(join(folder, 'style-guide', 'references'), { recursive: true });
+  await writeFile(join(folder, 'style-guide', 'references', 'tone.md'), 'Plain and warm.');
+  await writeFile(join(folder, 'style-guide', 'run.sh'), 'echo no');
+  await writeFile(join(folder, 'style-guide', '.hidden.md'), 'no');
+  await skills.refresh();
+
+  // Readable references only: never scripts, hidden files or the skill file itself.
+  assert.deepEqual(await skills.files('style-guide'), {
+    folder: join(folder, 'style-guide'),
+    names: [join('references', 'tone.md')],
+  });
+  assert.equal(await skills.files('daily-brief'), null);
+
+  const [use] = skillCapabilities(skills);
+  const loaded = await (await use.prepare({ name: 'style-guide' }, context)).execute(live());
+  const output = loaded.output as { files?: { folder: string; names: string[] } };
+  assert.deepEqual(output.files?.names, [join('references', 'tone.md')]);
+  assert.equal(output.files?.folder, join(folder, 'style-guide'));
+});

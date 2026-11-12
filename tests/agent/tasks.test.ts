@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { z } from '../../packages/capabilities/node_modules/zod/index.js';
 import { defineCapability, type Capability } from '../../packages/capabilities/src/index';
 import { createRepositories, openDatabase } from '../../packages/storage/src/index';
-import { TaskService, type WorkerLike } from '../../apps/desktop/src/main/agent/task-service';
+import { taskListSchema } from '../../packages/contracts/src/index';
+import {
+  MAX_WRITES_PER_RUN,
+  TaskService,
+  type WorkerLike,
+} from '../../apps/desktop/src/main/agent/task-service';
 import type { HostMessage, WorkerInput } from '../../apps/desktop/src/main/agent/worker-protocol';
 import type { OpenRouterCredentials } from '../../apps/desktop/src/main/agent/credentials';
 
@@ -45,6 +50,7 @@ function harness(capabilities: Capability[] = []) {
   const repositories = createRepositories(openDatabase(':memory:'));
   const workers: FakeWorker[] = [];
   const finished: string[] = [];
+  const limited: string[] = [];
   const credentials = {
     configured: true,
     apiKey: 'test-key-123',
@@ -61,8 +67,9 @@ function harness(capabilities: Capability[] = []) {
       return worker;
     },
     finished: task => finished.push(`${task.title}:${task.status}`),
+    limited: task => limited.push(`${task.title}:${task.status}`),
   });
-  return { repositories, workers, finished, tasks };
+  return { repositories, workers, finished, limited, tasks };
 }
 
 test('a task cut off by a quit can be asked again, and starts afresh', () => {
@@ -235,7 +242,20 @@ test('a schedule that runs on its own adds reminders without asking, and still w
     scheduleId: uuid(300),
   });
   const worker = workers[0]!;
-  worker.emit({ type: 'tool-call', id: uuid(1), name: 'reminders_create', input: { title: 'Standup' } });
+  worker.emit({
+    type: 'tool-call',
+    id: uuid(1),
+    name: 'reminders_create',
+    input: { title: 'Standup' },
+  });
+  await settle();
+  // Edi checks the change against the schedule's own instructions first.
+  const check = workers.find(candidate => candidate.data.mode === 'review')!;
+  assert.match(check.data.prompt, /<instructions>\nAdd my reminders/);
+  assert.match(check.data.prompt, /<action>[\s\S]*Standup/);
+  assert.deepEqual(check.data.tools, []);
+  check.emit({ type: 'text', text: 'FITS' });
+  check.emit({ type: 'done' });
   await settle();
   assert.equal(added, 1, 'nobody had to be there');
   assert.equal(tasks.currentApproval, null);
@@ -246,6 +266,85 @@ test('a schedule that runs on its own adds reminders without asking, and still w
   await settle();
   assert.equal(tasks.task(task.id)?.status, 'waiting');
   assert.equal(tasks.currentApproval?.capability.id, 'files.trash');
+  assert.equal(workers.filter(candidate => candidate.data.mode === 'review').length, 1);
+});
+
+test('an unattended change that doesn’t fit its schedule waits for the person, with why', async () => {
+  let added = 0;
+  const addReminders = defineCapability({
+    id: 'reminders.create',
+    title: 'Add reminders',
+    description: 'Add',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ title: z.string() }).strict(),
+    prepare: ({ title }) => ({
+      preview: { title: 'Add', action: 'Add', summary: `Remind you: ${title}.`, fields: [] },
+      execute: async () => {
+        added++;
+        return { summary: 'Added.' };
+      },
+    }),
+  });
+  const { tasks, workers, repositories } = harness([addReminders as Capability]);
+  repositories.schedules.create({
+    id: uuid(301),
+    title: 'Morning news',
+    prompt: 'Summarize the tech news',
+    when: { kind: 'daily', time: '08:00' },
+    notify: 'always',
+    budgetUsd: 0.5,
+    enabled: true,
+    unattended: true,
+    createdAt: 1,
+    nextRunAt: 2,
+  });
+  tasks.start({
+    prompt: 'Summarize the tech news',
+    budgetUsd: 0.5,
+    conversationId: null,
+    scheduleId: uuid(301),
+  });
+  workers[0]!.emit({
+    type: 'tool-call',
+    id: uuid(2),
+    name: 'reminders_create',
+    input: { title: 'Buy a new phone' },
+  });
+  await settle();
+  const check = workers.find(candidate => candidate.data.mode === 'review')!;
+  check.emit({
+    type: 'text',
+    text: 'DOESN’T FIT: the schedule summarizes news; it adds no reminders',
+  });
+  check.emit({ type: 'done' });
+  await settle();
+  assert.equal(added, 0);
+  assert.equal(tasks.currentApproval?.capability.id, 'reminders.create');
+  assert.equal(
+    tasks.currentApproval?.concern,
+    'the schedule summarizes news; it adds no reminders',
+  );
+
+  // A check that can't be made asks the person too.
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'deny');
+  workers[0]!.emit({
+    type: 'tool-call',
+    id: uuid(3),
+    name: 'reminders_create',
+    input: { title: 'Read the news' },
+  });
+  await settle();
+  workers
+    .filter(candidate => candidate.data.mode === 'review')
+    .at(-1)!
+    .emit({
+      type: 'error',
+      kind: 'temporary',
+    });
+  await settle();
+  assert.equal(added, 0);
+  assert.match(tasks.currentApproval?.concern ?? '', /couldn’t check/);
 });
 
 test('stopping ends a running or queued task; a restart interrupts what was running', () => {
@@ -282,4 +381,165 @@ test('stopping ends a running or queued task; a restart interrupts what was runn
       ['Two', 'interrupted'],
     ],
   );
+});
+
+test('a task stuck on an action that keeps failing the same way stops and says why', async () => {
+  const lookup = defineCapability({
+    id: 'web.fetch',
+    title: 'Read a web page',
+    description: 'Read',
+    effect: 'read',
+    timeoutMs: 1000,
+    input: z.object({ url: z.string() }).strict(),
+    prepare: () => ({
+      preview: { title: 'Read', action: 'Read', summary: 'Read.', fields: [] },
+      execute: async () => {
+        throw new Error('The page did not answer.');
+      },
+    }),
+  });
+  const { tasks, workers } = harness([lookup as Capability]);
+  const task = tasks.start({ prompt: 'Research', budgetUsd: 1, conversationId: null });
+  const worker = workers[0]!;
+  const call = (n: number, url: string) =>
+    worker.emit({ type: 'tool-call', id: uuid(500 + n), name: 'web_fetch', input: { url } });
+
+  call(1, 'https://a.example');
+  await settle();
+  call(2, 'https://b.example'); // a different action is a different try
+  await settle();
+  call(3, 'https://a.example');
+  await settle();
+  assert.equal(tasks.task(task.id)?.status, 'running');
+  assert.equal(worker.sent.filter(message => message.type === 'tool-result').length, 3);
+
+  call(4, 'https://a.example');
+  await settle();
+  const stopped = tasks.task(task.id);
+  assert.equal(stopped?.status, 'failed');
+  assert.match(stopped?.error ?? '', /same action failed 3 times/);
+  assert.ok(worker.sent.some(message => message.type === 'stop'));
+});
+
+test('a run that makes too many changes is stopped for a check', async () => {
+  const save = defineCapability({
+    id: 'notes.save',
+    title: 'Save a note',
+    description: 'Save',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ title: z.string() }).strict(),
+    prepare: ({ title }) => ({
+      preview: { title: 'Save', action: 'Save', summary: `Save ${title}.`, fields: [] },
+      execute: async () => ({ summary: `Saved ${title}.` }),
+    }),
+  });
+  const { tasks, workers } = harness([save as Capability]);
+  const task = tasks.start({ prompt: 'Tidy notes', budgetUsd: 1, conversationId: null });
+  const worker = workers[0]!;
+  const call = (n: number) =>
+    worker.emit({
+      type: 'tool-call',
+      id: uuid(600 + n),
+      name: 'notes_save',
+      input: { title: `N${n}` },
+    });
+
+  call(1);
+  await settle();
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'approve-always');
+  await settle();
+  for (let n = 2; n < MAX_WRITES_PER_RUN; n++) call(n);
+  await settle();
+  assert.equal(tasks.task(task.id)?.status, 'running');
+
+  call(MAX_WRITES_PER_RUN);
+  await settle();
+  const stopped = tasks.task(task.id);
+  assert.equal(stopped?.status, 'failed');
+  assert.match(stopped?.error ?? '', new RegExp(`Stopped after ${MAX_WRITES_PER_RUN} changes`));
+});
+
+test('a task that pauses at its cap says so once, and its cap can never pass the most a task may hold', () => {
+  const { tasks, workers, limited, repositories } = harness();
+  const task = tasks.start({ prompt: 'Research', budgetUsd: 30, conversationId: null });
+  workers[0]!.emit(usage(30));
+  assert.equal(tasks.task(task.id)?.status, 'limited');
+  assert.deepEqual(limited, ['Research:limited']);
+  // More usage while it waits does not announce it again.
+  workers[0]!.emit(usage(0.01));
+  assert.deepEqual(limited, ['Research:limited']);
+
+  // "Allow more" doubles the cap; past the limit it stops at the limit, so the list still reads.
+  tasks.raiseBudget(task.id, 30);
+  assert.equal(repositories.tasks.get(task.id)?.budgetUsd, 50);
+  assert.doesNotThrow(() => taskListSchema.parse(tasks.list()));
+  tasks.raiseBudget(task.id, 50);
+  assert.equal(repositories.tasks.get(task.id)?.budgetUsd, 50);
+});
+
+test('one task waiting for a review does not hold up another, and both stop their clocks', async () => {
+  let moved = 0;
+  const move = defineCapability({
+    id: 'files.move',
+    title: 'Move files',
+    description: 'Move',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ to: z.string() }).strict(),
+    prepare: ({ to }) => ({
+      preview: { title: 'Move', action: 'Move', summary: `Move to ${to}.`, fields: [] },
+      execute: async () => {
+        moved++;
+        return { summary: 'Moved.' };
+      },
+    }),
+  });
+  const { tasks, workers } = harness([move as Capability]);
+  const first = tasks.start({ prompt: 'Tidy Downloads', budgetUsd: 0.5, conversationId: null });
+  const second = tasks.start({ prompt: 'Tidy Desktop', budgetUsd: 0.5, conversationId: null });
+
+  // The first task asks to move something and nobody answers.
+  workers[0]!.emit({ type: 'tool-call', id: uuid(1), name: 'files_move', input: { to: 'a' } });
+  await settle();
+  assert.equal(tasks.task(first.id)?.status, 'waiting');
+
+  // The second task's change reaches the review line too, instead of sitting behind the first
+  // task's unanswered one with its clock running.
+  workers[1]!.emit({ type: 'tool-call', id: uuid(2), name: 'files_move', input: { to: 'b' } });
+  await settle();
+  assert.equal(tasks.task(second.id)?.status, 'waiting');
+  assert.equal(tasks.currentApproval?.preview.summary, 'Move to a.');
+
+  // Declining the first shows the second, which was prepared and waiting all along.
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'deny');
+  await settle();
+  assert.equal(tasks.task(first.id)?.status, 'running');
+  assert.equal(tasks.currentApproval?.preview.summary, 'Move to b.');
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'approve');
+  await settle();
+  assert.equal(tasks.task(second.id)?.status, 'running');
+  assert.equal(moved, 1);
+});
+
+test('finished tasks can be cleared in one go; work still going is left alone', () => {
+  const { tasks, workers } = harness();
+  const done = tasks.start({ prompt: 'Find roles', budgetUsd: 0.5, conversationId: null });
+  const running = tasks.start({ prompt: 'Tidy Downloads', budgetUsd: 0.5, conversationId: null });
+  const queued = tasks.start({ prompt: 'Plan the week', budgetUsd: 0.5, conversationId: null });
+  workers[0]!.emit({ type: 'text', text: 'Found 3.' });
+  workers[0]!.emit({ type: 'done' });
+  assert.equal(tasks.task(done.id)?.status, 'done');
+
+  assert.equal(tasks.clearFinished(), 1);
+  assert.equal(tasks.task(done.id), undefined);
+  // The queued task took the free slot when the first one ended; both are still there.
+  assert.ok(tasks.task(running.id));
+  assert.ok(tasks.task(queued.id));
+  assert.equal(tasks.clearFinished(), 0);
+
+  // Any ended task can be asked again as a new one; the old one keeps its history.
+  const again = tasks.retry(running.id);
+  assert.notEqual(again.id, running.id);
+  assert.equal(again.prompt, 'Tidy Downloads');
 });

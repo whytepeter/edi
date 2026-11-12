@@ -96,4 +96,6 @@ export interface ToolManifestEntry {
   app?: string;
   /** Declared but shown to the model only after it finds the tool with `find_app_tools`. */
   deferred?: boolean;
+  /** It only looks things up: safe for a helper working on its own. */
+  readOnly?: boolean;
 }

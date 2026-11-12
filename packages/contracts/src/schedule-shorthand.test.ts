@@ -17,7 +17,10 @@ test('shorthand timings a model writes are read the way they were meant', () => 
     ['2026-09-16T15:00', { kind: 'once', at: '2026-09-16T15:00' }],
     [{ hours: 4 }, { kind: 'every', hours: 4 }],
     ['{"kind":"every","hours":2}', { kind: 'every', hours: 2 }],
-    [{ kind: 'daily', time: '7:00' }, { kind: 'daily', time: '07:00' }],
+    [
+      { kind: 'daily', time: '7:00' },
+      { kind: 'daily', time: '07:00' },
+    ],
   ] as const) {
     const parsed = read(raw);
     assert.ok(parsed.success, JSON.stringify(raw));

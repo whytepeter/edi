@@ -1,6 +1,6 @@
-# Local audio runtime
+# Voice
 
-Local transcription provisioning and screening are complete: whisper.cpp base.en with Silero VAD, CPU-only baseline, 14 runs over six Pocket samples and silence. Median speech-file process time with VAD was 0.732 seconds including model load; peak RSS was 298 MiB. Plain Whisper hallucinated “You” on digital silence; VAD returned empty text. See [transcription evidence](../benchmarks/voice/TRANSCRIPTION.md). The capture-to-transcript-to-agent-to-speech path streams end to end in development; subjective listening, physical-microphone echo and barge-in checks, and threshold tuning remain open.
+How Edi hears and speaks. On this Mac it listens with whisper.cpp behind Silero voice detection and speaks with Kokoro; both are optional downloads in Settings → Voice. Chatterbox (voices made from a recording), Cartesia and ElevenLabs are alternatives. This page covers capture, turn taking, interruption, playback and their limits.
 
 ## Capture adapter
 
@@ -11,8 +11,8 @@ Local transcription provisioning and screening are complete: whisper.cpp base.en
 - **Push-to-talk (hold ⌥ Space).** Frames stream to main from the moment the microphone opens. On release the pet sends the rest and `captured`; main already has the audio, so there is no encode or decode step.
 - **Hands-free (tap ⌥ Space; tap again to stop).** The pet streams every 20 ms frame to main, flagged while Edi's voice is audible. `SpeechDetector` (`main/voice/speech-detector.ts`) runs Silero VAD v6.2.1 (`apps/desktop/voice/silero_vad.onnx`, MIT, sha256 `1a153a22…88e3`, ONNX Runtime in main, about 1% of a core) on 32 ms windows: a voice starts above 0.5 and lasts until below 0.35. `SpeechActivity` (`packages/contracts/src/voice-turns.ts`) needs both a voice and loudness over an adaptive noise floor (higher while Edi speaks, so her echo, which is a voice, does not count) and reports speech, `pause` (600 ms) and `long-pause` (1.8 s). The recognizer gets the speech plus the 400 ms before it. Until Silero loads, or if it cannot, loudness alone decides and the pet can detect speech itself (`detect: 'pet'`). At a pause, main reads the words so far and `soundsUnfinished` decides: "Can you… um" or a trailing "and" waits for the long pause; a finished-sounding request is answered now. Listening ends after 30 s with nobody speaking.
 - **Recognition.** Settings → Voice → Listening. Default: whisper on this Mac through `whisper-server`, which keeps the model loaded (about 0.9 s for 11 s of audio with small.en on an M2 Pro, versus 1.3–1.7 s when the CLI starts each turn; a 3 s pause check takes about 0.7 s). Opt-in: Cartesia realtime transcription with the person's key; the audio is also kept locally, so any Cartesia failure falls back to whisper for the same words.
-- **Chatterbox.** The original model (`mlx-community/Chatterbox-TTS-4bit`), not Turbo: it clones a recorded voice much better, at about 1.8 s to its first sound instead of 0.5 s. It has no voice of its own, so Edi ships one — `apps/desktop/voice/chatterbox-voice.wav`, 13 s made with Kokoro — as the built-in voice, and the person's own recordings are added beside it. Turbo was dropped on 2026-09-15 after the owner compared clones of the same reference.
-- **Chatterbox delivery.** Chatterbox speaks in Edi's own voice or any made from the person's recordings, and how it reads is a separate setting (Settings → Voice → Delivery): Calm (exaggeration 0.4, cfg 0.6, temperature 0.6) or Expressive (0.7, 0.3, 0.8), applied to every Chatterbox voice alike. Until 2026-09-15 "Calm" and "Expressive" were listed as two voices, only changed the sampling, and left the model's own expression controls at 0, which is what made replies sound flat; voices made from recordings were always read the calm way. Saved settings migrate (`turbo` → the built-in voice, delivery Expressive). The 8-bit Turbo build was tried and rejected: it ran away, making 80 s of audio for one short line. The original (non-Turbo) Chatterbox on MLX has no built-in voice at all (reference audio only) and starts speaking in 2.6 s against Turbo's 0.5 s.
+- **Chatterbox.** The original model (`mlx-community/Chatterbox-TTS-4bit`), not Turbo: it clones a recorded voice much better, at about 1.8 s to its first sound instead of 0.5 s. It has no voice of its own, so Edi ships one — `apps/desktop/voice/chatterbox-voice.wav`, 13 s made with Kokoro — as the built-in voice, and the person's own recordings are added beside it.
+- **Chatterbox delivery.** Chatterbox speaks in Edi's own voice or any made from the person's recordings, and how it reads is a separate setting (Settings → Voice → Delivery): Calm (exaggeration 0.4, cfg 0.6, temperature 0.6) or Expressive (0.7, 0.3, 0.8), applied to every Chatterbox voice alike.
 - **Speaking on this Mac.** Kokoro 82M as ONNX (`main/voice/kokoro-onnx.ts`, quantized, 92 MB) on ONNX Runtime, with no Python: the model loads on first use and unloads after an hour idle, and each reply is spoken sentence by sentence (the model reads at most 510 symbols), so the first words play while the rest is still being made. Warm, a short reply's first audio took 0.7–1.4 s on an M2 Pro, about 1.5× real time. Words become sounds through **eSpeak NG 1.52.0**, which is **GPL-3.0**: it ships as its own program (`native/espeak/build.sh`, 508 KB plus 828 KB of English data, its COPYING alongside) that Edi runs and never links, so Edi's own code stays outside GPL scope; anyone who gets a copy must be able to get eSpeak NG's source. `main/voice/phonemes.ts` writes numbers, money and times the way a person says them ("$42.50" → "42 dollars and 50 cents"), keeps punctuation where it was, and maps eSpeak's American IPA onto Kokoro's alphabet (following kokoro-js, Apache-2.0). The MLX Kokoro stands in while developing until the pack is downloaded.
 - **Speech.** Sentences are taken from the streaming reply as the model writes them. Cartesia voices use one WebSocket context per reply (`continue: true` per sentence), connected while the question is being sent, so audio starts with the first sentence. Other engines speak clip by clip. A stream that fails before any sound hands its sentences to the clip path.
 - **Acknowledgements and progress.** Spoken turns ask the model for a few words of acknowledgement before a tool. If a tool starts and nothing was said, Edi says a short one ("Let me check.", "On it."). If a step stays quiet for 3.5 s she says what it is doing ("Checking your calendar.", "Working in Gmail."), once per step and at most twice per turn, plus one "Still working on it." after 9 s. A pending approval is mentioned once. None of this is shown in the bubble.
@@ -33,7 +33,7 @@ Limits: 30 s to resolve permission, 60 s of audio per utterance kept in main, ch
 
 ## Ownership and lifecycle
 
-`PcmPlayer` owns one audio context and accepts decoded mono Float32 PCM. It has no provider credentials, filesystem access, download logic, or model dependencies. Kokoro, Chatterbox Turbo, ElevenLabs, and Cartesia adapters normalize into this boundary; encoded MP3 bytes must be decoded first.
+`PcmPlayer` owns one audio context and accepts decoded mono Float32 PCM. It has no provider credentials, filesystem access, download logic, or model dependencies. Kokoro, Chatterbox, ElevenLabs and Cartesia adapters normalize into this boundary; encoded MP3 bytes must be decoded first.
 
 Call `begin()` from a user gesture and retain its returned token. Send ordered chunks using `push(token, samples, sampleRate)`. `finish(token)` closes input while allowing queued audio to drain. Stop invalidates the token, stops and disconnects queued sources, and clears the queue. Late chunks and late completion messages cannot affect a newer run. `dispose()` also closes the device; create a new player after disposal.
 
@@ -45,13 +45,10 @@ Main cancels model generation separately from renderer playback. The MLX speech 
 
 ## Verification
 
-Run `pnpm test:audio` for deterministic lifecycle and validation tests. Run `pnpm test:audio:native` for the real Electron check; it plays a saved greeting sample from `benchmarks/voice/results`. Native execution needs desktop access. It uses a temporary app profile, no keys or provider calls, and a muted output graph. No product test screen or runtime test endpoint is added.
+- `pnpm test:audio`: deterministic lifecycle, turn-taking and validation tests. No microphone, keys or provider calls.
+- `pnpm test:audio:native`: the real Electron playback path with a muted output graph and a temporary profile.
+  It needs desktop access.
+- `pnpm voice:report`: where the time went in recent spoken turns, from the timing log.
 
-Native result on M2 Pro / 16 GB:
-
-- Pocket's saved 3.76-second greeting completed in 3.804 seconds, with zero scheduling gaps and no pending sources after drain.
-- First nonzero signal observed in the graph after 46.5 ms. This excludes synthesis and does not measure sound at the speaker.
-- After Stop, graph silence was observed after 10.4 ms and remained silent through the follow-up check. The old run's chunk was rejected.
-- Disposal closed the audio context.
-
-Evidence: [local raw report](../benchmarks/voice/results/playback-DPiRxO/results.json). The test rechunks a WAV into 80 ms pieces with 20 ms delivery spacing; it does not reproduce Pocket's original streaming timing. Silence is polled at 10 ms intervals. One short test cannot establish sustained playback reliability, acoustic stop latency, or resource budgets.
+What these cannot show is how it sounds in a room: echo, other people talking near the microphone, and long
+hands-free sessions are checked by ear.

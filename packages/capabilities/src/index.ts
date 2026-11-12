@@ -24,6 +24,7 @@ export {
   readWorkspaceItem,
   renameWorkspaceItem,
   searchWorkspace,
+  setChecklistItem,
   toArtifactContent,
   workspaceCapabilities,
   writeWorkspaceArtifact,
@@ -45,6 +46,7 @@ export {
 export {
   ediPreferencesSchema,
   ediSetupCapabilities,
+  turnSetup,
   type EdiPreferences,
   type EdiSetupSnapshot,
 } from './builtins/edi-setup';

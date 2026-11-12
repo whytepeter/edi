@@ -18,13 +18,7 @@ const MAX_TOOLKIT_TOOLS = 60;
 export const COMPOSIO_USER_ID = 'edi';
 
 export type ComposioAccountStatus =
-  | 'INITIALIZING'
-  | 'INITIATED'
-  | 'ACTIVE'
-  | 'FAILED'
-  | 'EXPIRED'
-  | 'INACTIVE'
-  | 'REVOKED';
+  'INITIALIZING' | 'INITIATED' | 'ACTIVE' | 'FAILED' | 'EXPIRED' | 'INACTIVE' | 'REVOKED';
 
 export interface ComposioAccount {
   id: string;
@@ -97,7 +91,10 @@ export class ComposioAdapter {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new ComposioError(errorMessage(text) || `Composio returned ${response.status}.`, response.status);
+      throw new ComposioError(
+        errorMessage(text) || `Composio returned ${response.status}.`,
+        response.status,
+      );
     }
     return (await response.json()) as T;
   }
@@ -158,7 +155,9 @@ export class ComposioAdapter {
   }
 
   async account(id: string): Promise<ComposioAccount> {
-    return toAccount(await this.request<RawAccount>(`/connected_accounts/${encodeURIComponent(id)}`));
+    return toAccount(
+      await this.request<RawAccount>(`/connected_accounts/${encodeURIComponent(id)}`),
+    );
   }
 
   /** An active account for this toolkit made earlier (by this or another Edi on the same key). */
@@ -234,19 +233,20 @@ export class ComposioAdapter {
     accountId: string,
     signal?: AbortSignal,
   ): Promise<{ successful: boolean; data: unknown; error: string | null }> {
-    const result = await this.request<{ successful?: boolean; data?: unknown; error?: string | null }>(
-      `/tools/execute/${encodeURIComponent(tool.slug)}`,
-      {
-        method: 'POST',
-        body: {
-          connected_account_id: accountId,
-          user_id: COMPOSIO_USER_ID,
-          arguments: args,
-          ...(tool.version ? { version: tool.version } : {}),
-        },
-        ...(signal ? { signal } : {}),
+    const result = await this.request<{
+      successful?: boolean;
+      data?: unknown;
+      error?: string | null;
+    }>(`/tools/execute/${encodeURIComponent(tool.slug)}`, {
+      method: 'POST',
+      body: {
+        connected_account_id: accountId,
+        user_id: COMPOSIO_USER_ID,
+        arguments: args,
+        ...(tool.version ? { version: tool.version } : {}),
       },
-    );
+      ...(signal ? { signal } : {}),
+    });
     return {
       successful: result.successful === true,
       data: result.data ?? null,

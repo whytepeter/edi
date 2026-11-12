@@ -34,6 +34,7 @@ export function skillCapabilities(
         },
         async execute() {
           const apps = appsFor(skill.apps);
+          const files = skill.trust === 'local' ? await library.files(skill.name) : null;
           const missing = apps.filter(app => !app.connected).map(app => app.name);
           const them = missing.length === 1 ? 'it' : 'them';
           return {
@@ -43,6 +44,17 @@ export function skillCapabilities(
               by: skill.trust === 'fewerlabs' ? 'Fewerlabs' : 'the user',
               instructions: skill.body,
               ...(apps.length ? { apps } : {}),
+              // Files the instructions may refer to: reachable, where before only the
+              // instructions themselves came back.
+              ...(files
+                ? {
+                    files: {
+                      folder: files.folder,
+                      names: files.names,
+                      note: 'Read one with files_read (folder + name) when the instructions refer to it.',
+                    },
+                  }
+                : {}),
               // A skill that needs an app still works without it: say what's missing, offer it.
               ...(missing.length
                 ? {
@@ -122,6 +134,18 @@ export function skillCapabilities(
           fields: [
             { label: 'Skill', value: input.title },
             { label: 'Use when', value: input.description.slice(0, 300) },
+            // The review shows the start of long instructions; say so rather than imply it is all.
+            ...(input.instructions.length > 4000
+              ? [
+                  {
+                    label: 'Length',
+                    value: `${input.instructions.length.toLocaleString('en')} characters; the first 4,000 are shown`,
+                  },
+                ]
+              : []),
+            ...(existing
+              ? [{ label: 'Previous version', value: 'Kept beside it as SKILL.previous.md' }]
+              : []),
           ],
           body: input.instructions.slice(0, 4000),
         },

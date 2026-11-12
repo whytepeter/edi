@@ -102,16 +102,24 @@
   display: none;
 }
 /*
- * Glass windows with content (the card, the artifact window): the window is the surface. The
- * page adds a light tint so text stays legible over any desktop, keeps the specular rim from
- * .ds-card, and fades scroll edges into that tint rather than an opaque color.
+ * Windows with content (the card, the artifact window): the window is the surface. It paints
+ * its own sky under a layer of frost, keeps the specular rim from .ds-card, and fades scroll
+ * edges into the sky's pale blue. Glass inside the card blurs the sky and whatever scrolls
+ * beneath it.
  */
 :root[data-native-glass] .ds-card.glass-window {
   height: 100%;
   margin: 0;
   border-radius: var(--radius-glass-window);
-  background: var(--window-tint);
+  background:
+    linear-gradient(var(--sky-frost), var(--sky-frost)),
+    var(--sky-cloud) center / cover no-repeat,
+    var(--sky);
   box-shadow: none;
+}
+:root[data-native-glass] .glass-window .ds-group,
+:root[data-native-glass] .glass-window .ds-input {
+  background: var(--sky-panel);
 }
 :root[data-native-glass] .glass-window .ds-scroll-edge[data-edge='top'] {
   /* Denser than the window tint, so text scrolled under the header never reads through it. */
@@ -128,8 +136,7 @@
   /* The fill twice (about 99%): words under a menu item never read through it. Only the last
      layer may be a color, so the extra one is a flat gradient. */
   background:
-    var(--glass-sheen),
-    linear-gradient(var(--glass-thick-fill), var(--glass-thick-fill)),
+    var(--glass-sheen), linear-gradient(var(--glass-thick-fill), var(--glass-thick-fill)),
     var(--glass-thick-fill);
 }
 :root[data-native-glass] .glass-window .ds-scroll-edge[data-edge='bottom'] {

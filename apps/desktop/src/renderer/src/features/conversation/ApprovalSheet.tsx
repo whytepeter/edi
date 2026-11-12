@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApprovalRequest } from '@edi/contracts';
 import { ApprovalCard, type ApprovalDecision } from '../../components/approval/ApprovalCard';
+import { ApprovalReview } from '../../components/approval/ApprovalReview';
 import './approval.css';
 
 /** Guards against a click or keystroke that was already in flight when the sheet appeared. */
@@ -65,30 +66,7 @@ export function ApprovalSheet({ approval }: { approval: ApprovalRequest }) {
           titleId={titleId}
           onRespond={decision => void respond(decision)}
         >
-          {(preview.fields.length > 0 || preview.body) && (
-            <div className="approval-review">
-              {preview.fields.length > 0 && (
-                <dl className="approval-fields">
-                  {preview.fields.map(field => (
-                    <div key={field.label}>
-                      <dt>{field.label}</dt>
-                      <dd>{field.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-              {preview.body && (
-                <pre
-                  id={summaryId}
-                  className="approval-body"
-                  aria-label="What will change"
-                  tabIndex={0}
-                >
-                  {preview.body}
-                </pre>
-              )}
-            </div>
-          )}
+          <ApprovalReview preview={preview} bodyId={summaryId} />
         </ApprovalCard>
       </div>
     </div>

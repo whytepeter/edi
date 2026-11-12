@@ -4,6 +4,7 @@
 
 - signed with a Developer ID certificate,
 - with hardened runtime on,
+- with Electron's risky fuses off (see below),
 - notarized by Apple, with the ticket stapled,
 - as a `.dmg` and a `.zip` in `apps/desktop/release/` (Apple silicon).
 
@@ -48,6 +49,20 @@ pnpm --filter @edi/desktop release
 Notarization usually takes a few minutes, occasionally longer. Before sharing a build, test the `.dmg` on a Mac that has never run Edi:
 - it opens without a "can't be verified" warning,
 - it asks for the microphone, Screen Recording, Calendar and Reminders when first needed.
+
+## Fuses
+
+Edi holds Screen Recording, Microphone and Calendar access, and macOS grants those to Edi's signed binary. A release flips these [Electron fuses](https://www.electronjs.org/docs/latest/tutorial/fuses) before signing, so nothing else can borrow that access by starting Edi's binary in another way:
+
+| Fuse | Release | Why |
+| --- | --- | --- |
+| `runAsNode` | off | `ELECTRON_RUN_AS_NODE=1` would run any script as Edi. Edi starts its tool servers with `npx`/`uvx`, never as itself. |
+| `enableNodeOptionsEnvironmentVariable` | off | `NODE_OPTIONS` could load code into Edi at start. |
+| `enableNodeCliInspectArguments` | off | `--inspect` would attach a debugger to Edi's main process. |
+| `onlyLoadAppFromAsar` | on | Edi loads only its own `app.asar`, never a loose `app` folder put beside it. |
+| `enableEmbeddedAsarIntegrityValidation` | on | `app.asar` must match the hash electron-builder records in `Info.plist`. |
+
+Local `pnpm package` builds leave the fuses alone: Playwright attaches to the packaged app with `--inspect` for `tests/perf/resources.mjs` and the desktop tests. Check a release with `npx @electron/fuses read --app apps/desktop/release/mac-arm64/Edi.app`.
 
 ## What is signed, and why
 

@@ -29,13 +29,16 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
   document.getElementById('count').onclick = () => {
     document.getElementById('count').textContent = 'Count ' + ++clicks;
   };
-  fetch('https://example.com/edi-probe')
+  // Built at runtime: saving refuses a page that names an http(s) URL, and this page reaches for
+  // the network on purpose so that the sandbox, not that check, is what stops it.
+  const remote = ['https:', '', 'example.com', 'edi-probe'].join('/');
+  fetch(remote)
     .then(() => (out.fetch = 'open'), () => (out.fetch = 'blocked'))
     .finally(() => {
       const image = new Image();
       image.onload = () => finish('open');
       image.onerror = () => finish('blocked');
-      image.src = 'https://example.com/edi-probe.png';
+      image.src = remote + '.png';
     });
   function finish(image) {
     out.image = image;
@@ -123,7 +126,8 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     updatedAt: 5,
   });
   // A document, exported to PDF and Markdown.
-  const markdown = '# Launch plan\n\n- Ship the beta\n- Tell the testers\n\n| Step | Owner |\n| --- | --- |\n| QA | Ada |';
+  const markdown =
+    '# Launch plan\n\n- Ship the beta\n- Tell the testers\n\n| Step | Owner |\n| --- | --- |\n| QA | Ada |';
   repositories.toolCalls.create({
     id: documentId,
     runId,
@@ -138,7 +142,13 @@ const page = `<!doctype html><html lang="en"><head><title>Probe</title></head><b
     documentId,
     'succeeded',
     'Showed “Launch plan”.',
-    { shown: true, kind: 'document', title: 'Launch plan', path: 'Artifacts/Reports/x.md', bytes: 90 },
+    {
+      shown: true,
+      kind: 'document',
+      title: 'Launch plan',
+      path: 'Artifacts/Reports/x.md',
+      bytes: 90,
+    },
     7,
   );
   repositories.artifacts.add({
@@ -305,9 +315,13 @@ try {
     return readFile(join(exportsFolder, file));
   };
   await artifact.getByRole('button', { name: 'Export' }).click();
-  await expect(
-    artifact.getByRole('menu', { name: 'Export as' }).getByRole('menuitem'),
-  ).toHaveText(['PNG image', 'SVG image', 'PDF', 'Mermaid source', 'Export to…']);
+  await expect(artifact.getByRole('menu', { name: 'Export as' }).getByRole('menuitem')).toHaveText([
+    'PNG image',
+    'SVG image',
+    'PDF',
+    'Mermaid source',
+    'Export to…',
+  ]);
   // Escape closes the menu, not the window.
   await artifact.keyboard.press('Escape');
   await expect(artifact.getByRole('menu')).toHaveCount(0);
@@ -319,7 +333,9 @@ try {
   expect(svg).toMatch(/^<\?xml[^>]*>\n<svg[^>]*width="\d+"/);
   expect(svg).toContain('Database');
   expect((await exportAs('PDF', 'Architecture.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
-  expect((await exportAs('Mermaid source', 'Architecture.mmd')).toString()).toContain('flowchart LR');
+  expect((await exportAs('Mermaid source', 'Architecture.mmd')).toString()).toContain(
+    'flowchart LR',
+  );
   // A second export of the same format never replaces the first.
   await exportAs('PNG image', 'Architecture 2.png');
 

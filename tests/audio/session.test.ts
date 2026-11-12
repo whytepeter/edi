@@ -21,7 +21,8 @@ function session(mode: VoiceMode) {
       return state;
     },
     event(
-      type: Simple | 'speech-detected' | 'release' | 'converse' | 'idle-timeout' | 'failed',
+      type:
+        Simple | 'speech-detected' | 'release' | 'converse' | 'idle-timeout' | 'failed' | 'typed',
       generation = state.generation,
     ) {
       return apply({ type, generation });
@@ -72,6 +73,22 @@ test('a hands-free conversation keeps the microphone open between turns', () => 
   assert.deepEqual(s.reply('reply-ended'), []);
   assert.equal(s.state.phase, 'listening');
   assert.equal(s.state.generation, generation, 'same microphone session');
+});
+
+test('typing into a conversation is a turn; over a reply, the reply gives way', () => {
+  const s = session('conversation');
+  s.event('capture-ready');
+  assert.deepEqual(s.event('typed'), ['submit-turn']);
+  assert.equal(s.state.phase, 'processing');
+  assert.equal(s.state.turn, 1);
+  s.reply('reply-started');
+  assert.deepEqual(s.event('typed'), ['cancel-reply', 'submit-turn']);
+  assert.equal(s.state.turn, 2);
+  assert.equal(s.state.interrupting, false);
+  // Only a conversation takes typed turns.
+  const hold = session('push-to-talk');
+  hold.event('capture-ready');
+  assert.deepEqual(hold.event('typed'), []);
 });
 
 test('talking over a reply pauses it; words cancel it and start the new request', () => {

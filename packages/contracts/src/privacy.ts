@@ -84,3 +84,24 @@ export function privacyReason(state: PrivacyState): string | null {
   if (state.paused === 'private-app') return 'An app the user keeps private is in front.';
   return null;
 }
+
+const voiceService: Record<string, string> = { cartesia: 'Cartesia', elevenlabs: 'ElevenLabs' };
+
+/**
+ * Where voice goes, for Settings → Privacy, from what is actually selected. Local recognition
+ * and a local voice stay on the Mac; a cloud choice sends that part to its service, and the page
+ * must say so rather than promise that everything stays put.
+ */
+export function voicePrivacyLines(voice: { model: string; input: string }): string[] {
+  const speaks = voiceService[voice.model];
+  const hears = voice.input === 'local' ? undefined : voiceService[voice.input];
+  if (!speaks && !hears) return ['Voice recordings, transcription and speech stay on this Mac.'];
+  return [
+    hears
+      ? `While you talk, your microphone audio goes to ${hears} to be turned into words.`
+      : 'What you say is turned into words on this Mac.',
+    speaks
+      ? `What Edi says aloud goes to ${speaks} as text to be spoken.`
+      : 'Edi’s voice is made on this Mac.',
+  ];
+}

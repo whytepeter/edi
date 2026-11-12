@@ -8,6 +8,8 @@
  *   floating — standalone windows over the desktop (menu, speech bubbles). CSS cannot
  *              blur the desktop behind a window, so these use native macOS vibrancy
  *              (see windows/factory.ts) and their page paints no glass of its own.
+ *   sky      — the card and content windows paint their own backdrop (--sky) under a frost
+ *              layer, so they look the same over any desktop.
  * Never stack light glass on light glass; legibility collapses.
  */
 /*
@@ -74,9 +76,23 @@
   --glass-inner-highlight: rgb(255 255 255 / 0.9);
   --glass-inner-shade: rgb(20 26 44 / 0.05);
   --glass-thick-fill: rgb(253 253 255 / 0.9);
-  /* Over native window glass: enough tint for legible text, light enough to stay glass. */
-  --window-tint: rgb(250 251 253 / 0.46);
-  --glass-edge-fill: rgb(248 249 252 / 0.9);
+  /*
+   * The sky: the card's own backdrop. A blue haze, strongest low on the left, clearing to
+   * near-white on the right, with faint cloud drifting across it. It is opaque, so the card
+   * looks the same over any desktop and never depends on macOS blurring what is behind it.
+   */
+  --sky:
+    radial-gradient(95% 85% at 0% 100%, #36acf0 0%, rgb(54 172 240 / 0) 72%),
+    radial-gradient(80% 70% at 0% 0%, #96ccf5 0%, rgb(150 204 245 / 0) 74%),
+    linear-gradient(100deg, #b0d9f6 0%, #d3e7f8 36%, #ebf2fb 70%, #f4f7fc 100%);
+  --sky-cloud: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0035 0.011' numOctaves='4' seed='11'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1.4 0 0 0 -0.74'/%3E%3CfeGaussianBlur stdDeviation='16'/%3E%3C/filter%3E%3Crect x='-450' y='-450' width='1800' height='1800' transform='rotate(-32 450 450)' filter='url(%23c)'/%3E%3C/svg%3E");
+  /* The frost over the sky. Content sits on this, as on a pane of glass. */
+  --sky-frost: rgb(255 255 255 / 0.16);
+  /* Where content scrolls out under the card's edges: the sky's own pale blue, not white fog. */
+  --window-tint: rgb(226 239 252 / 0.7);
+  --glass-edge-fill: rgb(226 239 252 / 0.5);
+  /* Panels and fields on the sky are white glass, not grey. */
+  --sky-panel: rgb(255 255 255 / 0.52);
   /* Specular rim: light catches the top-left edge, fades toward the bottom-right. */
   --rim-highlight: rgb(255 255 255 / 0.95);
   --rim-mid: rgb(255 255 255 / 0.18);
@@ -175,8 +191,16 @@
     --glass-inner-highlight: rgb(255 255 255 / 0.2);
     --glass-inner-shade: rgb(0 0 0 / 0.28);
     --glass-thick-fill: rgb(38 40 49 / 0.92);
-    --window-tint: rgb(28 30 37 / 0.42);
-    --glass-edge-fill: rgb(30 32 40 / 0.88);
+    /* The same sky after dark: deep blue low on the left, clearing to near-black. */
+    --sky:
+      radial-gradient(85% 75% at 0% 100%, #1d5c99 0%, rgb(29 92 153 / 0) 70%),
+      radial-gradient(70% 60% at 0% 0%, #24406d 0%, rgb(36 64 109 / 0) 72%),
+      linear-gradient(105deg, #1b2c49 0%, #192338 40%, #171b27 75%, #16181f 100%);
+    --sky-cloud: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0035 0.011' numOctaves='4' seed='11'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.36 0 0 0 -0.17'/%3E%3CfeGaussianBlur stdDeviation='16'/%3E%3C/filter%3E%3Crect x='-450' y='-450' width='1800' height='1800' transform='rotate(-32 450 450)' filter='url(%23c)'/%3E%3C/svg%3E");
+    --sky-frost: rgb(18 20 28 / 0.28);
+    --window-tint: rgb(22 28 42 / 0.7);
+    --glass-edge-fill: rgb(22 28 42 / 0.5);
+    --sky-panel: rgb(170 180 210 / 0.12);
     --rim-highlight: rgb(255 255 255 / 0.42);
     --rim-mid: rgb(255 255 255 / 0.06);
     --rim-shade: rgb(255 255 255 / 0.16);
@@ -194,7 +218,6 @@
     --glass-sheen: linear-gradient(transparent, transparent);
     --glass-fill-dense: rgb(250 251 253);
     --glass-blur-dense: none;
-    --window-tint: var(--content-base);
     --content-base: rgb(250 251 253);
     --glass-fill: rgb(240 242 247);
     --glass-fill-hover: rgb(232 235 242);
@@ -222,6 +245,8 @@
     --rim-mid: rgb(40 44 58 / 0.55);
     --rim-shade: rgb(40 44 58 / 0.55);
     --glass-blur: none;
+    /* A thicker frost: the sky recedes and text keeps its full contrast. */
+    --sky-frost: rgb(255 255 255 / 0.72);
   }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
@@ -232,6 +257,7 @@
     --rim-highlight: rgb(255 255 255 / 0.6);
     --rim-mid: rgb(255 255 255 / 0.6);
     --rim-shade: rgb(255 255 255 / 0.6);
+    --sky-frost: rgb(18 20 28 / 0.72);
   }
 }
 

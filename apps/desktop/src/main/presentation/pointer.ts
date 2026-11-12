@@ -6,12 +6,22 @@ type Display = PointTarget['display'];
 
 /** How long a pointer stays up unless something newer replaces it. */
 const POINTER_MS = 8000;
+/** While Edi is still speaking or the answer is still on show, checked this often. */
+const KEEP_CHECK_MS = 1000;
+/** However long the answer runs, a pointer never outstays this. */
+export const POINTER_MAX_MS = 45_000;
 
 interface PointerOptions {
   pet: BrowserWindow;
   /** The current character: where its hand is, and the pointer's colors. */
   character: () => CharacterManifest;
   create: (display: Display, params: Record<string, string>) => BrowserWindow;
+  /**
+   * True while the answer the pointer belongs to is still being spoken or read. The pointer
+   * stays for it: a fixed few seconds took the hand away halfway through a spoken explanation.
+   */
+  keepWhile?: () => boolean;
+  now?: () => number;
 }
 
 /**
@@ -56,7 +66,15 @@ export class PointerOverlay {
     win.once('ready-to-show', () => {
       if (this.window === win && !win.isDestroyed()) win.showInactive();
     });
-    this.timer = setTimeout(() => this.dismiss(), POINTER_MS + target.actions.length * 1500);
+    const now = this.options.now ?? Date.now;
+    const shownAt = now();
+    const leave = () => {
+      if (this.window !== win) return;
+      const outstayed = now() - shownAt >= POINTER_MAX_MS;
+      if (!outstayed && this.options.keepWhile?.()) this.timer = setTimeout(leave, KEEP_CHECK_MS);
+      else this.dismiss();
+    };
+    this.timer = setTimeout(leave, POINTER_MS + target.actions.length * 1500);
   }
 
   dismiss() {

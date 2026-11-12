@@ -1,5 +1,20 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { presentationText, type ArtifactRef, type ConversationSummary } from '@edi/contracts';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
+import {
+  presentationText,
+  type ArtifactRef,
+  type ChatMessage,
+  type ConversationSummary,
+  type ToolStep,
+} from '@edi/contracts';
 import { ReplyText } from '../../components/ReplyText';
 import { Button, EmptyState, Icon, IconButton, ThinkingDots } from '../../components/ui';
 import { ConversationList } from './ConversationList';
@@ -28,8 +43,56 @@ export function AgentPanel({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const error = commandError || loadError;
   const running = state.status === 'running';
+  // Turns from further back, fetched on request. They belong to the window of live turns they
+  // were fetched behind: when that window moves (a new turn, another conversation) they are
+  // dropped rather than left with a gap, and can be asked for again.
+  const firstLive = state.messages[0]?.id;
+  const [fetched, setFetched] = useState<{
+    behind: string | undefined;
+    messages: ChatMessage[];
+    more: boolean;
+  }>({ behind: undefined, messages: [], more: true });
+  const earlier = fetched.behind === firstLive ? fetched : { messages: [], more: true };
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  /** How far the view was from the bottom, so it stays put when turns appear above it. */
+  const fromBottom = useRef<number | null>(null);
+  // The live window is full, so there may be turns before it.
+  const canGoBack =
+    Boolean(firstLive) &&
+    earlier.more &&
+    (earlier.messages.length > 0 ||
+      state.messages.filter(message => message.role !== 'assistant').length >= 10);
+  async function showEarlier() {
+    const before = earlier.messages[0]?.id ?? firstLive;
+    if (!before || !window.edi || loadingEarlier) return;
+    setLoadingEarlier(true);
+    const thread = threadRef.current;
+    fromBottom.current = thread ? thread.scrollHeight - thread.scrollTop : null;
+    try {
+      const found = await window.edi.earlierMessages(before);
+      setFetched({
+        behind: firstLive,
+        messages: [...found.messages, ...earlier.messages],
+        more: found.more,
+      });
+    } catch {
+      fromBottom.current = null;
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }
+  useLayoutEffect(() => {
+    const thread = threadRef.current;
+    if (thread && fromBottom.current !== null)
+      thread.scrollTop = thread.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [earlier.messages.length]);
   const [browsing, setBrowsing] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
+  // Turns re-render only when their own content changes; these stay stable and act on the latest.
+  const latest = useRef({ onOpenArtifact, retry: () => {} });
+  const openArtifact = useCallback((ref: ArtifactRef) => latest.current.onOpenArtifact(ref), []);
+  const retry = useCallback(() => latest.current.retry(), []);
 
   // The list follows new questions, finished turns and switches.
   useEffect(() => {
@@ -95,6 +158,23 @@ export function AgentPanel({
       void send();
     }
   }
+
+  const lastAssistant = [...state.messages].reverse().find(message => message.role === 'assistant');
+  const lastUser = [...state.messages].reverse().find(message => message.role === 'user');
+  // Steps and a failure belong to the latest turn; its error already reads as Edi's reply.
+  const liveAssistantId = state.runId || running ? lastAssistant?.id : undefined;
+  const retryPrompt = state.prompt || lastUser?.text || '';
+  const failedId =
+    state.status === 'error' && retryPrompt && lastAssistant?.text === state.error
+      ? lastAssistant.id
+      : undefined;
+  const streamingId = running ? lastAssistant?.id : undefined;
+  useLayoutEffect(() => {
+    latest.current = {
+      onOpenArtifact,
+      retry: () => void command({ type: 'ask-agent', prompt: retryPrompt }),
+    };
+  });
 
   if (loading)
     return (
@@ -171,6 +251,14 @@ export function AgentPanel({
               : void switchTo({ type: 'open-conversation', id })
           }
           onNew={() => void switchTo({ type: 'new-conversation' })}
+          onRename={(id, title) =>
+            void command({ type: 'rename-conversation', id, title }).then(() =>
+              window.edi
+                ?.conversations()
+                .then(setConversations)
+                .catch(() => {}),
+            )
+          }
           onDelete={id =>
             void command({ type: 'delete-conversation', id }).then(() =>
               window.edi
@@ -182,17 +270,6 @@ export function AgentPanel({
         />
       </section>
     );
-
-  const lastAssistant = [...state.messages].reverse().find(message => message.role === 'assistant');
-  const lastUser = [...state.messages].reverse().find(message => message.role === 'user');
-  // Steps and a failure belong to the latest turn; its error already reads as Edi's reply.
-  const liveAssistantId = state.runId || running ? lastAssistant?.id : undefined;
-  const retryPrompt = state.prompt || lastUser?.text || '';
-  const failedId =
-    state.status === 'error' && retryPrompt && lastAssistant?.text === state.error
-      ? lastAssistant.id
-      : undefined;
-  const streamingId = running ? lastAssistant?.id : undefined;
 
   return (
     <section className="agent-panel" data-ready>
@@ -212,65 +289,55 @@ export function AgentPanel({
             </p>
           </div>
         )}
-        {state.messages.map(message => {
-          if (message.role === 'note')
-            return (
-              <p key={message.id} className="agent-note" role="note">
-                {message.text}
-              </p>
-            );
-          const pending = message.id === streamingId;
-          const body = message.role === 'assistant' ? presentationText(message.text) : message.text;
-          return (
-            <article
+        {/* Only the last few turns are kept live; the rest are fetched when asked for. */}
+        {canGoBack && (
+          <button
+            type="button"
+            className="agent-earlier"
+            disabled={loadingEarlier}
+            onClick={() => void showEarlier()}
+          >
+            {loadingEarlier ? 'Loading…' : 'Show earlier'}
+          </button>
+        )}
+        {earlier.messages.map(message =>
+          message.role === 'note' ? (
+            <p key={message.id} className="agent-note" role="note">
+              {message.text}
+            </p>
+          ) : (
+            <Turn
               key={message.id}
-              className="agent-turn"
-              data-role={message.role}
-              data-pending={pending || undefined}
-            >
-              {(body || pending || !message.artifacts?.length) && (
-                <div className="agent-bubble">
-                  {message.role === 'assistant' && pending && !body ? (
-                    <ThinkingDots />
-                  ) : (
-                    <p className="agent-bubble-text">
-                      {message.role === 'assistant' ? <ReplyText text={body} /> : body}
-                      {pending && body ? <span className="agent-caret" aria-hidden="true" /> : null}
-                    </p>
-                  )}
-                </div>
-              )}
-              {message.artifacts?.map(artifact => (
-                <ArtifactCard
-                  key={artifact.id}
-                  artifact={artifact}
-                  onOpen={() =>
-                    onOpenArtifact(
-                      artifact.noteId && !pending
-                        ? { noteId: artifact.noteId }
-                        : { callId: artifact.id },
-                    )
-                  }
-                />
-              ))}
-              {message.id === liveAssistantId ? (
-                <ActionTrail steps={state.steps} working={running} />
-              ) : (
-                message.steps && <ActionTrail steps={message.steps} working={false} />
-              )}
-              {message.id === failedId && (
-                <Button
-                  size="small"
-                  className="agent-retry"
-                  disabled={busy || running}
-                  onClick={() => void command({ type: 'ask-agent', prompt: retryPrompt })}
-                >
-                  Try again
-                </Button>
-              )}
-            </article>
-          );
-        })}
+              message={message}
+              pending={false}
+              steps={undefined}
+              working={false}
+              failed={false}
+              retryDisabled
+              onRetry={retry}
+              onOpenArtifact={openArtifact}
+            />
+          ),
+        )}
+        {state.messages.map(message =>
+          message.role === 'note' ? (
+            <p key={message.id} className="agent-note" role="note">
+              {message.text}
+            </p>
+          ) : (
+            <Turn
+              key={message.id}
+              message={message}
+              pending={message.id === streamingId}
+              steps={message.id === liveAssistantId ? state.steps : message.steps}
+              working={message.id === liveAssistantId && running}
+              failed={message.id === failedId}
+              retryDisabled={busy || running}
+              onRetry={retry}
+              onOpenArtifact={openArtifact}
+            />
+          ),
+        )}
         {state.error && !running && !failedId && (
           <p role="alert" className="agent-error">
             {state.error}
@@ -371,4 +438,87 @@ export function AgentPanel({
       </p>
     </section>
   );
+}
+
+interface TurnProps {
+  message: ChatMessage;
+  /** The reply being written right now. */
+  pending: boolean;
+  steps: readonly ToolStep[] | undefined;
+  working: boolean;
+  failed: boolean;
+  retryDisabled: boolean;
+  onRetry(): void;
+  onOpenArtifact(ref: ArtifactRef): void;
+}
+
+/**
+ * One question or reply. Messages arrive as new objects with every update, so a turn compares
+ * what it shows: while a reply streams, only that reply renders again.
+ */
+const Turn = memo(function Turn({
+  message,
+  pending,
+  steps,
+  working,
+  failed,
+  retryDisabled,
+  onRetry,
+  onOpenArtifact,
+}: TurnProps) {
+  const body = message.role === 'assistant' ? presentationText(message.text) : message.text;
+  return (
+    <article className="agent-turn" data-role={message.role} data-pending={pending || undefined}>
+      {(body || pending || !message.artifacts?.length) && (
+        <div className="agent-bubble">
+          {message.role === 'assistant' && pending && !body ? (
+            <ThinkingDots />
+          ) : (
+            <p className="agent-bubble-text">
+              {message.role === 'assistant' ? <ReplyText text={body} /> : body}
+              {pending && body ? <span className="agent-caret" aria-hidden="true" /> : null}
+            </p>
+          )}
+        </div>
+      )}
+      {message.artifacts?.map(artifact => (
+        <ArtifactCard
+          key={artifact.id}
+          artifact={artifact}
+          onOpen={() =>
+            onOpenArtifact(
+              artifact.noteId && !pending ? { noteId: artifact.noteId } : { callId: artifact.id },
+            )
+          }
+        />
+      ))}
+      {steps && <ActionTrail steps={steps} working={working} />}
+      {failed && (
+        <Button size="small" className="agent-retry" disabled={retryDisabled} onClick={onRetry}>
+          Try again
+        </Button>
+      )}
+    </article>
+  );
+}, sameTurn);
+
+function sameTurn(a: TurnProps, b: TurnProps) {
+  return (
+    a.message.id === b.message.id &&
+    a.message.role === b.message.role &&
+    a.message.text === b.message.text &&
+    a.pending === b.pending &&
+    a.working === b.working &&
+    a.failed === b.failed &&
+    a.retryDisabled === b.retryDisabled &&
+    a.onRetry === b.onRetry &&
+    a.onOpenArtifact === b.onOpenArtifact &&
+    sameData(a.message.artifacts, b.message.artifacts) &&
+    sameData(a.steps, b.steps)
+  );
+}
+
+/** Small lists (at most 6 artifacts, 40 steps): comparing their JSON is cheaper than a render. */
+function sameData(a: unknown, b: unknown) {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
 }

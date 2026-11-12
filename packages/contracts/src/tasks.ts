@@ -21,7 +21,9 @@ export const taskStatusSchema = z.enum([
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
 /** Dollars a single task may spend on OpenRouter; the person's default lives in Settings. */
-export const taskBudgetSchema = z.number().min(0.05).max(50);
+/** The most one task may ever be allowed to spend, however often its cap is raised. */
+export const maxTaskBudgetUsd = 50;
+export const taskBudgetSchema = z.number().min(0.05).max(maxTaskBudgetUsd);
 export const defaultTaskBudgetUsd = 0.5;
 
 export const taskSchema = z

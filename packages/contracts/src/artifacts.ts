@@ -3,7 +3,9 @@ import { z } from 'zod';
 /**
  * Content Edi shows instead of reading out. Structured kinds are plain data drawn by Edi's own
  * components; a `diagram` is Mermaid text (https://mermaid.js.org) drawn by the bundled Mermaid
- * in strict mode, so a follow-up edits the same text. `html` is the exception for interaction or visuals those kinds cannot express:
+ * in strict mode, so a follow-up edits the same text. A `view` is generated interface: figures,
+ * progress, charts, choices, fields and buttons drawn by Edi's own components, where a tap asks
+ * Edi for the next step. `html` is the exception for interaction or visuals those kinds cannot express:
  * it is untrusted, served by main with a strict sandbox, and never rendered inside Edi's UI.
  * A summary travels with the conversation; the full content is fetched when it is opened.
  */
@@ -13,11 +15,88 @@ export const artifactKindSchema = z.enum([
   'checklist',
   'table',
   'diagram',
+  'view',
   'html',
 ]);
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 
 const title = z.string().trim().min(1).max(120);
+
+/**
+ * One piece of a `view`. A single flat shape (rather than one per type) keeps the tool schema
+ * the model reads on every turn small; `viewBlockProblem` says what each type needs.
+ *
+ * - heading, text: `text`
+ * - stat: `text` (label) and `value`, with an optional `detail`; stats in a row sit side by side
+ * - progress: `text` and `values[0]` from 0 to 1
+ * - list: `items`, with an optional `text` heading
+ * - chart: `items` (labels) and `values`, as `bar`, `line` or `ring`
+ * - choice: `items` (options to tap), with an optional `text` question
+ * - input: `text` (label), with an optional `value` to start from
+ * - button: `text` (label)
+ * - divider: nothing
+ *
+ * `ask` on a choice or button is what the person is asking Edi when they tap it.
+ */
+export const viewBlockTypes = [
+  'heading',
+  'text',
+  'stat',
+  'progress',
+  'list',
+  'chart',
+  'choice',
+  'input',
+  'button',
+  'divider',
+] as const;
+export const viewBlockSchema = z
+  .object({
+    type: z.enum(viewBlockTypes),
+    text: z.string().trim().max(400).optional(),
+    value: z.string().trim().max(60).optional(),
+    detail: z.string().trim().max(200).optional(),
+    items: z.array(z.string().trim().min(1).max(160)).max(12).optional(),
+    values: z.array(z.number().finite()).max(12).optional(),
+    style: z.enum(['bar', 'line', 'ring']).optional(),
+    ask: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+export type ViewBlock = z.infer<typeof viewBlockSchema>;
+
+/** Why a block can't be drawn, in words the model can act on; null when it can. */
+export function viewBlockProblem(block: ViewBlock): string | null {
+  const { type, text, value, items = [], values = [] } = block;
+  if ((type === 'heading' || type === 'text' || type === 'button' || type === 'input') && !text)
+    return `A ${type} needs \`text\`.`;
+  if (type === 'stat' && (!text || !value)) return 'A stat needs `text` (its label) and `value`.';
+  if (type === 'progress' && (!text || !(values[0]! >= 0 && values[0]! <= 1)))
+    return 'A progress bar needs `text` and `values: [fraction]` between 0 and 1.';
+  if ((type === 'list' || type === 'choice') && !items.length) return `A ${type} needs \`items\`.`;
+  if (type === 'chart' && (!items.length || items.length !== values.length))
+    return 'A chart needs `items` (labels) and the same number of `values`.';
+  if (type === 'chart' && values.some(number => number < 0))
+    return 'Chart values cannot be negative.';
+  return null;
+}
+
+/**
+ * What a tap asks Edi: the block's `ask` (or its own words), the option tapped, and whatever
+ * the person typed into the view's fields. It is sent as their next message.
+ */
+export function viewAsk(
+  block: ViewBlock,
+  option: string | null,
+  fields: readonly { label: string; value: string }[] = [],
+): string {
+  const base = block.ask ?? block.text ?? '';
+  const asked = option === null ? base : block.ask ? `${block.ask} ${option}` : option;
+  const filled = fields
+    .filter(field => field.value.trim())
+    .map(field => `${field.label}: ${field.value.trim()}`)
+    .join('; ');
+  return `${asked}${filled ? ` (${filled})` : ''}`.trim().slice(0, 8_000);
+}
 
 /** What Edi may display. Notes are shown by id and read from the Library at open time. */
 export const artifactContentSchema = z.discriminatedUnion('kind', [
@@ -54,6 +133,22 @@ export const artifactContentSchema = z.discriminatedUnion('kind', [
       kind: z.literal('diagram'),
       title,
       mermaid: z.string().trim().min(1).max(20_000).describe('The diagram, in Mermaid syntax'),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('view'),
+      title,
+      blocks: z
+        .array(viewBlockSchema)
+        .min(1)
+        .max(40)
+        .superRefine((blocks, context) => {
+          blocks.forEach((block, index) => {
+            const problem = viewBlockProblem(block);
+            if (problem) context.addIssue({ code: 'custom', path: [index], message: problem });
+          });
+        }),
     })
     .strict(),
   z
@@ -138,6 +233,10 @@ export function artifactExport(content: ArtifactContent | Artifact) {
   }
   if (content.kind === 'html')
     return { copy: content.html, extension: 'html', file: content.html } as const;
+  if (content.kind === 'view') {
+    const markdown = `# ${content.title}\n\n${viewMarkdown(content.blocks)}\n`;
+    return { copy: markdown, extension: 'md', file: markdown } as const;
+  }
   // Copied as a fenced block so it renders when pasted into GitHub, Notion or Obsidian.
   if (content.kind === 'diagram')
     return {
@@ -146,6 +245,26 @@ export function artifactExport(content: ArtifactContent | Artifact) {
       file: `${content.mermaid}\n`,
     } as const;
   return { copy: content.markdown, extension: 'md', file: `${content.markdown}\n` } as const;
+}
+
+/** A view as Markdown: what it says, without what could be tapped. */
+export function viewMarkdown(blocks: readonly ViewBlock[]) {
+  return blocks
+    .flatMap(block => {
+      const { type, text = '', value = '', detail = '', items = [], values = [] } = block;
+      if (type === 'heading') return [`## ${text}`];
+      if (type === 'text') return [text];
+      if (type === 'stat') return [`- **${text}:** ${value}${detail ? ` (${detail})` : ''}`];
+      if (type === 'progress') return [`- ${text}: ${Math.round((values[0] ?? 0) * 100)}%`];
+      if (type === 'list')
+        return [...(text ? [`**${text}**`] : []), ...items.map(item => `- ${item}`)];
+      if (type === 'chart') return items.map((item, index) => `- ${item}: ${values[index]}`);
+      if (type === 'choice') return [...(text ? [text] : []), ...items.map(item => `- ${item}`)];
+      if (type === 'input') return [`- ${text}: ${value}`];
+      if (type === 'divider') return ['---'];
+      return [];
+    })
+    .join('\n');
 }
 
 /**
@@ -162,6 +281,7 @@ export const exportFormats: Record<ArtifactKind, readonly ExportFormat[]> = {
   checklist: ['pdf', 'md'],
   table: ['csv', 'pdf', 'md'],
   diagram: ['png', 'svg', 'pdf', 'mmd'],
+  view: ['md'],
   html: ['html'],
 };
 
@@ -256,6 +376,12 @@ export function artifactPreview(content: ArtifactContent | { kind: 'note'; markd
   else if (content.kind === 'table')
     text = [content.columns.join(' · '), ...content.rows.map(row => row.join(' · '))].join('\n');
   else if (content.kind === 'diagram') text = diagramPreview(content.mermaid);
+  else if (content.kind === 'view')
+    text = viewMarkdown(content.blocks)
+      .replace(/^#+\s+|\*\*|^---$/gm, '')
+      .replace(/^- /gm, '• ')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
   else
     text = content.markdown
       .split('\n')

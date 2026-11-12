@@ -66,6 +66,13 @@
   animation: edi-look-around 7.2s ease-in-out infinite;
 }
 
+/* The eyes follow the pointer (useGaze sets --gaze-x/y on the pet and data-gaze while it does).
+   `translate` is separate from `transform`, so the mood poses below still apply on top. */
+.character-live[data-gaze] [data-part='pupils'] {
+  animation: none;
+  translate: var(--gaze-x, 0px) var(--gaze-y, 0px);
+}
+
 /* ---------- What Edi is doing ---------- */
 /* Listening and thinking already show in the bubble, so only the eyes change. */
 .pet-art[data-expression='listening'] [data-part='pupils'] {

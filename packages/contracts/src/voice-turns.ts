@@ -88,6 +88,8 @@ export class SpeechActivity {
   private voices = 0;
   /** With a voice detector: how loud the person is in this turn, after noise. */
   private speaker = 0;
+  /** With a voice detector: voice heard while a turn may be starting, learned only if none does. */
+  private unclaimed: number[] = [];
   private readonly detector: boolean;
   private voicedMs = 0;
   private silentMs = 0;
@@ -121,6 +123,7 @@ export class SpeechActivity {
     this.voicedMs = 0;
     this.silentMs = 0;
     this.speaker = 0;
+    this.unclaimed = [];
   }
 
   /**
@@ -159,7 +162,27 @@ export class SpeechActivity {
         }
       }
     }
+    if (this.detector) this.learnVoices(rms, edisSpeaking, voice);
     return events;
+  }
+
+  /**
+   * Other voices in the room are learned from voice that started no turn. Voice building toward
+   * a turn waits to see: if a turn starts it was the person, whose own first words must not raise
+   * the bar for their next turn (they did, and from the third turn on someone speaking at their
+   * usual level was no longer heard).
+   */
+  private learnVoices(rms: number, edisSpeaking: boolean, voice: boolean) {
+    if (this.inSpeech) {
+      this.unclaimed = [];
+      return;
+    }
+    if (edisSpeaking) return;
+    if (!voice) this.voices *= 0.999;
+    else this.unclaimed.push(Math.sqrt(Math.max(0, rms * rms - this.noise * this.noise)));
+    if (this.voicedMs > 0) return;
+    for (const excess of this.unclaimed.splice(0))
+      this.voices += (Math.min(excess, 0.3) - this.voices) * 0.02;
   }
 
   /** Loudness alone: over an adaptive noise floor. */
@@ -190,10 +213,6 @@ export class SpeechActivity {
     const clear = !edisSpeaking || rms > Math.max(0.03, this.noise * 6);
     const voiced = voice && clear && excess > needed;
     if (!voice) this.noise += (Math.min(rms, 0.2) - this.noise) * (rms > this.noise ? 0.02 : 0.05);
-    if (!this.inSpeech && !edisSpeaking) {
-      if (voice) this.voices += (Math.min(excess, 0.3) - this.voices) * 0.02;
-      else this.voices *= 0.999;
-    }
     if (voiced)
       this.speaker = this.speaker ? this.speaker + (excess - this.speaker) * 0.05 : excess;
     return voiced;

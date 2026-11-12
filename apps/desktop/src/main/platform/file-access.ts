@@ -11,10 +11,13 @@ const settingsUrls = {
   'full-disk': 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles',
 } as const;
 
+/** Folders a person may add; one more than this used to save, then reset them all on load. */
+const MAX_ADDED_FOLDERS = 30;
+
 const stored = z.object({
   /** Last known answer per folder path; absent means not checked yet. */
   access: z.record(z.string(), z.enum(['allowed', 'off'])).default({}),
-  added: z.array(z.string()).max(30).default([]),
+  added: z.array(z.string()).max(MAX_ADDED_FOLDERS).default([]),
 });
 
 const denied = (error: unknown) =>
@@ -184,7 +187,13 @@ export class FileAccessManager {
       if (!picked.canceled && path && (await stat(path)).isDirectory()) {
         if (path === this.home || path === '/')
           throw new Error('Choose a specific folder, not your whole home folder or disk.');
-        if (!this.folders().some(folder => folder.path === path)) this.state.added.push(path);
+        if (!this.folders().some(folder => folder.path === path)) {
+          if (this.state.added.length >= MAX_ADDED_FOLDERS)
+            throw new Error(
+              `Edi can use up to ${MAX_ADDED_FOLDERS} added folders. Remove one, then add this one.`,
+            );
+          this.state.added.push(path);
+        }
         // Chosen in the open panel, so macOS already allows it.
         this.state.access[path] = 'allowed';
         await this.save();

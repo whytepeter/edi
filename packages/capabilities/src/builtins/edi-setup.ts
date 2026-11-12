@@ -42,7 +42,8 @@ export interface EdiSetupSnapshot {
     /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
     privacy: { lookingAtScreen: boolean; reason: string | null };
     /** What Edi remembers about the person, and whether it may keep more (Settings → Memory). */
-    memory: { remembering: boolean; items: string[] };
+    /** `notShown`: more are kept than fit here (Settings → Memory lists them all). */
+    memory: { remembering: boolean; items: string[]; notShown?: number };
     pushToTalk: { status: string; shortcut: string };
   };
   workspace: {
@@ -75,6 +76,33 @@ export interface EdiSetupSnapshot {
   abilities: { name: string; asksFirst: boolean }[];
   /** Planned features that do not exist yet. Never claim these work. */
   notYetAvailable: string[];
+}
+
+/** Where the full lists are, for the model: they are left out of each question's setup. */
+export const fullSetupNote =
+  'Every ability, voice, character and skill (with ids) is in edi_inspect_setup; call it before ' +
+  'changing a voice, character or skill, or when asked what Edi can do.';
+
+/**
+ * The setup that goes with every question: what changes between turns and answers most
+ * questions about Edi. The long lists (every ability, voice and character, and skills, whose
+ * switched-on ones the system prompt already names) stay behind edi_inspect_setup. They were
+ * well over half of a setup sent, uncached, with every question.
+ */
+export function turnSetup(snapshot: EdiSetupSnapshot) {
+  const {
+    abilities: _abilities,
+    availableVoices: _voices,
+    availableCharacters: _characters,
+    skills: _skills,
+    connectors,
+    ...rest
+  } = snapshot;
+  return {
+    ...rest,
+    connectors: connectors.filter(connector => connector.active),
+    more: fullSetupNote,
+  };
 }
 
 /** Edi's own reversible preferences. Secrets and connections are deliberately absent. */

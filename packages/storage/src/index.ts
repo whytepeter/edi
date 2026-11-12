@@ -16,6 +16,7 @@ export {
   type Repositories,
   type NoteRecord,
   type ArtifactRecord,
+  type ArtifactSummaryRecord,
   type ConversationRecord,
   type ConversationMatch,
   type TaskRecord,

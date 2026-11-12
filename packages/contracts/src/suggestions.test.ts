@@ -1,11 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  appInFront,
-  suggestNow,
-  suggestionCooldownMs,
-  type SuggestionMoment,
-} from './suggestions';
+import { appInFront, suggestNow, suggestionCooldownMs, type SuggestionMoment } from './suggestions';
 
 const moment = (over: Partial<SuggestionMoment> = {}): SuggestionMoment => ({
   app: { bundleId: 'com.apple.Safari', name: 'Safari' },
@@ -21,7 +16,10 @@ const moment = (over: Partial<SuggestionMoment> = {}): SuggestionMoment => ({
 });
 
 test('the app in front is read from its bundle id, or the site in a browser', () => {
-  assert.equal(appInFront(moment({ app: { bundleId: 'com.tinyspeck.slackmacgap', name: 'Slack' } })), 'slack');
+  assert.equal(
+    appInFront(moment({ app: { bundleId: 'com.tinyspeck.slackmacgap', name: 'Slack' } })),
+    'slack',
+  );
   assert.equal(appInFront(moment({ host: 'github.com' })), 'github');
   assert.equal(appInFront(moment({ host: 'www.linkedin.com' })), 'linkedin');
   assert.equal(appInFront(moment({ host: 'news.ycombinator.com' })), null);

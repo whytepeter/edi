@@ -10,7 +10,9 @@ import {
 import {
   emptyAgentState,
   groundPresentation,
+  canAlwaysAllow,
   parsePresentation,
+  screenMoved,
   modelIdSchema,
   resolvePresentation,
   ruleAllows,
@@ -36,6 +38,7 @@ import {
   type HostMessage,
   type WorkerInput,
 } from './worker-protocol';
+import { QUICK_TOOLS } from './quick-tools';
 
 /** Wall-clock budget for a run, excluding time spent waiting for a person to decide. */
 const RUN_BUDGET_MS = 120_000;
@@ -43,14 +46,23 @@ const RUN_BUDGET_MS = 120_000;
 export const WRAP_UP_MS = 30_000;
 /** Conversation context: completed exchanges sent with each request. */
 const HISTORY_TURNS = 10;
+/** Turns fetched each time the person asks to see further back. */
+const EARLIER_TURNS = 10;
 const MAX_TEXT = 32_000;
 const MAX_STEPS_SHOWN = 20;
 /** How long a finished reply waits for on-screen text before pointing without it. */
 const GROUNDING_WAIT_MS = 1500;
 /** The longest a question waits for the app, window, page and selection in front. */
 const CONTEXT_WAIT_MS = 2_000;
+/** How long pointing waits to learn what is in front now; past this it points as before. */
+const FRONT_CHECK_MS = 800;
 /** A conversation Edi picked up by itself is continued only within this long of its last turn. */
 const FRESH_MS = 2 * 60 * 60 * 1000;
+/** How far back “you’ve allowed this before” looks. */
+const ALLOWED_BEFORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/** A worker loaded ahead of a question is dropped after this long unused (it holds ~37 MiB). */
+export const SPARE_IDLE_MS = 60_000;
+const WORKER_ENTRY = () => join(__dirname, 'agent-worker.js');
 
 interface AgentServiceOptions {
   credentials: OpenRouterCredentials;
@@ -63,12 +75,19 @@ interface AgentServiceOptions {
   screenPermissionRequired?: () => void;
   /** A finished reply pointed at something on screen (global logical coordinates). */
   point?: (target: PointTarget) => void;
+  /**
+   * The reply wanted to point, but what was in front when the question was asked is not in
+   * front any more, so the positions would land on something else.
+   */
+  pointSkipped?: () => void;
   /** Live, non-secret Edi configuration for identity and setup questions. */
-  selfContext?: () => string;
+  selfContext?: (question: string) => string;
   /** Switched-on skills the model can pick from. */
   skills?: () => { name: string; description: string }[];
   /** The companion's current name (the person's choice, or its character's). */
   assistantName?: () => string;
+  /** The selected character's manner of speaking. */
+  persona?: () => string;
   /**
    * The least reasoning the model allows, for spoken turns: thinking before the first word is
    * most of the wait in a voice reply. Undefined keeps the model's default.
@@ -122,7 +141,8 @@ export class AgentService {
   private cachedArtifacts = new Map<string, ArtifactSummary[]>();
   private cachedSteps = new Map<string, ToolStep[]>();
   /** Set while screens are being captured, so a second ask or a Stop is handled. */
-  private starting?: object;
+  /** A turn that is gathering its screens and has no worker yet; it already knows how it was asked. */
+  private starting?: { spoken: boolean };
   private configuring = false;
   private readonly listeners = new Set<(state: AgentState) => void>();
   private readonly approvals = new ApprovalQueue(
@@ -138,6 +158,8 @@ export class AgentService {
   private readonly allowedInConversation = new Map<string, Set<string>>();
   private readonly broker: CapabilityBroker;
   private readonly stepRecorder: ToolCallRecorder;
+  /** A worker that has loaded the SDK and waits, without a key, for the next question. */
+  private spare?: { worker: Worker; timer: ReturnType<typeof setTimeout> };
 
   constructor(private readonly options: AgentServiceOptions) {
     this.stepRecorder = this.recorder();
@@ -230,7 +252,7 @@ export class AgentService {
     if (this.configuring || !credentials.configured) throw new Error('Set up OpenRouter first.');
     if (this.run || this.starting) throw new Error('A response is already running.');
 
-    const starting = {};
+    const starting = { spoken: options.spoken === true };
     this.starting = starting;
     const conversationId = this.conversationFor(prompt, options.conversationId);
     this.update({
@@ -291,6 +313,7 @@ export class AgentService {
       apiKey: credentials.apiKey,
       model,
       name: this.options.assistantName?.() ?? 'Edi',
+      persona: this.options.persona?.() ?? '',
       prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS, conversationId),
       screenshots: screenshots.map(({ label, jpeg }) => ({ label, jpeg })),
@@ -298,14 +321,17 @@ export class AgentService {
       pointer: pointer ?? null,
       spoken: options.spoken ?? false,
       mode: 'chat',
+      // A spoken turn answers in a breath; typed work may be shared among helpers.
+      delegate: !options.spoken,
       maxSteps: 10,
       expressiveVoice: options.expressiveVoice ?? false,
-      selfContext: this.options.selfContext?.() ?? '',
+      selfContext: this.options.selfContext?.(prompt) ?? '',
       skills: this.options.skills?.() ?? [],
       desktopContext,
       ...(readerModel ? { readerModel } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
-      tools: this.broker.manifest(),
+      // A spoken turn carries only the everyday tools; the rest are found when needed.
+      tools: this.broker.manifest(options.spoken ? { direct: QUICK_TOOLS } : {}),
     };
     const run: ActiveRun = {
       id,
@@ -331,8 +357,38 @@ export class AgentService {
     return id;
   }
 
+  /**
+   * The person is about to ask (the card took focus, or a hold started): load a worker now, so
+   * starting one is not part of the wait. It holds no key until it is given a run.
+   */
+  warm() {
+    if (!this.canAnswer || this.configuring) return;
+    if (this.spare) return void this.spare.timer.refresh();
+    const worker = new Worker(WORKER_ENTRY(), { workerData: { warm: true } });
+    // Waiting never keeps Edi (or a test) running.
+    worker.unref();
+    const drop = () => {
+      if (this.spare?.worker !== worker) return;
+      clearTimeout(this.spare.timer);
+      this.spare = undefined;
+      void worker.terminate();
+    };
+    worker.once('error', drop);
+    worker.once('exit', drop);
+    const timer = setTimeout(drop, SPARE_IDLE_MS);
+    timer.unref?.();
+    this.spare = { worker, timer };
+  }
+
   private spawn(workerData: WorkerInput) {
-    return new Worker(join(__dirname, 'agent-worker.js'), { workerData });
+    const spare = this.spare;
+    if (!spare) return new Worker(WORKER_ENTRY(), { workerData });
+    this.spare = undefined;
+    clearTimeout(spare.timer);
+    spare.worker.removeAllListeners();
+    spare.worker.ref();
+    spare.worker.postMessage({ type: 'start', input: workerData } satisfies HostMessage);
+    return spare.worker;
   }
 
   private listen(run: ActiveRun) {
@@ -398,6 +454,11 @@ export class AgentService {
   }
 
   /** Removes the conversation and its turns; what it saved to the workspace stays in Library. */
+  /** Give a conversation the person's own name; it keeps it as more is asked. */
+  renameConversation(id: string, title: string) {
+    this.options.repositories.conversations.rename(id, title);
+  }
+
   deleteConversation(id: string) {
     if (this.run?.conversationId === id || (this.starting && this.conversationId === id))
       throw new Error('Stop the response before deleting this conversation.');
@@ -407,6 +468,34 @@ export class AgentService {
       this.conversationId = null;
       this.showConversation();
     }
+  }
+
+  /**
+   * Turns of the open conversation from before the message `before`, as text. The card keeps
+   * only the last few turns live (they travel with every update while a reply streams); the
+   * rest are read from here when the person asks to see further back.
+   */
+  earlier(before: string, limit = EARLIER_TURNS): { messages: ChatMessage[]; more: boolean } {
+    const runId = before.replace(/-[ua]$/, '');
+    if (!this.conversationId) return { messages: [], more: false };
+    // One more than shown, to know whether there is anything further back still.
+    const turns = this.options.repositories.runs.threadBefore(
+      this.conversationId,
+      runId,
+      limit + 1,
+    );
+    const shown = turns.slice(-limit);
+    return {
+      more: turns.length > limit,
+      messages: shown.flatMap((turn): ChatMessage[] => [
+        turn.note
+          ? { id: `${turn.id}-u`, role: 'note', text: turn.note }
+          : { id: `${turn.id}-u`, role: 'user', text: turn.prompt },
+        ...(turn.reply || turn.error
+          ? [{ id: `${turn.id}-a`, role: 'assistant' as const, text: turn.reply || turn.error }]
+          : []),
+      ]),
+    };
   }
 
   /** Most recent first; with a query, the best matches with what matched. */
@@ -470,9 +559,13 @@ export class AgentService {
     if (this.run) this.finish(this.run, 'stopped');
   }
 
-  /** Whether the running turn was spoken; undefined when nothing is running. */
+  /**
+   * Whether the running turn was spoken; undefined when nothing is running. True from the first
+   * 'running' state, before the turn has its worker: that first state is when the bubble decides
+   * how to show the answer.
+   */
   get runningSpoken() {
-    return this.run?.spoken;
+    return this.run?.spoken ?? this.starting?.spoken;
   }
 
   /** A display tool showed content in the running turn. Ignored after the turn ends. */
@@ -488,6 +581,9 @@ export class AgentService {
     if (!this.run || approval?.callId !== callId) {
       throw new Error('That approval is no longer pending.');
     }
+    // Some actions are reviewed every time, whatever was ticked.
+    if (decision === 'approve-always' && !canAlwaysAllow(approval.capability.id))
+      decision = 'approve';
     // An action that says where it applies is remembered there; others for this conversation.
     const rule = decision === 'approve-always' ? this.options.rules?.save(approval) : null;
     if (decision === 'approve-always' && !rule) {
@@ -602,7 +698,7 @@ export class AgentService {
     this.refreshThread();
     this.update({ ...this.state, status, text, error, approval: null });
     if (status === 'done' && presentation.actions.length)
-      void this.present(run.id, presentation, run.screenshots);
+      void this.present(run.id, presentation, run.screenshots, run.input.desktopContext);
   }
 
   /**
@@ -613,6 +709,8 @@ export class AgentService {
     runId: string,
     presentation: ReturnType<typeof parsePresentation>,
     screenshots: Screenshot[],
+    /** What was in front when the question was asked. */
+    asked: DesktopContext | null,
   ) {
     const shot = screenshots[presentation.screen - 1];
     let aligned = presentation;
@@ -625,14 +723,39 @@ export class AgentService {
     }
     if (this.run || this.starting || this.state.runId !== runId) return;
     const target = resolvePresentation(aligned, screenshots);
-    if (target) this.options.point?.(target);
+    if (!target) return;
+    // A screenshot's positions only hold while the same thing is on screen. If the person has
+    // moved to another app or page since asking, pointing would land on something else.
+    if (asked && this.options.desktopContext) {
+      const front = await Promise.race([
+        this.options.desktopContext().catch(() => null),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), FRONT_CHECK_MS)),
+      ]);
+      if (this.run || this.starting || this.state.runId !== runId) return;
+      if (screenMoved(asked, front)) return this.options.pointSkipped?.();
+    }
+    this.options.point?.(target);
   }
 
   private onApprovalChange(head: ApprovalRequest | null) {
     if (!this.run) return;
     if (head) this.run.deadline.pause();
     else this.run.deadline.resume();
-    this.update({ ...this.state, approval: head });
+    this.update({ ...this.state, approval: head && this.withHistory(head) });
+  }
+
+  /** The card offers “always” more plainly once the person keeps allowing the same action. */
+  private withHistory(request: ApprovalRequest): ApprovalRequest {
+    try {
+      const since = Date.now() - ALLOWED_BEFORE_WINDOW_MS;
+      const allowedBefore = this.options.repositories.toolCalls.approvedSince(
+        request.capability.id,
+        since,
+      );
+      return allowedBefore ? { ...request, allowedBefore } : request;
+    } catch {
+      return request;
+    }
   }
 
   /** Persists every transition and mirrors the current run's steps into state. */

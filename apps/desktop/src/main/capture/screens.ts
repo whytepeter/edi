@@ -1,10 +1,4 @@
-import {
-  BrowserWindow,
-  desktopCapturer,
-  nativeImage,
-  screen,
-  systemPreferences,
-} from 'electron';
+import { BrowserWindow, desktopCapturer, nativeImage, screen, systemPreferences } from 'electron';
 
 import {
   createScreenContextSession,
@@ -127,7 +121,8 @@ export async function captureScreensForPrompt(
   /** Privacy mode: false while Edi mustn't look (paused, a screen share, a private app). */
   mayLook: () => Promise<boolean> = async () => true,
 ): Promise<ScreenContext> {
-  if (!screenContext.decide(prompt)) return { screenshots: [], access: null };
+  const needed = screenContext.decide(prompt);
+  if (!needed) return { screenshots: [], access: null };
   if (!(await mayLook().catch(() => false))) return { screenshots: [], access: null };
 
   // “What's this?” gets a close-up around the pointer; every screen question gets its position.

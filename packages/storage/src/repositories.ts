@@ -60,7 +60,7 @@ const noteRow = z.object({
 export type NoteRecord = z.infer<typeof noteRow>;
 const artifactRow = z.object({
   id: z.string(),
-  kind: z.enum(['document', 'checklist', 'table', 'diagram', 'html']),
+  kind: z.enum(['document', 'checklist', 'table', 'diagram', 'view', 'html']),
   title: z.string(),
   content: z.string(),
   path: z.string(),
@@ -69,10 +69,18 @@ const artifactRow = z.object({
   updatedAt: z.number().int().nonnegative(),
   pinnedAt: z.number().nullable().optional(),
 });
+const artifactSummaryRow = artifactRow
+  .pick({ id: true, kind: true, title: true, bytes: true, updatedAt: true, pinnedAt: true })
+  .extend({ regenerable: z.number() });
+export type ArtifactSummaryRecord = Pick<
+  ArtifactRecord,
+  'id' | 'kind' | 'title' | 'bytes' | 'updatedAt' | 'pinnedAt'
+> & { regenerable: boolean };
+
 /** Generated workspace content. `content` is the structured data; `path` is workspace-relative. */
 export interface ArtifactRecord {
   id: string;
-  kind: 'document' | 'checklist' | 'table' | 'diagram' | 'html';
+  kind: 'document' | 'checklist' | 'table' | 'diagram' | 'view' | 'html';
   title: string;
   content: unknown;
   path: string;
@@ -232,6 +240,29 @@ export class RunRepository {
       .reverse();
   }
 
+  /**
+   * Finished turns of a conversation older than the turn `before`, oldest first: what the
+   * card shows when the person asks to see further back than the last few.
+   */
+  threadBefore(threadId: string, before: string, limit: number): ThreadTurn[] {
+    return this.db
+      .prepare(
+        `SELECT id, prompt, note, text AS reply, status, error FROM runs
+         WHERE status IN ('done', 'error', 'stopped') AND prompt != '' AND thread_id = ?
+           AND started_at < (SELECT started_at FROM runs WHERE id = ?)
+         ORDER BY started_at DESC LIMIT ?`,
+      )
+      .all(threadId, before, Math.max(1, Math.min(50, limit)))
+      .map(row => threadRow.parse(row))
+      .map(turn => ({
+        ...turn,
+        prompt: turn.prompt.slice(0, 8000),
+        reply: turn.reply.slice(0, 32000),
+        error: turn.error.slice(0, 400),
+      }))
+      .reverse();
+  }
+
   finish(
     id: string,
     result: { status: Exclude<RunStatus, 'running'>; text: string; error: string; at: number },
@@ -289,6 +320,14 @@ export class ConversationRepository {
 
   touch(id: string, at: number) {
     this.db.prepare(`UPDATE threads SET updated_at = MAX(updated_at, ?) WHERE id = ?`).run(at, id);
+  }
+
+  /** The person's own name for a conversation, in place of its first question. */
+  rename(id: string, title: string) {
+    const result = this.db
+      .prepare(`UPDATE threads SET title = ? WHERE id = ?`)
+      .run(title.trim().slice(0, 80), id);
+    if (Number(result.changes) === 0) throw new Error('That conversation no longer exists.');
   }
 
   get(id: string): ConversationRecord | undefined {
@@ -683,6 +722,9 @@ export class ScheduleRepository {
   update(
     id: string,
     change: {
+      title?: string;
+      prompt?: string;
+      when?: Schedule['when'];
       enabled?: boolean;
       unattended?: boolean;
       nextRunAt?: number | null;
@@ -692,6 +734,18 @@ export class ScheduleRepository {
   ) {
     const fields: string[] = [];
     const values: (string | number | null)[] = [];
+    if (change.title !== undefined) {
+      fields.push('title = ?');
+      values.push(change.title.slice(0, 120));
+    }
+    if (change.prompt !== undefined) {
+      fields.push('prompt = ?');
+      values.push(change.prompt.slice(0, 8000));
+    }
+    if (change.when !== undefined) {
+      fields.push('when_json = ?');
+      values.push(JSON.stringify(change.when));
+    }
     if (change.enabled !== undefined) {
       fields.push('enabled = ?');
       values.push(change.enabled ? 1 : 0);
@@ -832,13 +886,29 @@ export class ToolCallRepository {
     return byRun;
   }
 
-  /** Recent calls, newest first, with what was asked and what came back (activity and undo). */
-  recent(limit: number) {
+  /** How many calls of `capability` the person approved since `since`. */
+  approvedSince(capability: string, since: number) {
+    const row = this.db
+      .prepare(
+        `SELECT count(*) AS n FROM tool_calls
+         WHERE capability = ? AND decision = 'approved' AND created_at >= ?`,
+      )
+      .get(capability, since) as { n: number };
+    return Number(row.n);
+  }
+
+  /**
+   * Recent calls, newest first, with what was asked and what came back (activity and undo).
+   * `changes` leaves out looking things up: a busy day is mostly lookups, and they used to
+   * fill the list so that a change from that morning could no longer be found to undo.
+   */
+  recent(limit: number, options: { changes?: boolean } = {}) {
     return this.db
       .prepare(
         `SELECT id, run_id AS runId, capability, title, effect, status, summary,
                 input_json AS input, output_json AS output, created_at AS createdAt
-         FROM tool_calls ORDER BY created_at DESC LIMIT ?`,
+         FROM tool_calls ${options.changes ? "WHERE effect = 'write'" : ''}
+         ORDER BY created_at DESC LIMIT ?`,
       )
       .all(Math.max(1, Math.min(500, limit)))
       .map(row => recordedRow.parse(row))
@@ -994,6 +1064,27 @@ export class ArtifactRepository {
       )
       .get(id);
     return row ? ArtifactRepository.parse(row) : undefined;
+  }
+
+  /**
+   * For the Library: most recently changed first, without content, and whether the request that
+   * made each one is known (so it can be made again). One query, however many items.
+   */
+  summaries(limit: number): ArtifactSummaryRecord[] {
+    return this.db
+      .prepare(
+        `SELECT a.id, a.kind, a.title, a.bytes, a.updated_at AS updatedAt, a.pinned_at AS pinnedAt,
+                EXISTS (
+                  SELECT 1 FROM tool_calls tc JOIN runs r ON r.id = tc.run_id
+                  WHERE tc.id = a.id AND trim(r.prompt, char(32, 9, 10, 13)) <> ''
+                ) AS regenerable
+         FROM artifacts a ORDER BY a.updated_at DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map(row => {
+        const parsed = artifactSummaryRow.parse(row);
+        return { ...parsed, regenerable: parsed.regenerable === 1 };
+      });
   }
 
   /** Most recently changed first. */
@@ -1166,7 +1257,9 @@ export class ConnectorRepository {
 
   update(
     id: string,
-    patch: Partial<Pick<ConnectorRecord, 'enabled' | 'tools' | 'name' | 'composioConnectionId'>>,
+    patch: Partial<
+      Pick<ConnectorRecord, 'enabled' | 'tools' | 'name' | 'composioConnectionId' | 'local'>
+    >,
   ) {
     const fields: string[] = [];
     const values: (string | number | null)[] = [];
@@ -1185,6 +1278,11 @@ export class ConnectorRepository {
     if (patch.composioConnectionId !== undefined) {
       fields.push('composio_connection_id = ?');
       values.push(patch.composioConnectionId);
+    }
+    // A local server's pinned version or arguments, changed on purpose by the person.
+    if (patch.local) {
+      fields.push('local_json = ?');
+      values.push(JSON.stringify(localServerSchema.parse(patch.local)));
     }
     if (!fields.length) return;
     this.db.prepare(`UPDATE connectors SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);

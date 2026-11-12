@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -121,11 +121,30 @@ export class PersonalVoices {
     const saved = existsSync(this.index)
       ? await readFile(this.index, 'utf8')
           .then(text => personalVoiceListSchema.parse(JSON.parse(text)))
-          .catch((): PersonalVoice[] => [])
+          // A list that cannot be read used to count as no voices, and the next voice added
+          // was saved over it, leaving every recording on disk with nothing pointing at it.
+          .catch(() => this.recovered())
       : existsSync(this.recording('edi'))
         ? [{ id: 'edi', name: 'Edi', addedAt: 0 }]
         : [];
     return saved.filter(voice => existsSync(this.recording(voice.id)));
+  }
+
+  /**
+   * The voices as far as the recordings themselves tell: each `<id>.wav` in the folder, named
+   * by its id. Used only when the list is unreadable, so nothing recorded is lost with it.
+   */
+  private recovered(): PersonalVoice[] {
+    try {
+      return readdirSync(this.folder)
+        .filter(file => file.endsWith('.wav'))
+        .map(file => file.slice(0, -4))
+        .filter(id => /^[a-z0-9][a-z0-9-]{0,39}$/.test(id))
+        .slice(0, MAX_VOICES)
+        .map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), addedAt: 0 }));
+    } catch {
+      return [];
+    }
   }
 
   async add(source: string, rawName: string): Promise<PersonalVoice> {

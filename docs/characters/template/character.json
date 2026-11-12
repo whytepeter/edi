@@ -4,6 +4,7 @@
   "name": "Pip",
   "version": "1.0.0",
   "description": "A round little starter character.",
+  "persona": "Curious and gentle. Explains things simply and likes to ask one good question.",
   "author": { "name": "Your Name", "url": "https://example.com" },
   "license": "CC-BY-4.0",
   "colors": { "accent": "#2f6f8f", "outline": "#1f3b4d", "skin": "#bfe6f2" },
