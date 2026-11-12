@@ -4,7 +4,7 @@
  * Apple and stapled, as a .dmg and a .zip in release/. `--check` only confirms the certificate
  * and notarization credentials are in place, before the slow native builds run.
  *
- * Needs (docs/RELEASE.md):
+ * Needs (docs/releasing.md):
  * - A "Developer ID Application" certificate in the login keychain. On CI, CSC_LINK and
  *   CSC_KEY_PASSWORD import it, and CSC_NAME names it.
  * - Notarization credentials in the environment, one of:
@@ -47,7 +47,7 @@ function identity() {
         ? ' "Apple Development" certificates only run on your own Macs; Apple will not notarize them.'
         : '') +
       ' Create one at developer.apple.com → Certificates (needs the Apple Developer Program),' +
-      ' open it to add it to Keychain, then run this again. See docs/RELEASE.md.',
+      ' open it to add it to Keychain, then run this again. See docs/releasing.md.',
   );
 }
 
@@ -63,7 +63,7 @@ if (!credentials)
   fail(
     'no notarization credentials. Set one of these groups in your shell:\n  ' +
       credentialSets.map(names => names.join(' + ')).join('\n  ') +
-      '\nThe App Store Connect API key (first group) is recommended. See docs/RELEASE.md.',
+      '\nThe App Store Connect API key (first group) is recommended. See docs/releasing.md.',
   );
 if (credentials[0] === 'APPLE_API_KEY' && !existsSync(process.env.APPLE_API_KEY))
   fail('APPLE_API_KEY must be the path to the .p8 key file from App Store Connect.');

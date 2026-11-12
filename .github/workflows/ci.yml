@@ -14,8 +14,13 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Edi is a macOS app; Linux is kept because it is the cheaper, faster signal for pure logic.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       # Unit, audio and agent-worker tests never launch Electron.
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'

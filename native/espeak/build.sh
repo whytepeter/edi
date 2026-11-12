@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build eSpeak NG 1.52.0 as its own program, for the local voice: it turns text into the
 # pronunciation symbols Kokoro speaks. eSpeak NG is GPL-3.0, so Edi runs it as a separate
-# program (like whisper) and never links it; see docs/AUDIO-RUNTIME.md for what that means.
+# program (like whisper) and never links it; see docs/voice.md for what that means.
 # Source is downloaded once into the ignored cache and checked against its hash. Only the
 # English data is kept. Output is not committed.
 set -eu

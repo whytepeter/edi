@@ -9,7 +9,7 @@ Transcription (whisper.cpp) is provisioned by `provision_transcription.py` and `
 
 ## History
 
-Pocket TTS (Kyutai) was the first local voice and was measured in the runs recorded in [RESULTS.md](RESULTS.md).
+Pocket TTS (Kyutai) was the first local voice; Edi no longer uses it, and its screening results were removed (they remain in git history).
 It was removed on 2026-09-14 after Kokoro became the default. The PyTorch Chatterbox environment was removed at the
 same time, because it was 1.3–1.9× slower than real time on an M2 Pro, and the MLX build replaced it. The
 `results/pocket-run-*` samples stay as fixed audio inputs for the playback and transcription tests.

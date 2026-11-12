@@ -1,7 +1,6 @@
-# Codebase guide
+# Architecture
 
-This guide explains where Edi's code belongs and how the running pieces connect. It describes the current
-repository, not a future folder diagram.
+Where Edi's code belongs and how the running pieces connect. It describes the repository as it is.
 
 ## The mental model
 
@@ -18,7 +17,7 @@ Electron main ─── IPC router ─── domain services
                   │
         bounded worker protocols
                   │
-Agent worker · MLX speech (Kokoro, Chatterbox Turbo) · whisper.cpp · native helpers
+Agent worker · Speech (Kokoro, Chatterbox) · whisper.cpp · native helpers
 ```
 
 The renderer is a user interface, not an operating-system service. It never receives filesystem access,
@@ -79,19 +78,37 @@ preload method, then test invalid payloads and unauthorized callers.
 
 ### Agent and capabilities
 
+- The brain: `packages/agent` (`startRun` in `src/engine.ts`)
+- Its boundary: `packages/agent/src/protocol.ts`
+- Model services: `packages/agent/src/provider.ts` (`ModelProvider`), `openrouter.ts`
+- Worker-thread transport: `packages/agent/src/worker.ts`
+- Edi's instructions (identity, pages, mood and pointing tags): `apps/desktop/src/main/agent/edi-instructions.ts`
+- Desktop worker entry: `apps/desktop/src/main/agent/agent-worker.ts`
 - Foreground-run owner: `apps/desktop/src/main/agent/agent-service.ts`
-- Provider worker: `apps/desktop/src/main/agent/agent-worker.ts`
-- Worker boundary: `apps/desktop/src/main/agent/worker-protocol.ts`
+- Task and schedule tools: `apps/desktop/src/main/agent/task-tools.ts`
+- What Edi is told about itself each turn: `apps/desktop/src/main/setup-snapshot.ts`
 - Tool policy: `packages/capabilities/src/broker.ts`
 
-`AgentService` owns one active run, cancellation, history snapshots, approval pauses, tool results, and final
-presentation extraction. The worker owns the AI SDK/OpenRouter stream but no OS authority. Tool calls return to
-main, where the broker validates input, asks for approval when required, executes the capability, and records the
-outcome.
+`@edi/agent` is the brain without a host: `startRun(input, { provider, host, instructions })` runs one
+question through a model and its tools and reports events. It imports no Electron, window or worker code and keeps
+no state between runs. A host supplies three things: where model calls go (`ModelProvider`), how tools run
+(`AgentHost.callTool`) and who the assistant is (`AgentInstructions`). `packages/agent/src/engine.test.ts` runs it
+with a scripted model and two plain functions as the host.
 
-Keep provider code behind the worker boundary. Do not put tool side effects in prompts or the worker. If a
-second desktop host or a second agent runner needs the same service, move the provider-independent part into a
-workspace package then; a package is not useful merely because a folder is large.
+The desktop app is one such host. Its worker entry serves the engine over a worker thread with OpenRouter and
+Edi's instructions. `AgentService` owns one active run, cancellation, history snapshots, approval pauses, tool
+results, and final presentation extraction. Tool calls return to main, where the broker validates input, asks for
+approval when required, executes the capability, and records the outcome.
+
+`main/index.ts` is the composition root: it constructs services and wires them together. Logic that can be
+stated as a function of what it is given lives beside it, not inside `start()`: the task and schedule tools take
+their services as functions (they are handed to the agent before those services exist), and the setup snapshot is
+built from a list of sources, so both can be tested without Electron. Move the next block out the same way rather
+than adding to `start()`.
+
+Keep provider code behind `ModelProvider` and product wording behind `AgentInstructions`. Do not put tool side
+effects in prompts or the engine. Anything that names an Edi page, tag or character belongs in the desktop app,
+not in `packages/agent`.
 
 ### Permissions and screen context
 
@@ -125,7 +142,7 @@ local to cloud.
 
 ### Presentation and character
 
-- Characters, expressions and packages: `docs/CHARACTER.md` (creators: `docs/characters/README.md`)
+- Characters, expressions and packages: `docs/characters.md` (creators: `docs/characters/README.md`)
 - Character interactions and mood: `apps/desktop/src/main/character`
 - Character library and `.edichar` files: `apps/desktop/src/main/characters`
 - Character rendering and motion: `apps/desktop/src/renderer/src/components/character`
@@ -172,27 +189,6 @@ says so plainly instead of showing inert controls.
 Shown content is data, never HTML. It is displayed, not returned to the model, so voice replies never read it out.
 `workspace.show` also creates a useful representation under Documents › Edi › Artifacts: reports and checklists
 are Markdown, while tables are CSV. The generated-content view has no second Copy or Save step.
-
-### Jev (development only)
-
-- Client, hearing filter and shadow: `apps/desktop/src/main/jev`; turned on in `jev/setup.ts`
-- Report: `pnpm jev:report [path]`
-- Hooks: `sift` and `pauseJudged` on `VoiceController`, `compareScreenGate` in `capture/screens.ts`
-
-Off unless a development run sets `EDI_JEV=on` (everything recorded, nothing decided) or `EDI_JEV=decide` (the
-hearing check acts too); never active in a packaged app. [Jev](https://docs.typesafe.ai/api.md)
-(`typesafe/jev-1.13`) is reached through OpenRouter's System One API on the saved OpenRouter key, and every question
-and answer, words included, goes to `jev.jsonl` in user data.
-
-- **Hearing (decides only with `EDI_JEV=decide`):** each hands-free utterance that doesn't use Edi's name is asked, in one request, whether it was
-  said to Edi and, when it has 2 to 8 sentences, which of them were. Words go only when Jev puts the chance they were
-  for Edi below 0.2: a whole turn becomes no turn (Edi keeps listening, or carries on with a reply it came over), and
-  a stray sentence is cut from a turn that stays. It is asked at the first pause, so a turn the long pause ends has
-  its answer already; a slow (over 1.5 s) or failed answer keeps every word. Holds and typed messages are never
-  sifted. With `EDI_JEV=on` the verdict is only recorded and Edi never waits for it: Jev's first run scored the
-  person's own words 0.16–0.32, so it isn't trusted to drop anything yet.
-- **Shadow (decides nothing):** whether a prompt needs a screenshot and whether a hands-free pause ends the turn are
-  asked beside Edi's own checks, and both answers are recorded.
 
 ### Storage
 

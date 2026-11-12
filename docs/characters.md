@@ -77,3 +77,23 @@ Characters without the new variant keep working: they fall back to `default` and
 - `pnpm test:animation`: both built-in characters in every expression and mood in the real pet window, one
   variant per part, effects, lip-sync scale and reduced motion.
 - `pnpm character check <folder>`: what a creator runs.
+
+## Wandering
+
+Off until switched on in Settings → Behavior. `main/character/wander.ts` (`Wanderer`) moves only Edi's own window;
+the planning is pure and lives in `packages/contracts/src/wander.ts`.
+
+- **When.** After a rest of 40 to 110 seconds, and only if Edi is visible and idle: no card, bubble, menu, drag,
+  voice turn, run or review. If not, it rests again. A stroll under way stops on the next frame once that is no
+  longer true, and stays exactly where it is.
+- **Where.** Sideways along the level Edi is on, 120 to 360 px, mostly toward the side with more room, never off
+  the screen.
+- **How.** In hops of about 78 px: a third of a second in the air along a low arc (a tenth of the character's
+  height), a soft take-off and landing, and 150 ms on the ground between hops. It lands on the level it left.
+- **Not at all** while macOS is set to reduce motion. Where it comes to rest is saved like a drag.
+
+A hop shows on the character, not only in where its window is. Main tells the pet window when Edi leaves the
+ground and when it lands (`edi:character-hop`, validated in the preload); `usePetMotion` stretches it about 7%
+and leans it 3° the way it is going while it is in the air, then lets it land through a brief squash on the
+same springs that answer a press. The amounts are `wanderShape` in `packages/contracts/src/wander.ts`. With
+reduced motion none of it happens.

@@ -88,6 +88,7 @@ so even a character with only `default` faces reacts.
   "name": "Pip",
   "version": "1.0.0",
   "description": "A round little starter character.",
+  "persona": "Curious and gentle. Explains things simply and likes to ask one good question.",
   "author": { "name": "Your Name", "url": "https://example.com" },
   "license": "CC-BY-4.0",
   "colors": { "accent": "#2f6f8f", "outline": "#1f3b4d", "skin": "#bfe6f2" },
@@ -99,6 +100,10 @@ so even a character with only `default` faces reacts.
 
 - `id`: lowercase, like `com.yourname.pip`. Installing a character with the same id updates it.
 - `name`: what the companion is called until the person gives it their own name.
+- `persona`: how the character talks, in a sentence or two of plain words (up to 300 characters,
+  one line). The companion answers in this manner while the character is selected, so two
+  characters feel like two different companions. It changes tone only: a persona cannot give the
+  companion new abilities or skip an approval, and the person sees it before adding the character.
 - `colors.accent`: the card and bubbles take this color. `outline` and `skin` color the small
   gesture hands.
 - `geometry.bodyPath`: the outline a person can grab and hold. Usually your body shape.
