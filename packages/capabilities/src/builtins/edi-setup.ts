@@ -42,7 +42,8 @@ export interface EdiSetupSnapshot {
     /** Privacy mode: whether Edi may look at the screen and what's in front now, and why not. */
     privacy: { lookingAtScreen: boolean; reason: string | null };
     /** What Edi remembers about the person, and whether it may keep more (Settings → Memory). */
-    memory: { remembering: boolean; items: string[] };
+    /** `notShown`: more are kept than fit here (Settings → Memory lists them all). */
+    memory: { remembering: boolean; items: string[]; notShown?: number };
     pushToTalk: { status: string; shortcut: string };
   };
   workspace: {

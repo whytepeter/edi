@@ -74,13 +74,24 @@ function parseFrontmatter(text: string): {
       return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/''/g, "'");
     return trimmed;
   };
+  let lastKey = '';
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!.replace(/\r$/, '');
     if (!line.trim() || line.trimStart().startsWith('#')) continue;
     const match = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line);
-    if (!match)
+    if (!match) {
+      // An indented line belongs to the key above it: a list (`  - Read`) or a value wrapped
+      // onto the next line. Valid YAML, and skills written for other tools use it; Edi keeps
+      // reading rather than refusing the whole skill over a key it may not even use.
+      if (/^\s+\S/.test(line) && lastKey) {
+        const more = line.trim().replace(/^-\s+/, '');
+        fields.set(lastKey, [fields.get(lastKey), unquote(more)].filter(Boolean).join(' '));
+        continue;
+      }
       throw new Error(`Couldn’t read this frontmatter line: “${line.trim().slice(0, 60)}”`);
+    }
     const [, key, rest] = match as unknown as [string, string, string];
+    lastKey = key;
     if (key === 'metadata' && !rest.trim()) {
       while (index + 1 < lines.length && /^\s+\S/.test(lines[index + 1]!)) {
         const entry = /^\s+([A-Za-z][\w.-]*):\s*(.*)$/.exec(lines[++index]!.replace(/\r$/, ''));
@@ -88,12 +99,7 @@ function parseFrontmatter(text: string): {
       }
       continue;
     }
-    if (
-      rest.trim() === '>' ||
-      rest.trim() === '|' ||
-      rest.trim() === '>-' ||
-      rest.trim() === '|-'
-    ) {
+    if (/^[>|][+-]?$/.test(rest.trim())) {
       const block: string[] = [];
       while (
         index + 1 < lines.length &&
@@ -182,15 +188,23 @@ export function formatSkill(skill: {
   apps?: string[];
   examples?: string[];
   category?: string;
+  /** Kept from the skill being replaced; a new skill made in Edi is by the person. */
+  author?: string;
+  license?: string;
+  version?: string;
+  icon?: string;
 }) {
   const quote = (value: string) => JSON.stringify(value);
   return [
     '---',
     `name: ${skill.name}`,
     `description: ${quote(skill.description)}`,
+    ...(skill.license ? [`license: ${quote(skill.license)}`] : []),
     'metadata:',
     `  title: ${quote(skill.title)}`,
-    `  author: ${quote('You')}`,
+    `  author: ${quote(skill.author || 'You')}`,
+    ...(skill.version ? [`  version: ${quote(skill.version)}`] : []),
+    ...(skill.icon ? [`  icon: ${quote(skill.icon)}`] : []),
     ...(skill.category ? [`  category: ${quote(skill.category)}`] : []),
     ...(skill.apps?.length ? [`  apps: ${quote(skill.apps.join(' '))}`] : []),
     ...(skill.examples?.length

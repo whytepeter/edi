@@ -70,6 +70,9 @@ export function CharacterInstallSheet({
               .join(' · ')}
           </p>
         )}
+        {character?.manifest.persona && (
+          <p className="ds-callout">How it talks: {character.manifest.persona}</p>
+        )}
         {character && <MoodPreview character={character} />}
         {errors.length > 0 && (
           <ul className="character-problems" data-level="error">

@@ -164,9 +164,22 @@ export class ConnectorManager {
         ...record,
         status: record.enabled ? (state?.status ?? 'connecting') : 'off',
         error: record.enabled ? (state?.error ?? '') : '',
+        // Said rather than dropped quietly: the switch reads on, but the model never saw it.
+        toolsLeftOut: this.leftOut.get(record.id) ?? 0,
+        moreTools: this.truncated.has(record.id),
       };
     });
   }
+
+  /** Set when Edi is quitting: a server still starting is stopped instead of left running. */
+  private disposed = false;
+  /** Switched-on tools per app that did not fit under the overall cap. */
+  private leftOut = new Map<string, number>();
+  /** Apps that have more tools than Edi lists for one app. */
+  private readonly truncated = new Set<string>();
+
+  /** Apps being tried again in the background, so one is never tried twice at once. */
+  private readonly recovering = new Set<string>();
 
   onChange(listener: (connectors: Connector[]) => void) {
     this.listeners.add(listener);
@@ -215,8 +228,8 @@ export class ConnectorManager {
   }
 
   /**
-   * A server that runs here, pinned to one version. The same package at the same version is
-   * already added, so adding it twice just reconnects the one that exists.
+   * A server that runs here, pinned to one version. Adding a package that is already added
+   * reconnects it, taking the new version and arguments when they differ.
    */
   private addLocal(local: LocalServer, name?: string) {
     const existing = this.options.repositories.connectors
@@ -225,6 +238,15 @@ export class ConnectorManager {
         record => record.local?.package === local.package && record.local.runtime === local.runtime,
       );
     if (existing) {
+      const changed =
+        existing.local?.version !== local.version ||
+        JSON.stringify(existing.local?.args ?? []) !== JSON.stringify(local.args);
+      // Adding it again with another version or other arguments is how it is updated: before,
+      // the old version was quietly reconnected and the new one never ran.
+      if (changed) {
+        this.options.repositories.connectors.update(existing.id, { local });
+      }
+      // Starting it again stops the one that is running first.
       void this.connect(existing.id, true);
       return existing.id;
     }
@@ -251,6 +273,38 @@ export class ConnectorManager {
       if (record.enabled) void this.connect(record.id, false);
   }
 
+  /**
+   * Try again, quietly, for apps that should be working: after the Mac wakes, and after a call
+   * failed for a reason that is not a sign-in. Before, an app reached over the network was
+   * connected once at launch and never again, so one dropped connection left it broken until
+   * the person found the Connectors page. Apps waiting for a sign-in or a key are left alone:
+   * those need the person, and this never opens a browser.
+   */
+  recover(only?: string) {
+    for (const record of this.options.repositories.connectors.list()) {
+      if (!record.enabled || (only && record.id !== only)) continue;
+      const status = this.status.get(record.id)?.status;
+      if (status !== 'connected' && status !== 'error') continue;
+      if (this.recovering.has(record.id)) continue;
+      this.recovering.add(record.id);
+      void (async () => {
+        try {
+          // A connection that answers is left as it is; one that does not is opened afresh.
+          if (status === 'connected' && record.provider !== 'composio') {
+            await this.check(record.id);
+            if (this.status.get(record.id)?.status !== 'error') return;
+          }
+          if (record.provider !== 'composio') await this.close(record.id);
+          await this.connect(record.id, false);
+        } catch {
+          // The app's own status already says what went wrong.
+        } finally {
+          this.recovering.delete(record.id);
+        }
+      })();
+    }
+  }
+
   async connect(id: string, interactive: boolean) {
     const record = this.options.repositories.connectors.get(id);
     if (!record) throw new Error('That app is no longer connected.');
@@ -272,6 +326,7 @@ export class ConnectorManager {
     clearTimeout(this.restarts.get(id));
     this.restarts.delete(id);
     await this.close(id);
+    if (this.disposed) return;
     const local = record.local;
     if (!local) {
       this.setStatus(id, 'error', `${record.name} has no program to run. Add it again.`);
@@ -298,10 +353,17 @@ export class ConnectorManager {
         entry.stderr = said;
       });
       await client.connect(transport);
+      // Edi quit while it was starting: stop it, since nothing would any more.
+      if (this.disposed) return void (await this.close(id));
       await this.refreshToolsMcp(id);
       // Only a server that actually came up is worth starting again when it stops. Arming this
       // earlier would treat a package that never runs as a crash, and retry it forever.
-      transport.onclose = () => this.exited(id);
+      // Only this server's own exit counts. A server being replaced (a new version, a retry)
+      // closes after its successor is already in place; treating that as the successor stopping
+      // dropped the new one from the books and left it running with nothing to stop it.
+      transport.onclose = () => {
+        if (this.live.get(id) === entry) this.exited(id);
+      };
       // Starting is not the same as working: only once it has stayed up for a while do its
       // earlier crashes stop counting, so a server that dies right after connecting still
       // reaches the limit instead of being restarted for ever.
@@ -552,6 +614,8 @@ export class ConnectorManager {
   }
 
   async dispose() {
+    // Anything still on its way up stops when it notices, rather than outliving the manager.
+    this.disposed = true;
     for (const abort of this.signIns.values()) abort.abort();
     for (const timer of this.restarts.values()) clearTimeout(timer);
     this.restarts.clear();
@@ -598,6 +662,8 @@ export class ConnectorManager {
       listed.push(...page.tools);
       cursor = page.nextCursor;
     } while (cursor && listed.length < MAX_TOOLS);
+    if (cursor || listed.length > MAX_TOOLS) this.truncated.add(id);
+    else this.truncated.delete(id);
     const previous = new Map(record.tools.map(tool => [tool.name, tool.enabled]));
     const tools: ConnectorTool[] = listed.slice(0, MAX_TOOLS).map(tool => ({
       name: tool.name.slice(0, 128),
@@ -641,8 +707,10 @@ export class ConnectorManager {
   private signInLost(record: ConnectorRecord, cause?: unknown) {
     this.setStatus(record.id, 'needs-sign-in');
     return new Error(
-      `${record.name}’s sign-in has expired. Offer to reconnect it (edi_connect_app), or the user ` +
-        'can sign in again in Connectors.',
+      // Advice the model can act on: edi_connect_app only adds apps that are not connected yet,
+      // so it cannot renew this one. Opening the page where Reconnect lives can.
+      `${record.name}’s sign-in has expired, so this could not be done. Say so, and offer to open ` +
+        'Connectors (edi_open_page) where the user can choose Reconnect for it.',
       cause === undefined ? undefined : { cause },
     );
   }
@@ -704,6 +772,7 @@ export class ConnectorManager {
   private buildTools(): Capability[] {
     const capabilities: Capability[] = [];
     const used = new Set<string>();
+    const leftOut = new Map<string, number>();
     for (const record of this.options.repositories.connectors.list()) {
       if (!record.enabled || this.status.get(record.id)?.status !== 'connected') continue;
       // Everything but Composio holds an open connection; without one there is nothing to call.
@@ -713,7 +782,11 @@ export class ConnectorManager {
       if ([...used].some(name => name.startsWith(`${app}.`)))
         app = `${app}${record.id.slice(0, 4)}`;
       for (const tool of record.tools) {
-        if (!tool.enabled || capabilities.length >= MAX_CONNECTED_TOOLS) continue;
+        if (!tool.enabled) continue;
+        if (capabilities.length >= MAX_CONNECTED_TOOLS) {
+          leftOut.set(record.id, (leftOut.get(record.id) ?? 0) + 1);
+          continue;
+        }
         let id = `${app}.${slug(tool.name, 63 - app.length - 1)}`;
         for (let n = 2; used.has(id); n++) id = `${id.slice(0, 60)}${n}`;
         used.add(id);
@@ -724,6 +797,7 @@ export class ConnectorManager {
         );
       }
     }
+    this.leftOut = leftOut;
     return capabilities;
   }
 
@@ -785,6 +859,9 @@ export class ConnectorManager {
               );
             } catch (error) {
               if (error instanceof UnauthorizedError) throw this.signInLost(record, error);
+              // Stopped by the person is not a fault. Anything else may be a dead connection:
+              // look again in the background, so the next request finds it working or says why.
+              if (!signal.aborted) this.recover(record.id);
               throw error;
             }
             const parts = Array.isArray(result.content) ? result.content : [];

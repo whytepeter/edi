@@ -8,6 +8,7 @@ import {
 } from './character/manifest';
 import type { CharacterExpression, CharacterMood } from './character/expressions';
 import type { Gaze } from './character/gaze';
+import type { WanderHopEvent } from './wander';
 export { assistantNameSchema } from './assistant-name';
 export * from './character/expressions';
 export * from './character/gaze';
@@ -29,6 +30,7 @@ import {
 export * from './capabilities';
 export * from './screen-context';
 export * from './presentation';
+export * from './wander';
 export * from './screen-grounding';
 export * from './permissions';
 export * from './desktop-context';
@@ -39,7 +41,7 @@ export * from './voice-session';
 export * from './voice-turns';
 export * from './privacy';
 export * from './memory';
-import { type Memory } from './memory';
+import { memoryKindSchema, type Memory } from './memory';
 export * from './suggestions';
 import { suggestionLevelSchema } from './suggestions';
 import { privateAppSchema, type PrivacyState } from './privacy';
@@ -131,6 +133,12 @@ export const chatMessageSchema = z
   })
   .strict();
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+/** Turns from further back in a conversation, and whether there are more before them. */
+export const earlierMessagesSchema = z
+  .object({ messages: z.array(chatMessageSchema).max(40), more: z.boolean() })
+  .strict();
+export type EarlierMessages = z.infer<typeof earlierMessagesSchema>;
 
 /** One saved conversation in the list. */
 export const conversationIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,80}$/);
@@ -227,7 +235,7 @@ export const petDragThreshold = 6;
 
 /**
  * What the bubble beside the character shows. Listening and speaking are live
- * voice states; approval is the only interactive state.
+ * voice states; approval, artifact, suggestion and reply can be acted on.
  */
 export const statusBubbleStateSchema = z.enum([
   'unavailable',
@@ -239,6 +247,8 @@ export const statusBubbleStateSchema = z.enum([
   'artifact',
   /** A quiet offer from what's in front: one line, one action, and Not now. */
   'suggestion',
+  /** Edi's answer in words, with Open and a field to reply: a conversation without the card. */
+  'reply',
 ]);
 export type StatusBubbleState = z.infer<typeof statusBubbleStateSchema>;
 export const bubbleSideSchema = z.enum(['left', 'right']);
@@ -282,6 +292,8 @@ export const settingsSchema = z.preprocess(
     remember: z.boolean().catch(true).default(true),
     /** Quiet suggestions from what's in front, decided on this Mac. Silent until turned on. */
     suggestions: suggestionLevelSchema.catch('off').default('off'),
+    /** Edi strolls along the screen when nothing is happening. Off until switched on. */
+    wander: z.boolean().catch(false).default(false),
     /** When each suggestion was last made, so the same one doesn't come back for a week. */
     suggestionsShown: z.record(z.string(), z.number()).catch({}).default({}),
     /** Privacy mode: Edi doesn't look at the screen or at what's in front until turned off. */
@@ -319,6 +331,7 @@ export const defaultSettings: Settings = {
   shareDesktopContext: true,
   remember: true,
   suggestions: 'off',
+  wander: false,
   suggestionsShown: {},
   privacyPaused: false,
   pauseWhenSharing: true,
@@ -504,6 +517,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('delete-task'), id: z.string().uuid() }).strict(),
   /** Ask for the same thing again, as a new task. Nothing the old one did is repeated. */
   z.object({ type: z.literal('retry-task'), id: z.string().uuid() }).strict(),
+  /** Delete every task that has ended, with its history; running ones are untouched. */
+  z.object({ type: z.literal('clear-finished-tasks') }).strict(),
   z
     .object({
       type: z.literal('raise-task-budget'),
@@ -537,17 +552,43 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('delete-schedule'), id: z.string().uuid() }).strict(),
+  /** Start a hands-free conversation from the card, as the menu bar's Listen does. */
+  z.object({ type: z.literal('start-listening') }).strict(),
+  /** Run a schedule once now; its next scheduled time stays where it is. */
+  z.object({ type: z.literal('run-schedule'), id: z.string().uuid() }).strict(),
+  /** Rename a schedule, change what it does, or change when it runs. */
+  z
+    .object({
+      type: z.literal('update-schedule'),
+      id: z.string().uuid(),
+      title: z.string().trim().min(1).max(120).optional(),
+      prompt: z.string().trim().min(1).max(8000).optional(),
+      when: scheduleWhenSchema.optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('remove-approval-rule'), id: z.string().uuid() }).strict(),
   /** Settings → Behavior: how much Edi says on its own, and answering what it suggests. */
   z.object({ type: z.literal('set-suggestions'), level: suggestionLevelSchema }).strict(),
+  /** Settings → Behavior: let Edi stroll along the screen when idle. */
+  z.object({ type: z.literal('set-wander'), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('suggestion-accept') }).strict(),
   z.object({ type: z.literal('suggestion-dismiss') }).strict(),
+  /** The person is reading or answering the reply bubble: it stays until they are done. */
+  z.object({ type: z.literal('hold-bubble') }).strict(),
   /** Settings → Memory: keep new things or stop, and edit, remove or clear what Edi remembers. */
   z.object({ type: z.literal('set-remember'), enabled: z.boolean() }).strict(),
   z
     .object({
       type: z.literal('edit-memory'),
       id: z.string().uuid(),
+      text: z.string().trim().min(1).max(400),
+    })
+    .strict(),
+  /** The person adds a memory themselves, in Settings → Memory. */
+  z
+    .object({
+      type: z.literal('add-memory'),
+      kind: memoryKindSchema,
       text: z.string().trim().min(1).max(400),
     })
     .strict(),
@@ -603,6 +644,13 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('open-conversation'), id: conversationIdSchema }).strict(),
   z.object({ type: z.literal('delete-conversation'), id: conversationIdSchema }).strict(),
+  z
+    .object({
+      type: z.literal('rename-conversation'),
+      id: conversationIdSchema,
+      title: z.string().trim().min(1).max(80),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('respond-approval'),
@@ -679,6 +727,15 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('open-artifact'), ref: artifactRefSchema }).strict(),
+  /** The person ticked or unticked an item of a checklist Edi made. */
+  z
+    .object({
+      type: z.literal('set-checklist-item'),
+      id: z.string().uuid(),
+      index: z.number().int().min(0).max(99),
+      done: z.boolean(),
+    })
+    .strict(),
   /** Artifact window actions. Main resolves content and paths from the reference itself. */
   z.object({ type: z.literal('artifact-copy'), ref: artifactRefSchema }).strict(),
   /** A diagram that can't be drawn: Edi fixes it in place, with the drawing error as the reason. */
@@ -820,6 +877,8 @@ export interface DesktopBridge {
   composioConfigured(): Promise<boolean>;
   /** Saved conversations, most recently active first. */
   conversations(query?: string): Promise<ConversationSummary[]>;
+  /** Turns of the open conversation older than the message `before` (its id). */
+  earlierMessages(before: string): Promise<EarlierMessages>;
   /** What Edi used over the last 1, 7 or 30 days. */
   usage(days: UsagePeriod): Promise<UsageSummary>;
   /** Voices on the person's Cartesia or ElevenLabs account; needs that key. */
@@ -845,6 +904,8 @@ export interface DesktopBridge {
   onCharacterMood(callback: (mood: CharacterMood) => void): () => void;
   /** Where the pointer is as seen from Edi, while Edi is on screen; only the pet window gets it. */
   onCharacterGaze(callback: (gaze: Gaze) => void): () => void;
+  /** Edi left the ground or landed while wandering; only the pet window gets it. */
+  onCharacterHop(callback: (hop: WanderHopEvent) => void): () => void;
   /** Built-in and installed characters, checked and ready to render. */
   characters(): Promise<CharacterDescriptor[]>;
   onCharacters(callback: (characters: CharacterDescriptor[]) => void): () => void;

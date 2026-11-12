@@ -283,6 +283,7 @@ function CustomServerPopover({
   const [runtime, setRuntime] = useState<LocalServerRuntime>('node');
   const [pkg, setPkg] = useState('');
   const [version, setVersion] = useState('');
+  const [args, setArgs] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -314,7 +315,8 @@ function CustomServerPopover({
       runtime,
       package: pkg.trim(),
       version: version.trim(),
-      args: [],
+      // Plain arguments, one per space: never a shell line, so quotes and pipes mean nothing.
+      args: args.trim() ? args.trim().split(/\s+/) : [],
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Check the package and version.');
@@ -393,6 +395,14 @@ function CustomServerPopover({
               placeholder="1.4.2"
               value={version}
               onChange={event => setVersion(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <TextField
+              label="Arguments (optional)"
+              placeholder="--folder ~/Notes"
+              value={args}
+              onChange={event => setArgs(event.target.value)}
               autoComplete="off"
               spellCheck={false}
             />
@@ -497,7 +507,12 @@ function ConnectedApp({
   const dot = statusDot[connector.status] ?? '';
   const status =
     connector.status === 'connected'
-      ? `${enabledTools} of ${connector.tools.length} tools`
+      ? `${enabledTools} of ${connector.tools.length} tools` +
+        // Tools that are on but did not reach the model, and tools Edi could not list at all.
+        (connector.toolsLeftOut
+          ? ` · ${connector.toolsLeftOut} not offered (too many tools are on; switch some off)`
+          : '') +
+        (connector.moreTools ? ' · this app has more than Edi lists' : '')
       : statusText[connector.status];
   const connect = () =>
     void send({ type: 'connect-connector', id: connector.id }, 'Couldn’t start signing in.');
@@ -750,8 +765,9 @@ export function ConnectorsView() {
         </GroupedList>
       )}
 
-      {/* Available apps */}
-      {available.length > 0 && (
+      {/* Available apps. The header stays even when every listed app is connected: its Add
+          button is the only way to add a server by address or one that runs on this Mac. */}
+      {
         <div className="connector-catalog">
           <div className="connector-catalog-header">
             <h2 className="ds-group-title">Add an app</h2>
@@ -825,7 +841,7 @@ export function ConnectorsView() {
             </p>
           )}
         </div>
-      )}
+      }
 
       <ComposioKey
         configured={composioConfigured}

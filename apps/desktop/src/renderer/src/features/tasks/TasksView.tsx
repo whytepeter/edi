@@ -1,19 +1,20 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
-  describeWhen,
   isActiveTask,
+  type ApprovalRequest,
   type ArtifactRef,
-  unattendedSummary,
-  type Schedule,
   type ScheduleWhen,
   type Task,
   type TaskStatus,
 } from '@edi/contracts';
-import { Button, EmptyState, Icon, IconButton, Switch } from '../../components/ui';
+import { Button, EmptyState, Icon, IconButton } from '../../components/ui';
 import { ReplyText } from '../../components/ReplyText';
+import { ApprovalCard, type ApprovalDecision } from '../../components/approval/ApprovalCard';
+import { ApprovalReview } from '../../components/approval/ApprovalReview';
 import { ActionTrail } from '../../components/ActionTrail';
 import { useTasks } from '../../hooks/useTasks';
 import { useSchedules } from '../../hooks/useSchedules';
+import { ScheduleCard } from './ScheduleCard';
 import './tasks.css';
 
 const statusLabel: Record<TaskStatus, string> = {
@@ -33,15 +34,6 @@ function nextHour() {
   const date = new Date(Date.now() + 60 * 60 * 1000);
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:00`;
 }
-function nextRunLabel(at: number | null) {
-  if (at === null) return 'Done';
-  const date = new Date(at);
-  const today = new Date();
-  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (date.toDateString() === today.toDateString()) return `Next today, ${time}`;
-  return `Next ${date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}, ${time}`;
-}
-
 const money = (usd: number) => `$${usd < 1 ? usd.toFixed(2) : usd.toFixed(2).replace(/\.00$/, '')}`;
 
 /** Tasks: hand Edi longer work, watch it, and read what it found. */
@@ -65,6 +57,7 @@ export function TasksView({
   const [budget, setBudget] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [clearing, setClearing] = useState(false);
   const cap = budget === '' ? defaultBudgetUsd : Number(budget);
   const capValid = Number.isFinite(cap) && cap >= 0.05 && cap <= 50;
 
@@ -229,7 +222,17 @@ export function TasksView({
           <h2 className="ds-group-title">Scheduled</h2>
           <ul className="schedule-list">
             {schedules.map(schedule => (
-              <ScheduleRow key={schedule.id} schedule={schedule} send={send} />
+              <ScheduleCard
+                key={schedule.id}
+                schedule={schedule}
+                tasks={tasks ?? []}
+                send={send}
+                onOpenRun={task =>
+                  document
+                    .getElementById(`task-${task.id}`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+              />
             ))}
           </ul>
         </section>
@@ -257,7 +260,31 @@ export function TasksView({
           )}
           {finished.length > 0 && (
             <section className="task-group" aria-label="Finished tasks">
-              <h2 className="ds-group-title">Finished</h2>
+              <div className="task-group-head">
+                <h2 className="ds-group-title">Finished</h2>
+                {clearing ? (
+                  <span className="task-confirm">
+                    Delete {finished.length === 1 ? 'this task' : `all ${finished.length}`} and
+                    {finished.length === 1 ? ' its' : ' their'} history?
+                    <Button size="small" onClick={() => setClearing(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="prominent"
+                      onClick={() =>
+                        void send({ type: 'clear-finished-tasks' }).then(() => setClearing(false))
+                      }
+                    >
+                      Delete
+                    </Button>
+                  </span>
+                ) : (
+                  <Button size="small" variant="plain" onClick={() => setClearing(true)}>
+                    Clear finished
+                  </Button>
+                )}
+              </div>
               {finished.map(task => (
                 <TaskCard key={task.id} task={task} send={send} onOpenArtifact={onOpenArtifact} />
               ))}
@@ -269,79 +296,46 @@ export function TasksView({
   );
 }
 
-function ScheduleRow({
-  schedule,
-  send,
-}: {
-  schedule: Schedule;
-  send(command: Parameters<NonNullable<typeof window.edi>['command']>[0]): Promise<boolean>;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const watch = schedule.notify === 'on-change';
+/** Guards against a click that was already in flight when the review appeared. */
+const ARM_DELAY_MS = 600;
+
+/**
+ * A background task's review, in the task's own card: the same card as a conversation's, with
+ * every field and the full change, so it is never approved from a one-line summary. "Always
+ * allow" says what it covers, and is absent for actions that are reviewed every time.
+ */
+function TaskReview({ approval }: { approval: ApprovalRequest }) {
+  const [armed, setArmed] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setArmed(true), ARM_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  async function respond(decision: ApprovalDecision) {
+    setSending(true);
+    setError('');
+    try {
+      await window.edi?.command({ type: 'respond-approval', callId: approval.callId, decision });
+    } catch {
+      setError('That request is no longer pending.');
+      setSending(false);
+    }
+  }
+
   return (
-    <li className="schedule-row" data-enabled={schedule.enabled || undefined}>
-      <div className="schedule-text">
-        <span className="schedule-title">
-          {schedule.title}
-          {watch && <span className="schedule-badge">Watch</span>}
-        </span>
-        <span className="schedule-detail">
-          {describeWhen(schedule.when)} ·{' '}
-          {schedule.enabled ? nextRunLabel(schedule.nextRunAt) : 'Paused'} · up to{' '}
-          {money(schedule.budgetUsd)}
-        </span>
-        {watch && schedule.lastResult && (
-          <span className="schedule-latest">Last check: {schedule.lastResult}</span>
-        )}
-      </div>
-      {confirming ? (
-        <span className="task-confirm">
-          <Button size="small" onClick={() => setConfirming(false)}>
-            Keep
-          </Button>
-          <Button
-            size="small"
-            variant="prominent"
-            onClick={() => void send({ type: 'delete-schedule', id: schedule.id })}
-          >
-            Remove
-          </Button>
-        </span>
-      ) : (
-        <span className="schedule-controls">
-          {/* Letting a run finish while nobody is here: small, reversible actions need no review. */}
-          <button
-            type="button"
-            className="schedule-badge schedule-own"
-            aria-pressed={schedule.unattended}
-            title={unattendedSummary}
-            onClick={() =>
-              void send({
-                type: 'set-schedule-unattended',
-                id: schedule.id,
-                unattended: !schedule.unattended,
-              })
-            }
-          >
-            {schedule.unattended ? 'On its own' : 'Asks first'}
-          </button>
-          {schedule.nextRunAt !== null && (
-            <Switch
-              label={`${schedule.enabled ? 'Pause' : 'Resume'} ${schedule.title}`}
-              checked={schedule.enabled}
-              onChange={enabled =>
-                void send({ type: 'set-schedule-enabled', id: schedule.id, enabled })
-              }
-            />
-          )}
-          <IconButton
-            icon="trash"
-            label={`Remove ${schedule.title}`}
-            onClick={() => setConfirming(true)}
-          />
-        </span>
-      )}
-    </li>
+    <div className="task-review" role="group" aria-label="Review">
+      <ApprovalCard
+        approval={approval}
+        armed={armed}
+        sending={sending}
+        error={error}
+        onRespond={decision => void respond(decision)}
+      >
+        <ApprovalReview preview={approval.preview} />
+      </ApprovalCard>
+    </div>
   );
 }
 
@@ -360,7 +354,7 @@ function TaskCard({
   const share = Math.min(1, task.budgetUsd > 0 ? task.spentUsd / task.budgetUsd : 0);
   const approval = task.approval;
   return (
-    <article className="task-card" data-status={task.status}>
+    <article className="task-card" id={`task-${task.id}`} data-status={task.status}>
       <header className="task-card-head">
         <span className="task-card-title">{task.title}</span>
         <span className="task-status" data-status={task.status}>
@@ -377,46 +371,7 @@ function TaskCard({
         </span>
       </div>
 
-      {approval && (
-        <div className="task-approval" role="group" aria-label="Review">
-          <p>{approval.preview.summary}</p>
-          <div className="task-actions">
-            <Button
-              size="small"
-              onClick={() =>
-                void send({ type: 'respond-approval', callId: approval.callId, decision: 'deny' })
-              }
-            >
-              Deny
-            </Button>
-            <Button
-              size="small"
-              onClick={() =>
-                void send({
-                  type: 'respond-approval',
-                  callId: approval.callId,
-                  decision: 'approve-always',
-                })
-              }
-            >
-              Always allow
-            </Button>
-            <Button
-              size="small"
-              variant="prominent"
-              onClick={() =>
-                void send({
-                  type: 'respond-approval',
-                  callId: approval.callId,
-                  decision: 'approve',
-                })
-              }
-            >
-              {approval.preview.action}
-            </Button>
-          </div>
-        </div>
-      )}
+      {approval && <TaskReview key={approval.callId} approval={approval} />}
 
       {task.status === 'limited' && (
         <div className="task-approval" role="group" aria-label="Spending cap reached">
@@ -481,11 +436,11 @@ function TaskCard({
       />
 
       <footer className="task-card-foot">
-        {/* Work that stopped before it was done: asking again starts afresh, repeating nothing. */}
-        {!active && !confirming && (task.status === 'interrupted' || task.status === 'failed') ? (
+        {/* Asking again starts afresh as a new task; nothing the old one did is repeated. */}
+        {!active && !confirming ? (
           <Button size="small" onClick={() => void send({ type: 'retry-task', id: task.id })}>
             <Icon name="clock" size={12} />
-            Ask again
+            {task.status === 'interrupted' || task.status === 'failed' ? 'Ask again' : 'Run again'}
           </Button>
         ) : null}
         {active && task.status !== 'limited' ? (

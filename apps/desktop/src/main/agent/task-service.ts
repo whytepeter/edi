@@ -13,6 +13,9 @@ import {
   modelIdSchema,
   unattendedCapabilities,
   type ApprovalRequest,
+  canAlwaysAllow,
+  isActiveTask,
+  maxTaskBudgetUsd,
   type Task,
   type TaskStatus,
   type ToolStep,
@@ -56,10 +59,12 @@ interface TaskServiceOptions {
   capabilities: readonly Capability[];
   /** Tools from connected apps, read at the start of each run. */
   connectedTools?: () => readonly Capability[];
-  selfContext?: () => string;
+  selfContext?: (question: string) => string;
   /** Switched-on skills the model can pick from. */
   skills?: () => { name: string; description: string }[];
   assistantName?: () => string;
+  /** The selected character's manner of speaking. */
+  persona?: () => string;
   readerModel?: () => string | null;
   /** How many tasks run at once; the rest wait their turn. */
   maxRunning?: number;
@@ -69,6 +74,8 @@ interface TaskServiceOptions {
   rules?: ApprovalRules;
   /** A task finished (done, failed or stopped by its limit), for a quiet notice. */
   finished?: (task: Task) => void;
+  /** A task reached its spending cap and is waiting: the person can allow more or stop it. */
+  limited?: (task: Task) => void;
 }
 
 interface ActiveTask {
@@ -211,11 +218,31 @@ export class TaskService {
     this.publish();
   }
 
+  /**
+   * Delete every task that has ended, with its history. Tasks still running, waiting or queued
+   * are left alone. Returns how many went.
+   */
+  clearFinished() {
+    const { tasks } = this.options.repositories;
+    const ended = tasks.list(1_000).filter(record => !isActiveTask(record.status));
+    for (const record of ended) {
+      tasks.remove(record.id);
+      this.steps.delete(record.id);
+      this.allowed.delete(record.id);
+    }
+    if (ended.length) this.publish();
+    return ended.length;
+  }
+
   /** Allow more spending; a task paused at its cap carries on. */
   raiseBudget(id: string, addUsd: number) {
     const record = this.options.repositories.tasks.get(id);
     if (!record) throw new Error('That task no longer exists.');
-    const budgetUsd = Math.min(500, Math.round((record.budgetUsd + addUsd) * 100) / 100);
+    // Never past what a task may hold: a larger cap made the whole task list unreadable.
+    const budgetUsd = Math.min(
+      maxTaskBudgetUsd,
+      Math.round((record.budgetUsd + addUsd) * 100) / 100,
+    );
     this.options.repositories.tasks.update(id, { budgetUsd });
     const active = this.active.get(id);
     if (active?.held && record.spentUsd < budgetUsd) {
@@ -282,12 +309,14 @@ export class TaskService {
       apiKey: credentials.apiKey,
       model: credentials.model,
       name: this.options.assistantName?.() ?? 'Edi',
+      persona: this.options.persona?.() ?? '',
       prompt,
       history: [],
       screenshots: [],
       pointer: null,
       spoken: false,
       mode: 'review',
+      delegate: false,
       maxSteps: 1,
       expressiveVoice: false,
       selfContext: '',
@@ -342,6 +371,8 @@ export class TaskService {
     const head = this.approvals.current;
     if (!head || head.callId !== callId) throw new Error('That approval is no longer pending.');
     const taskId = this.runs.get(head.runId);
+    // Some actions are reviewed every time, whatever was ticked.
+    if (decision === 'approve-always' && !canAlwaysAllow(head.capability.id)) decision = 'approve';
     const rule = decision === 'approve-always' ? this.options.rules?.save(head) : null;
     if (decision === 'approve-always' && !rule && taskId) {
       const set = this.allowed.get(taskId) ?? new Set<string>();
@@ -398,6 +429,7 @@ export class TaskService {
       apiKey: credentials.apiKey,
       model: credentials.model,
       name: this.options.assistantName?.() ?? 'Edi',
+      persona: this.options.persona?.() ?? '',
       prompt: record.prompt,
       history: repositories.runs.recentExchanges(HISTORY_TURNS, record.conversationId),
       screenshots: [],
@@ -405,9 +437,11 @@ export class TaskService {
       pointer: null,
       spoken: false,
       mode: 'task',
+      // Long work with separate parts is where helpers pay for themselves.
+      delegate: true,
       maxSteps: TASK_STEPS,
       expressiveVoice: false,
-      selfContext: this.options.selfContext?.() ?? '',
+      selfContext: this.options.selfContext?.(record.prompt) ?? '',
       skills: this.options.skills?.() ?? [],
       desktopContext: null,
       ...(readerModel ? { readerModel } : {}),
@@ -461,6 +495,9 @@ export class TaskService {
         active.deadline.pause();
         repositories.tasks.update(active.id, { status: 'limited' });
         this.publish();
+        // It holds one of the running slots until the person decides, so they are told.
+        const paused = this.list(100).find(task => task.id === active.id);
+        if (paused) this.options.limited?.(paused);
       }
       return;
     }
@@ -537,9 +574,11 @@ export class TaskService {
   }
 
   private onApprovals() {
-    const head = this.approvals.current;
+    // Every task with a review waiting stops its clock, not only the one being shown: a task
+    // in line behind another's review is waiting on the person just the same.
+    const waitingRuns = this.approvals.waitingRuns;
     for (const active of this.active.values()) {
-      const waiting = head?.runId === active.runId;
+      const waiting = waitingRuns.has(active.runId);
       const record = this.options.repositories.tasks.get(active.id);
       if (!record || record.status === 'limited') continue;
       if (waiting && record.status !== 'waiting') {

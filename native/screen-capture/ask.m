@@ -734,6 +734,27 @@ void edi_shape_glass_window(uint64_t handle, double radius) {
   });
 }
 
+/**
+ * How a window's glass stands, for the log. Bit 0: a glass view exists; 1: it is shown; 2: its
+ * material is kept active; 3: it has a mask; 4: it blurs what is behind the window; 5: it covers
+ * the window. Called on the main thread.
+ */
+int edi_glass_state(uint64_t handle) {
+  NSView *view = (__bridge NSView *)(void *)handle;
+  NSWindow *window = view.window;
+  if (!window) return 0;
+  NSVisualEffectView *effect = edi_find_effect_view(window.contentView.superview);
+  if (!effect) return 0;
+  int state = 1;
+  if (!effect.hiddenOrHasHiddenAncestor && effect.alphaValue > 0.99) state |= 2;
+  if (effect.state == NSVisualEffectStateActive) state |= 4;
+  if (effect.maskImage) state |= 8;
+  if (effect.blendingMode == NSVisualEffectBlendingModeBehindWindow) state |= 16;
+  const NSSize glass = effect.frame.size, whole = window.contentView.frame.size;
+  if (fabs(glass.width - whole.width) < 1 && fabs(glass.height - whole.height) < 1) state |= 32;
+  return state;
+}
+
 /** Accessibility trust for selected text and focused-window details; `prompt` shows the system ask. */
 bool edi_accessibility_trusted(bool prompt) {
   if (!prompt) return AXIsProcessTrusted();

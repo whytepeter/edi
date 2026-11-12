@@ -25,6 +25,7 @@ export function ConversationList({
   onOpen,
   onNew,
   onDelete,
+  onRename,
 }: {
   conversations: ConversationSummary[] | null;
   currentId: string | null;
@@ -32,8 +33,10 @@ export function ConversationList({
   onOpen(id: string): void;
   onNew(): void;
   onDelete(id: string): void;
+  onRename(id: string, title: string): void;
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [query, setQuery] = useState('');
   const [matches, setMatches] = useState<ConversationSummary[] | null>(null);
   const searching = query.trim().length > 0;
@@ -92,7 +95,45 @@ export function ConversationList({
                 className="conversation-item"
                 data-current={current || undefined}
               >
-                {confirming === conversation.id ? (
+                {renaming?.id === conversation.id ? (
+                  <form
+                    className="conversation-confirm"
+                    aria-label="Rename conversation"
+                    onSubmit={event => {
+                      event.preventDefault();
+                      const title = renaming.title.trim();
+                      setRenaming(null);
+                      if (title && title !== conversation.title) onRename(conversation.id, title);
+                    }}
+                  >
+                    <input
+                      className="ds-field"
+                      aria-label="Conversation name"
+                      value={renaming.title}
+                      maxLength={80}
+                      autoFocus
+                      onChange={event =>
+                        setRenaming({ id: conversation.id, title: event.target.value })
+                      }
+                      onKeyDown={event => {
+                        if (event.key === 'Escape') setRenaming(null);
+                      }}
+                    />
+                    <span className="conversation-confirm-actions">
+                      <Button size="small" onClick={() => setRenaming(null)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        size="small"
+                        variant="prominent"
+                        disabled={!renaming.title.trim()}
+                      >
+                        Rename
+                      </Button>
+                    </span>
+                  </form>
+                ) : confirming === conversation.id ? (
                   <div
                     className="conversation-confirm"
                     role="group"
@@ -133,6 +174,14 @@ export function ConversationList({
                         {conversation.turns === 1 ? 'question' : 'questions'}
                       </span>
                     </button>
+                    <IconButton
+                      icon="compose"
+                      label={`Rename ${conversation.title}`}
+                      className="conversation-delete"
+                      onClick={() =>
+                        setRenaming({ id: conversation.id, title: conversation.title })
+                      }
+                    />
                     <IconButton
                       icon="trash"
                       label={`Delete ${conversation.title}`}

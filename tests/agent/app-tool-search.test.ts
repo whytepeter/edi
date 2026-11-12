@@ -7,11 +7,7 @@ import {
   defineCapability,
   type Capability,
 } from '../../packages/capabilities/src/index';
-import {
-  MAX_ACTIVE_FOUND,
-  activate,
-  findAppTools,
-} from '../../apps/desktop/src/main/agent/app-tool-search';
+import { MAX_ACTIVE_FOUND, activate, findAppTools } from '../../packages/agent/src/tool-search';
 import { workerInputSchema } from '../../apps/desktop/src/main/agent/worker-protocol';
 
 const appTool = (app: string, name: string, description: string): Capability =>
@@ -63,6 +59,30 @@ test('connected-app tools are sent directly until there are too many, then only 
   assert.equal(manifest.filter(entry => entry.deferred).length, DIRECT_APP_TOOLS + 1);
   // Built-in tools are always offered.
   assert.equal(manifest.find(entry => entry.name === 'notes_save')?.deferred, undefined);
+});
+
+test('a quick turn sends only the named tools; the rest, built-in or connected, are found', () => {
+  const manifest = brokerWith([appTool('Gmail', 'send', 'Send an email.')]).manifest({
+    direct: new Set(['workspace_show']),
+  });
+  // One connected-app tool would normally go directly; on a quick turn it is found instead.
+  assert.equal(manifest.find(entry => entry.name === 'mcp_gmail_send')?.deferred, true);
+  // A built-in tool that is not named is held back too, and has no app.
+  const note = manifest.find(entry => entry.name === 'notes_save');
+  assert.equal(note?.deferred, true);
+  assert.equal(note?.app, undefined);
+
+  const named = brokerWith([]).manifest({ direct: new Set(['notes_save']) });
+  assert.equal(named.find(entry => entry.name === 'notes_save')?.deferred, undefined);
+});
+
+test('a tool asked for by its own name is found first', () => {
+  const tools = [
+    { name: 'reminders_list', description: 'List reminders and create nothing.' },
+    { name: 'reminders_create', description: 'Add a reminder.' },
+    { name: 'calendar_create', description: 'Create an event, a reminder of a meeting.' },
+  ];
+  assert.equal(findAppTools(tools, 'reminders_create')[0]?.name, 'reminders_create');
 });
 
 test('search finds app tools by name, app and description words', () => {

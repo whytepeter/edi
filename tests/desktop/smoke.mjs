@@ -277,9 +277,27 @@ try {
   await expect(workspace.getByText(/Every weekday at 08:30 · Next/)).toBeVisible();
   const [watch] = await workspace.evaluate(() => window.edi.schedules());
   expect([watch.notify, watch.budgetUsd, watch.enabled]).toEqual(['on-change', 0.25, true]);
-  await workspace.getByRole('switch', { name: /Pause Check the MacBook Air price/ }).click();
-  await expect(workspace.getByText(/Every weekday at 08:30 · Paused/)).toBeVisible();
-  await workspace.getByRole('button', { name: /Remove Check the MacBook Air price/ }).click();
+  // The card says how the last run went and can be changed in place, without remaking it.
+  await expect(workspace.getByText('Hasn’t run yet')).toBeVisible();
+  await expect(workspace.getByRole('button', { name: 'Run now' })).toBeEnabled();
+  await workspace.getByRole('button', { name: 'Edit', exact: true }).click();
+  await workspace.getByLabel('Name').fill('MacBook price');
+  await workspace.getByRole('button', { name: 'Saturday' }).click();
+  await workspace.locator('.schedule-editor').getByLabel('Time').fill('07:15');
+  await expect(
+    workspace.getByText('Every Monday, Tuesday, Wednesday, Thursday, Friday, Saturday at 07:15'),
+  ).toBeVisible();
+  if (process.env.EDI_SMOKE_SHOTS)
+    await workspace.screenshot({ path: `${process.env.EDI_SMOKE_SHOTS}/schedule-edit.png` });
+  await workspace.getByRole('button', { name: 'Save' }).click();
+  await expect(workspace.getByText(/Mon–Sat at 07:15 · Next/)).toBeVisible();
+  const [edited] = await workspace.evaluate(() => window.edi.schedules());
+  expect([edited.id, edited.title, edited.when.time]).toEqual([watch.id, 'MacBook price', '07:15']);
+  if (process.env.EDI_SMOKE_SHOTS)
+    await workspace.screenshot({ path: `${process.env.EDI_SMOKE_SHOTS}/schedule-card.png` });
+  await workspace.getByRole('switch', { name: /Pause MacBook price/ }).click();
+  await expect(workspace.getByText(/Mon–Sat at 07:15 · Paused/)).toBeVisible();
+  await workspace.getByRole('button', { name: /Remove MacBook price/ }).click();
   await workspace.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect.poll(() => workspace.evaluate(() => window.edi.schedules())).toEqual([]);
   expect(await workspace.evaluate(() => window.edi.tasks())).toEqual([]);

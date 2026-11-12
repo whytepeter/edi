@@ -43,6 +43,50 @@ export function AgentPanel({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const error = commandError || loadError;
   const running = state.status === 'running';
+  // Turns from further back, fetched on request. They belong to the window of live turns they
+  // were fetched behind: when that window moves (a new turn, another conversation) they are
+  // dropped rather than left with a gap, and can be asked for again.
+  const firstLive = state.messages[0]?.id;
+  const [fetched, setFetched] = useState<{
+    behind: string | undefined;
+    messages: ChatMessage[];
+    more: boolean;
+  }>({ behind: undefined, messages: [], more: true });
+  const earlier = fetched.behind === firstLive ? fetched : { messages: [], more: true };
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  /** How far the view was from the bottom, so it stays put when turns appear above it. */
+  const fromBottom = useRef<number | null>(null);
+  // The live window is full, so there may be turns before it.
+  const canGoBack =
+    Boolean(firstLive) &&
+    earlier.more &&
+    (earlier.messages.length > 0 ||
+      state.messages.filter(message => message.role !== 'assistant').length >= 10);
+  async function showEarlier() {
+    const before = earlier.messages[0]?.id ?? firstLive;
+    if (!before || !window.edi || loadingEarlier) return;
+    setLoadingEarlier(true);
+    const thread = threadRef.current;
+    fromBottom.current = thread ? thread.scrollHeight - thread.scrollTop : null;
+    try {
+      const found = await window.edi.earlierMessages(before);
+      setFetched({
+        behind: firstLive,
+        messages: [...found.messages, ...earlier.messages],
+        more: found.more,
+      });
+    } catch {
+      fromBottom.current = null;
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }
+  useLayoutEffect(() => {
+    const thread = threadRef.current;
+    if (thread && fromBottom.current !== null)
+      thread.scrollTop = thread.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [earlier.messages.length]);
   const [browsing, setBrowsing] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
   // Turns re-render only when their own content changes; these stay stable and act on the latest.
@@ -207,6 +251,14 @@ export function AgentPanel({
               : void switchTo({ type: 'open-conversation', id })
           }
           onNew={() => void switchTo({ type: 'new-conversation' })}
+          onRename={(id, title) =>
+            void command({ type: 'rename-conversation', id, title }).then(() =>
+              window.edi
+                ?.conversations()
+                .then(setConversations)
+                .catch(() => {}),
+            )
+          }
           onDelete={id =>
             void command({ type: 'delete-conversation', id }).then(() =>
               window.edi
@@ -236,6 +288,36 @@ export function AgentPanel({
               Type below, or hold <kbd>⌥ Space</kbd> and ask out loud.
             </p>
           </div>
+        )}
+        {/* Only the last few turns are kept live; the rest are fetched when asked for. */}
+        {canGoBack && (
+          <button
+            type="button"
+            className="agent-earlier"
+            disabled={loadingEarlier}
+            onClick={() => void showEarlier()}
+          >
+            {loadingEarlier ? 'Loading…' : 'Show earlier'}
+          </button>
+        )}
+        {earlier.messages.map(message =>
+          message.role === 'note' ? (
+            <p key={message.id} className="agent-note" role="note">
+              {message.text}
+            </p>
+          ) : (
+            <Turn
+              key={message.id}
+              message={message}
+              pending={false}
+              steps={undefined}
+              working={false}
+              failed={false}
+              retryDisabled
+              onRetry={retry}
+              onOpenArtifact={openArtifact}
+            />
+          ),
         )}
         {state.messages.map(message =>
           message.role === 'note' ? (

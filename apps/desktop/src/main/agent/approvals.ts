@@ -31,6 +31,11 @@ export class ApprovalQueue implements ApprovalGate {
     return this.entries[0]?.request ?? null;
   }
 
+  /** Every run with a review waiting, shown or still in line behind the one that is. */
+  get waitingRuns(): ReadonlySet<string> {
+    return new Set(this.entries.map(entry => entry.request.runId));
+  }
+
   async request(request: ApprovalRequest, signal: AbortSignal): Promise<Decision> {
     if (signal.aborted) throw aborted();
     const allowed = this.preapproved(request);
@@ -51,7 +56,8 @@ export class ApprovalQueue implements ApprovalGate {
       };
       signal.addEventListener('abort', onAbort, { once: true });
       this.entries.push(entry);
-      if (this.entries.length === 1) this.onChange(request);
+      // Told for every arrival, not only the first: a run in line is waiting on the person too.
+      this.onChange(this.current);
     });
   }
 
@@ -88,6 +94,6 @@ export class ApprovalQueue implements ApprovalGate {
     const index = this.entries.indexOf(entry);
     if (index === -1) return;
     this.entries.splice(index, 1);
-    if (index === 0) this.onChange(this.current);
+    this.onChange(this.current);
   }
 }

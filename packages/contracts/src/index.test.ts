@@ -21,6 +21,11 @@ import {
   localizeActions,
   presentationScriptSchema,
   presentationText,
+  bubbleReplyText,
+  canAlwaysAllow,
+  memoriesForPrompt,
+  memoryProblem,
+  bubbleReplySchema,
   describePointerElement,
   needsScreenContext,
   pointsAtCursor,
@@ -770,4 +775,68 @@ test('a saved rule allows only the same action when it covers everything the act
     ),
     true,
   );
+});
+
+test('the reply bubble shows words only: no tags, and no more than it can hold', () => {
+  assert.equal(
+    bubbleReplyText('[MOOD:happy] Your meeting is at 2:30pm. [POINT:612,418:Save]'),
+    'Your meeting is at 2:30pm.',
+  );
+  // A tag still being written never flashes on screen.
+  assert.equal(bubbleReplyText('[MOOD:happy] Done. [POI'), 'Done.');
+  assert.equal(bubbleReplyText('[MOOD:neutral]'), '');
+  const long = bubbleReplyText('word '.repeat(600));
+  assert.ok(long.length <= 1_200);
+  assert.ok(long.endsWith('…'));
+  assert.ok(bubbleReplySchema.safeParse({ text: long, done: false }).success);
+});
+
+test('undoing something is reviewed every time; ordinary actions may be always allowed', () => {
+  assert.equal(canAlwaysAllow('edi.undo'), false);
+  assert.equal(canAlwaysAllow('files.move'), true);
+  assert.equal(canAlwaysAllow('notes.save'), true);
+});
+
+test('when memories do not all fit, the ones about the question are the ones kept', () => {
+  const memory = (id: number, text: string) => ({
+    id: `00000000-0000-4000-8000-${String(id).padStart(12, '0')}`,
+    kind: 'fact' as const,
+    text,
+    createdAt: id,
+    updatedAt: id,
+  });
+  const memories = [
+    memory(1, 'Their sister Priya lives in Lisbon and visits in spring'),
+    memory(2, 'They prefer short answers without preamble'),
+    memory(3, 'Their dentist is on Tuesday afternoons'),
+  ];
+  // Room for one line only.
+  const limit = 60;
+  // With no question the most recent wins, and the sister is left out.
+  assert.deepEqual(memoriesForPrompt(memories, { limit }), [
+    '- Their dentist is on Tuesday afternoons',
+  ]);
+  // Asked about her, she is the one that is kept.
+  assert.deepEqual(
+    memoriesForPrompt(memories, { limit, question: 'When does my sister visit Lisbon?' }),
+    ['- Their sister Priya lives in Lisbon and visits in spring'],
+  );
+});
+
+test('a memory is checked the same way whether Edi or the person adds it', () => {
+  const kept = [
+    {
+      id: '00000000-0000-4000-8000-000000000001',
+      kind: 'preference' as const,
+      text: 'Prefers short answers',
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  ];
+  assert.equal(memoryProblem('Works at Fewer Labs', kept), null);
+  assert.equal(memoryProblem('   ', kept), 'Write what Edi should remember.');
+  assert.match(memoryProblem('My password is hunter2', kept)!, /doesn’t keep passwords/);
+  assert.match(memoryProblem(' prefers SHORT answers ', kept)!, /already remembers that/);
+  const full = Array.from({ length: 100 }, (_, index) => ({ ...kept[0]!, text: `line ${index}` }));
+  assert.match(memoryProblem('One more', full)!, /already remembers 100 things/);
 });

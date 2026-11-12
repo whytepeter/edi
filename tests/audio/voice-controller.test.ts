@@ -1264,3 +1264,9 @@ test('audio longer than a second reaches the player in one-second pieces, so a r
   assert.equal(h.voice.phase, 'idle', 'the reply finished instead of stalling');
   assert.equal(h.statuses.at(-1), 'hidden');
 });
+
+test('sound annotations a recognizer writes are not words', () => {
+  assert.equal(cleanTranscript('[BLANK_AUDIO]'), '');
+  assert.equal(cleanTranscript('(music) What time is it? *coughs*'), 'What time is it?');
+  assert.equal(cleanTranscript('♪♪ Play it again ♪'), 'Play it again');
+});

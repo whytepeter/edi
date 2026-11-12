@@ -56,13 +56,19 @@ function host(options: { body?: Buffer; ignoreRange?: boolean; status?: number }
   return { fetch, requests, stall: (chunks: number) => (stallAfter = chunks) };
 }
 
-function setup(server: ReturnType<typeof host>, packs = [pack()], free = 10 ** 12) {
+function setup(
+  server: ReturnType<typeof host>,
+  packs = [pack()],
+  free = 10 ** 12,
+  stallMs?: number,
+) {
   const dir = mkdtempSync(join(tmpdir(), 'edi-packs-'));
   const manager = new VoicePacks({
     dir,
     fetch: server.fetch,
     freeBytes: async () => free,
     packs,
+    ...(stallMs ? { stallMs } : {}),
   });
   const model = join(dir, 'whisper/ggml-small.en.bin');
   return { dir, manager, model, done: () => rmSync(dir, { recursive: true, force: true }) };
@@ -164,5 +170,44 @@ test('not enough disk space, or a host error, is said plainly before anything is
     assert.match(broken.manager.status()[0]?.error ?? '', /couldn’t start \(503\)/);
   } finally {
     broken.done();
+  }
+});
+
+test('a download that stops arriving ends with a plain reason, and carries on from where it was', async () => {
+  const server = host();
+  const { manager, model, done } = setup(server, undefined, undefined, 60);
+  try {
+    // The host sends two chunks, then nothing more, without closing the connection.
+    server.stall(2);
+    await manager.download('listening');
+    const stopped = manager.status()[0]!;
+    assert.equal(stopped.state, 'failed');
+    assert.equal(stopped.error, 'The download stopped arriving. Try again to carry on.');
+    // What arrived is kept, so trying again asks only for the rest.
+    assert.equal(existsSync(`${model}.partial`), true);
+    assert.equal(stopped.received, 20_000);
+
+    server.stall(Infinity);
+    await manager.download('listening');
+    assert.equal(manager.status()[0]?.state, 'installed');
+    assert.deepEqual(readFileSync(model), content);
+    assert.equal(server.requests.at(-1), 'bytes=20000-');
+  } finally {
+    done();
+  }
+});
+
+test('what arrived of a stopped download can be removed rather than resumed', async () => {
+  const server = host();
+  const { manager, model, done } = setup(server, undefined, undefined, 60);
+  try {
+    server.stall(2);
+    await manager.download('listening');
+    assert.equal(existsSync(`${model}.partial`), true);
+    await manager.remove('listening');
+    assert.equal(existsSync(`${model}.partial`), false);
+    assert.equal(manager.status()[0]?.state, 'missing');
+  } finally {
+    done();
   }
 });

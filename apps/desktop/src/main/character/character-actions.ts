@@ -5,6 +5,7 @@ import {
   placeSpeechBubble,
   type ApprovalRequest,
   type ArtifactSummary,
+  type BubbleReply,
   type BubbleSide,
   type CharacterExpression,
   type CharacterManifest,
@@ -14,6 +15,7 @@ import {
 import {
   characterMenuSize,
   floatingMargin,
+  replyBubbleSize,
   statusBubbleSize,
   thinkingBubbleSize,
   type StatusBubbleOptions,
@@ -59,11 +61,18 @@ export class CharacterActions {
   private approval?: ApprovalRequest;
   /** Content shown during a voice turn, waiting for its compact bubble. */
   private artifact?: ArtifactSummary;
+  /** The answer the reply bubble is showing, in words. */
+  private reply?: BubbleReply;
   private expression: CharacterExpression = 'idle';
   private expressionTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly options: CharacterActionsOptions) {
     options.pet.on('move', this.followPet);
+  }
+
+  /** Nothing beside the character and nothing on its face: no bubble, no menu, idle. */
+  get quiet() {
+    return !this.bubble && !this.menu && this.expression === 'idle';
   }
 
   /** What Edi is doing now, for things that must not interrupt it. */
@@ -94,8 +103,78 @@ export class CharacterActions {
     }
     const busy = this.bubble?.state;
     if (busy === 'approval' || busy === 'speaking' || busy === 'listening') return;
+    // An answer being written keeps its bubble; its progress line says what Edi is doing.
+    if (busy === 'reply' && this.reply && !this.reply.done) return;
     this.showThinking(text);
   };
+
+  /**
+   * Edi's answer in words, beside the character, as it is written: the conversation without
+   * opening the card. It grows with the text, shows what Edi is doing under it, and once the
+   * answer is complete it lingers long enough to read (and to hear), then leaves. Open shows
+   * the whole conversation; the field under it sends a reply.
+   */
+  showReply = (text: string, options: { progress?: string; done?: boolean } = {}) => {
+    const busy = this.bubble?.state;
+    // A review, the person talking, or content they can open all come before words.
+    if (busy === 'approval' || busy === 'listening' || busy === 'artifact') return;
+    const reply: BubbleReply = {
+      text,
+      progress: (options.progress ?? '').slice(0, 60),
+      done: options.done ?? false,
+    };
+    const size = replyBubbleSize(reply.text, reply.progress);
+    const bubble = this.bubble;
+    if (bubble?.state !== 'reply' || bubble.window.isDestroyed()) {
+      this.reply = reply;
+      this.showStatus('reply');
+    } else {
+      const before = this.reply;
+      this.reply = reply;
+      if (!before || replyBubbleSize(before.text, before.progress).height !== size.height)
+        bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
+      this.pushApproval();
+    }
+    clearTimeout(this.dismiss);
+    if (reply.done) {
+      // Time to read it, and to hear it out when it is also spoken.
+      const linger = Math.max(6_000, Math.min(30_000, 3_000 + reply.text.length * 70));
+      this.dismiss = setTimeout(() => this.hideBubble(), linger);
+    }
+  };
+
+  /** The person is reading or answering the reply: it stays until they send or dismiss it. */
+  holdReply = () => {
+    if (this.bubble?.state === 'reply') clearTimeout(this.dismiss);
+  };
+
+  /**
+   * A short note about the answer on show ("The screen changed, so I didn’t point."): under the
+   * answer when it is up, otherwise as a notice of its own. It never takes the answer away.
+   */
+  note = (text: string) => {
+    const bubble = this.bubble;
+    if (bubble?.state === 'reply' && this.reply && !bubble.window.isDestroyed()) {
+      const before = this.reply;
+      this.reply = { ...before, progress: text.slice(0, 60) };
+      if (
+        replyBubbleSize(before.text, before.progress).height !==
+        replyBubbleSize(this.reply.text, this.reply.progress).height
+      )
+        bubble.window.setBounds(
+          this.bubblePlacement(replyBubbleSize(this.reply.text, this.reply.progress), bubble.side)
+            .bounds,
+        );
+      return this.pushApproval();
+    }
+    if (bubble?.state === 'approval' || bubble?.state === 'listening') return;
+    this.showStatus('notice', 4000, text.slice(0, 60));
+  };
+
+  /** What the reply bubble shows, for its own window to read when it opens. */
+  get openReply(): BubbleReply | null {
+    return this.bubble?.state === 'reply' ? (this.reply ?? null) : null;
+  }
 
   /**
    * Warm, brief acknowledgement when Edi is asked to do something: a small happy nod with the
@@ -134,9 +213,18 @@ export class CharacterActions {
       this.setExpression('attention');
     } else if (status === 'hidden') {
       if (this.artifact) this.presentArtifact();
-      else if (this.bubble?.state !== 'approval' && this.bubble?.state !== 'artifact')
+      // A reply in words leaves on its own timer, after it has been read.
+      else if (
+        this.bubble?.state !== 'approval' &&
+        this.bubble?.state !== 'artifact' &&
+        this.bubble?.state !== 'reply'
+      )
         this.hideBubble();
+      else if (this.bubble?.state === 'reply') this.setExpression('idle');
     } else if (typeof status === 'object') this.showStatus('notice', 4000, status.notice);
+    // While the answer is on show, speaking and thinking change the face, not the bubble.
+    else if (this.bubble?.state === 'reply' && (status === 'speaking' || status === 'thinking'))
+      this.setExpression(status);
     else if (status === 'thinking' && this.bubble?.state !== 'approval')
       this.showThinking(this.progress);
     else if (this.bubble?.state !== status) this.showStatus(status);
@@ -202,9 +290,17 @@ export class CharacterActions {
     text?: string,
     artifact?: ArtifactSummary,
   ) {
+    // Replacing one bubble with another forgets the old one's words, not the new one's.
+    const reply = state === 'reply' ? this.reply : undefined;
     this.hideBubble(false);
+    this.reply = reply;
     this.setExpression(this.expressionFor(state));
-    const size = state === 'thinking' ? thinkingBubbleSize(text) : statusBubbleSize[state];
+    const size =
+      state === 'thinking'
+        ? thinkingBubbleSize(text)
+        : state === 'reply' && this.reply
+          ? replyBubbleSize(this.reply.text, this.reply.progress)
+          : statusBubbleSize[state];
     const { bounds, side } = this.bubblePlacement(size);
     const window = this.options.createBubble({
       state,
@@ -217,7 +313,7 @@ export class CharacterActions {
     this.bubble = { window, state, side };
     this.bubbleReady = false;
     window.setIgnoreMouseEvents(
-      state !== 'approval' && state !== 'artifact' && state !== 'suggestion',
+      state !== 'approval' && state !== 'artifact' && state !== 'suggestion' && state !== 'reply',
     );
     window.setBounds(bounds);
     let shown = false;
@@ -245,6 +341,8 @@ export class CharacterActions {
     if (!this.bubbleReady || !bubble || bubble.window.isDestroyed()) return;
     if (bubble.state === 'suggestion' && this.suggestion)
       return bubble.window.webContents.send('edi:bubble-suggestion', this.suggestion);
+    if (bubble.state === 'reply' && this.reply)
+      return bubble.window.webContents.send('edi:bubble-reply', this.reply);
     if (bubble.state !== 'approval' || !this.approval) return;
     bubble.window.webContents.send('edi:bubble-approval', this.approval);
   }
@@ -276,7 +374,9 @@ export class CharacterActions {
     const size =
       bubble.state === 'thinking'
         ? thinkingBubbleSize(this.bubbleText)
-        : statusBubbleSize[bubble.state];
+        : bubble.state === 'reply' && this.reply
+          ? replyBubbleSize(this.reply.text, this.reply.progress)
+          : statusBubbleSize[bubble.state];
     bubble.window.setBounds(this.bubblePlacement(size, bubble.side).bounds);
   };
 
@@ -306,6 +406,7 @@ export class CharacterActions {
     this.bubble?.window.destroy();
     this.bubble = undefined;
     this.bubbleText = undefined;
+    this.reply = undefined;
     if (resetExpression && !this.approval) this.setExpression('idle');
   }
 

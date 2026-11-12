@@ -45,7 +45,9 @@ async function setup() {
     return { prepared, result };
   };
   const [recent, undo] = activityCapabilities({
-    recent: limit => log.slice(0, limit),
+    // As the store does it: changes only when asked, then the newest `limit`.
+    recent: (limit, options) =>
+      log.filter(action => !options?.changes || action.effect === 'write').slice(0, limit),
     tool: id => files.find(tool => tool.id === id),
     home,
   });

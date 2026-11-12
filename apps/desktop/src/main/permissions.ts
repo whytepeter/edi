@@ -63,6 +63,8 @@ interface ScreenAskLibrary extends KoffiLib {
   shapeBubble: (handle: bigint, radius: number, side: number, tail: number) => void;
   /** Absent in a helper built before it existed; the window then keeps system corners. */
   shapeWindow: ((handle: bigint, radius: number) => void) | null;
+  /** Absent in an older helper; the glass is then rebuilt without a word in the log. */
+  glassState: ((handle: bigint) => number) | null;
   /** Absent in an older helper; desktop context and Accessibility then report nothing. */
   frontContext: {
     async(
@@ -232,6 +234,15 @@ function loadBoundScreenAsk(): ScreenAskLibrary | null {
           return null;
         }
       })(),
+      glassState: (() => {
+        try {
+          return loaded.func('edi_glass_state', 'int', ['uint64']) as NonNullable<
+            ScreenAskLibrary['glassState']
+          >;
+        } catch {
+          return null;
+        }
+      })(),
     };
     return screenAsk;
   } catch (error) {
@@ -367,6 +378,27 @@ export function shapeGlassWindow(window: { getNativeWindowHandle(): Buffer }, ra
     lib.shapeWindow(window.getNativeWindowHandle().readBigUInt64LE(0), radius);
   } catch {
     // Cosmetic only.
+  }
+}
+
+/** What a healthy glass window reports: a glass view that is shown, active, behind the window
+ * and as large as it. The mask is left out, since the menu keeps the system's own corners. */
+const GLASS_HEALTHY = 1 | 2 | 4 | 16 | 32;
+
+/**
+ * Whether a window's native glass is in place. `null` when it cannot be told (no native library).
+ * `state` is the raw answer, for the log.
+ */
+export function glassHealth(window: {
+  getNativeWindowHandle(): Buffer;
+}): { healthy: boolean; state: number } | null {
+  const lib = loadBoundScreenAsk();
+  if (!lib?.glassState) return null;
+  try {
+    const state = lib.glassState(window.getNativeWindowHandle().readBigUInt64LE(0));
+    return { healthy: (state & GLASS_HEALTHY) === GLASS_HEALTHY, state };
+  } catch {
+    return null;
   }
 }
 

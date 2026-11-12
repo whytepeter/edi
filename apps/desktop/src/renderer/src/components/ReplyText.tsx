@@ -5,8 +5,15 @@ import { Fragment, type ReactNode } from 'react';
  * address) open in the person's default browser through main, never inside Edi, and only for
  * http(s). Everything is built as React elements, so reply text can never inject HTML.
  */
-export function ReplyText({ text }: { text: string }) {
-  return <>{parts(text)}</>;
+export function ReplyText({
+  text,
+  openLink = url => void window.edi?.command({ type: 'open-link', url }).catch(() => {}),
+}: {
+  text: string;
+  /** How a link opens; the bubble has its own narrow bridge. */
+  openLink?: (url: string) => void;
+}) {
+  return <>{parts(text, openLink)}</>;
 }
 
 const pattern =
@@ -20,7 +27,7 @@ function host(url: string) {
   }
 }
 
-function parts(text: string): ReactNode[] {
+function parts(text: string, openLink: (url: string) => void): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   let key = 0;
@@ -40,7 +47,7 @@ function parts(text: string): ReactNode[] {
           title={site ? `Open ${site} in your browser` : url}
           onClick={event => {
             event.preventDefault();
-            void window.edi?.command({ type: 'open-link', url }).catch(() => {});
+            openLink(url);
           }}
         >
           {label || site || url}

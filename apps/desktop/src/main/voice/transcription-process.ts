@@ -63,19 +63,45 @@ const STOCK_NOISE =
   /^(?:you|thanks for watching|thank you for watching|please subscribe|subtitles by .*)$/;
 
 /**
- * What whisper heard, with its two ways of hearing noise as speech taken out. Over background
- * sound it writes words it was primed with: a turn that is nothing but glossary words ("Edi.",
- * "OpenRouter.") is noise, and so are its stock subtitle lines. It also loops, writing one short phrase
- * again and again ("Not soon. Not soon. Not soon."); a phrase said three or more times in a row
- * is kept once. Returns '' when nothing real was said.
+ * Sounds of listening rather than asking. On their own they are a cough, a murmur or someone
+ * agreeing with the television, unless Edi has just asked something, when "yes" is the answer.
+ * "No" and "stop" are never here: they are how a person corrects her, and must always be heard.
+ * Nor is a greeting, which is more often meant for her than not.
  */
-export function settleTranscript(transcript: string, glossary: readonly string[]) {
+// prettier-ignore
+const BACKCHANNEL = new Set([
+  'ok', 'okay', 'yeah', 'yes', 'yep', 'sure', 'right', 'alright', 'so', 'well',
+  'oh', 'ah', 'uh', 'um', 'er', 'erm', 'hmm', 'hm', 'mm', 'mhm', 'huh', 'wow',
+]);
+
+/** Whether a reply ends by asking the person something, so a one-word answer is an answer. */
+export function asksSomething(reply: string) {
+  return /\?["”’)\]]*\s*$/.test(reply.trim());
+}
+
+/**
+ * What whisper heard, with its ways of hearing noise as speech taken out. Over background
+ * sound it writes words it was primed with: a turn that is nothing but glossary words ("Edi.",
+ * "OpenRouter.") is noise, and so are its stock subtitle lines. A turn that is
+ * only a sound of listening ("Okay.", "Mm-hmm.") is dropped too, unless `answering` says Edi
+ * just asked a question. It also loops, writing one short phrase again and again ("Not soon.
+ * Not soon. Not soon."); a phrase said three or more times in a row is kept once. Returns ''
+ * when nothing real was said.
+ */
+export function settleTranscript(
+  transcript: string,
+  glossary: readonly string[],
+  options: { answering?: boolean } = {},
+) {
   const text = transcript.trim();
   const words = plainWords(text);
   if (!words.length) return '';
   const primed = new Set(glossary.flatMap(plainWords));
   if (words.every(word => primed.has(word))) return '';
   if (STOCK_NOISE.test(words.join(' '))) return '';
+  // "Mm-hmm" reads as two words; a few murmurs in a row are still only murmurs.
+  if (!options.answering && words.length <= 3 && words.every(word => BACKCHANNEL.has(word)))
+    return '';
 
   const sentences = text.match(/[^.!?]+[.!?]*/g)?.map(sentence => sentence.trim()) ?? [text];
   const kept: string[] = [];

@@ -33,3 +33,7 @@
   font: var(--text-footnote);
   color: var(--label-secondary);
 }
+
+.activity-undo {
+  margin-top: var(--space-2);
+}

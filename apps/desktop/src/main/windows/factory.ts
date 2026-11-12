@@ -1,6 +1,6 @@
 import { BrowserWindow, screen, type BrowserWindowConstructorOptions } from 'electron';
 import { join } from 'node:path';
-import { shapeGlassBubble, shapeGlassWindow } from '../permissions';
+import { glassHealth, shapeGlassBubble, shapeGlassWindow } from '../permissions';
 import { ARTIFACT_PARTITION } from './artifact-sandbox';
 import {
   clampWindow,
@@ -49,6 +49,8 @@ export const statusBubbleSize: Record<StatusBubbleState, { width: number; height
   artifact: withTail(292, 108),
   // One line from what's in front, with its action and Not now.
   suggestion: withTail(300, 104),
+  // The smallest reply: one line of words above the reply field. It grows with the answer.
+  reply: withTail(320, 96),
 };
 export const characterMenuSize = { width: 184, height: 134 } as const;
 
@@ -56,6 +58,18 @@ export const characterMenuSize = { width: 184, height: 134 } as const;
 export function thinkingBubbleSize(text?: string) {
   if (!text) return statusBubbleSize.thinking;
   return withTail(Math.round(Math.min(280, Math.max(112, 72 + text.length * 7.6))), 36);
+}
+
+/**
+ * The reply bubble fits its words: about forty-four characters to a line, up to seven lines, then it
+ * scrolls. A progress line and the reply field sit under the text.
+ */
+export function replyBubbleSize(text: string, progress = '') {
+  const lines = text
+    .split('\n')
+    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 44)), 0);
+  const shown = Math.max(1, Math.min(7, lines));
+  return withTail(320, 20 + shown * 21 + (progress ? 22 : 0) + 46);
 }
 
 /** Real desktop blur (CSS backdrop-filter cannot see behind a window). */
@@ -92,6 +106,47 @@ function loadSurface(win: BrowserWindow, surface: Surface, params: Record<string
 /** Glass windows with content are masked to this radius (CSS --radius-glass-window). */
 const glassWindowRadius = 22;
 
+type GlassMaterial = 'menu' | 'popover';
+/** Every open glass window, with its material and how it is shaped, so its glass can be rebuilt. */
+const glassWindows = new Map<BrowserWindow, { material: GlassMaterial; shape: () => void }>();
+
+/**
+ * Shapes a glass window each time it comes into view, not only the first. 'show' also fires when
+ * a window returns after the display slept or a Space came back, which is when a mask applied
+ * once at launch is most likely to be stale.
+ */
+function keepGlass(win: BrowserWindow, material: GlassMaterial, shape: () => void = () => {}) {
+  const apply = () => {
+    if (!win.isDestroyed()) shape();
+  };
+  glassWindows.set(win, { material, shape: apply });
+  win.once('closed', () => glassWindows.delete(win));
+  win.on('show', apply);
+  return apply;
+}
+
+/**
+ * Rebuilds the glass of every open glass window, as a restart would. A window open for hours has
+ * been seen with its glass gone (the page's tint over the bare desktop) and fine again after a
+ * restart, so this runs after the things only a long-running Edi goes through: waking, the
+ * screen unlocking, a display changing. Anything found wrong is logged with `reason`.
+ */
+export function refreshGlass(reason: string) {
+  for (const [win, { material, shape }] of glassWindows) {
+    if (win.isDestroyed()) continue;
+    const health = glassHealth(win);
+    if (health && !health.healthy && win.isVisible()) {
+      // eslint-disable-next-line no-console -- a deliberate diagnostic line
+      console.warn(
+        `Glass was missing on "${win.getTitle()}" after ${reason} (state ${health.state})`,
+      );
+    }
+    win.setVibrancy(null);
+    win.setVibrancy(material);
+    shape();
+  }
+}
+
 export function createWorkspaceWindow() {
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
   const win = new BrowserWindow({
@@ -109,7 +164,7 @@ export function createWorkspaceWindow() {
     minHeight: 420,
     webPreferences: withBridge,
   });
-  win.once('show', () => shapeGlassWindow(win, glassWindowRadius));
+  keepGlass(win, 'popover', () => shapeGlassWindow(win, glassWindowRadius));
   return loadSurface(win, 'workspace');
 }
 
@@ -133,7 +188,7 @@ export function createArtifactWindow(ref: ArtifactRef) {
     // Its own in-memory session: interactive pages get no network and no shared storage.
     webPreferences: { ...withBridge, partition: ARTIFACT_PARTITION },
   });
-  win.once('show', () => shapeGlassWindow(win, glassWindowRadius));
+  keepGlass(win, 'popover', () => shapeGlassWindow(win, glassWindowRadius));
   return loadSurface(win, 'artifact', { ref: JSON.stringify(ref) });
 }
 
@@ -217,17 +272,15 @@ export function createStatusBubbleWindow({
     // The bubble mask supplies the corners; system rounding would clip the tail's tip.
     roundedCorners: false,
     skipTaskbar: true,
-    focusable: state === 'approval' || state === 'artifact' || state === 'suggestion',
+    focusable:
+      state === 'approval' || state === 'artifact' || state === 'suggestion' || state === 'reply',
     // The preload exposes only approval response and content-reveal actions.
     webPreferences: { ...isolated, preload: join(__dirname, '../preload/bubble.js') },
   });
   // Shape once the window is on screen and its glass view has its final size. The mask is drawn
   // for one size, so redraw it whenever the bubble resizes (status text grows or shrinks it);
   // otherwise macOS stretches the old mask and the corners and tail distort.
-  const shape = () => {
-    if (!win.isDestroyed()) shapeGlassBubble(win, side, 18, bubbleTail);
-  };
-  win.once('show', shape);
+  const shape = keepGlass(win, 'popover', () => shapeGlassBubble(win, side, 18, bubbleTail));
   win.on('resize', () => {
     if (win.isVisible()) shape();
   });
@@ -249,6 +302,7 @@ export function createCharacterMenuWindow(name: string) {
     skipTaskbar: true,
     webPreferences: withBridge,
   });
+  keepGlass(win, 'menu');
   return loadSurface(win, 'character-menu', { name });
 }
 

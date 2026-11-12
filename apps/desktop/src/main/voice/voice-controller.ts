@@ -86,8 +86,8 @@ export interface VoiceDependencies<Screens> {
   /** A spoken turn broke: the whole error, for the log (the person sees a short notice). */
   failed?(error: unknown): void;
   /**
-   * Each hands-free pause judged by the words so far, for comparing the judgement with another
-   * (Jev in shadow mode). After an unfinished verdict, the returned function hears what followed.
+   * Each hands-free pause judged by the words so far, for a host that wants to compare the
+   * judgement with another. After an unfinished verdict, the returned function hears what followed.
    */
   pauseJudged?(heard: string, unfinished: boolean): ((outcome: PauseOutcome) => void) | void;
   /** Tests shorten these. */
@@ -170,10 +170,13 @@ export function spokenFailure(error: string) {
   return reason.length > 110 ? `${reason.slice(0, 107).trimEnd()}…` : reason;
 }
 
-/** Whisper marks non-speech as tags like [BLANK_AUDIO] or (music); they are not a question. */
+/**
+ * Whisper marks non-speech as tags like [BLANK_AUDIO], (music), *coughs* or ♪; they are not a
+ * question.
+ */
 export function cleanTranscript(text: string) {
   return text
-    .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|[♪♫]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

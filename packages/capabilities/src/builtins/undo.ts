@@ -93,7 +93,8 @@ const periodStart = (since: 'today' | 'week' | 'all', now: number) => {
  */
 export function activityCapabilities(deps: {
   /** Recent actions, newest first. */
-  recent(limit: number): RecordedAction[];
+  /** `changes` leaves lookups out, so they cannot crowd older changes off the list. */
+  recent(limit: number, options?: { changes?: boolean }): RecordedAction[];
   /** One of Edi's tools by id, to reverse an action with. */
   tool(id: string): Capability | undefined;
   home: string;
@@ -135,7 +136,7 @@ export function activityCapabilities(deps: {
           fields: [],
         },
         async execute() {
-          const all = deps.recent(200);
+          const all = deps.recent(200, { changes: !includeReads });
           const reversed = undone(all);
           const from = periodStart(since, deps.now?.() ?? Date.now());
           const actions = all
@@ -184,7 +185,8 @@ export function activityCapabilities(deps: {
     timeoutMs: 60_000,
     input: z.object({ actionId: z.string().uuid().optional() }).strict(),
     async prepare({ actionId }, context) {
-      const actions = deps.recent(200);
+      // Changes only: what can be undone is never a lookup.
+      const actions = deps.recent(200, { changes: true });
       const reversed = undone(actions);
       const target = actionId
         ? actions.find(action => action.id === actionId)

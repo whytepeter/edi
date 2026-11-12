@@ -88,3 +88,24 @@ test('a recording placed before voices could be added is kept as the voice Edi',
   writeFileSync(join(voiceFolder, 'edi.wav'), wavFile(Buffer.alloc(24_000 * 2 * 7)));
   assert.deepEqual(await voices.list(), []);
 });
+
+test('a voice list that cannot be read is rebuilt from the recordings, never saved over', async () => {
+  const dir = folder();
+  const voices = new PersonalVoices(join(dir, 'voices'), { trash: async path => rmSync(path) });
+  const first = await voices.add(spokenClip(dir), 'Priya');
+  // The list is damaged (a crash mid-write, a bad edit); the recording is still on disk.
+  writeFileSync(join(dir, 'voices', 'voices.json'), '{ not json');
+
+  const recovered = await voices.list();
+  assert.deepEqual(
+    recovered.map(voice => voice.id),
+    [first.id],
+  );
+  // Adding another voice keeps the first one in the list instead of dropping it.
+  const second = await voices.add(spokenClip(dir), 'Sam');
+  assert.deepEqual(
+    (await voices.list()).map(voice => voice.id).sort(),
+    [first.id, second.id].sort(),
+  );
+  assert.equal(existsSync(voices.recording(first.id)), true);
+});

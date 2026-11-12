@@ -44,6 +44,11 @@ export function DesktopPet({
   // A sleepy Edi moves slowly: the same touch, half the bounce.
   const motion = usePetMotion(button, intensity * (mood === 'sleepy' ? 0.5 : 1));
   const lastMove = useRef<{ x: number; at: number; velocity: number } | null>(null);
+  // Wandering: each hop shows in Edi's shape, not only in where its window is.
+  useEffect(
+    () => window.edi?.onCharacterHop(hop => motion.hop(hop.phase, hop.direction)),
+    [motion],
+  );
 
   async function send(command: Command) {
     try {

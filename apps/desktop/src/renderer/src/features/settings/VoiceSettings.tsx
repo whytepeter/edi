@@ -298,8 +298,14 @@ export function VoiceSettings({
     try {
       await window.edi.command({ type: 'set-voice-key', provider, apiKey: apiKey.trim() });
       setApiKey('');
-    } catch {
-      setKeyError(`${providerName[provider]} didn’t accept that key. Check it and try again.`);
+    } catch (error) {
+      // Main's own reason: a refused key and being offline are different things to fix.
+      setKeyError(
+        commandMessage(
+          error,
+          `${providerName[provider]} didn’t accept that key. Check it and try again.`,
+        ),
+      );
     } finally {
       setSavingKey(false);
       onKeysChanged();
@@ -757,10 +763,24 @@ function VoicePackRow({ pack, onChanged }: { pack: VoicePackStatus; onChanged():
       ),
       control: button('Pause', 'pause'),
     },
-    paused: { detail: `Paused at ${progress}`, control: button('Resume', 'download', true) },
+    // What has arrived can be dropped as well as resumed: a partial download is disk space too.
+    paused: {
+      detail: `Paused at ${progress}`,
+      control: (
+        <span className="settings-actions">
+          {button('Remove', 'remove')}
+          {button('Resume', 'download', true)}
+        </span>
+      ),
+    },
     failed: {
       detail: pack.error ?? 'The download stopped.',
-      control: button('Try Again', 'download'),
+      control: (
+        <span className="settings-actions">
+          {pack.received > 0 && button('Remove', 'remove')}
+          {button('Try Again', 'download')}
+        </span>
+      ),
     },
     installed: {
       detail: `On this Mac · ${size}`,

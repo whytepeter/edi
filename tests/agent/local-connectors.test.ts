@@ -144,3 +144,35 @@ test('removing a local server stops it and leaves nothing waiting to start again
     await connectors.dispose();
   }
 });
+
+test('adding a local server again with a new version or arguments updates the one that exists', async () => {
+  const { connectors, settled } = manager();
+  try {
+    const id = connectors.add({ local: notes, name: 'Team Notes' });
+    await settled(list => list[0]?.status === 'connected');
+
+    // The same package, a newer version and an argument: one app, now pinned to the new line.
+    const newer: LocalServer = { ...notes, version: '1.5.0', args: ['--folder', 'Notes'] };
+    assert.equal(connectors.add({ local: newer }), id);
+    // The old one stops, then the new line starts and connects.
+    await settled(list => list[0]?.status === 'connecting');
+    const [updated] = await settled(list => list[0]?.status === 'connected');
+    assert.equal(connectors.list().length, 1);
+    assert.deepEqual(updated!.local, newer);
+    assert.equal(updated!.name, 'Team Notes');
+    // Nothing was left out, and the app lists everything it has.
+    assert.deepEqual([updated!.toolsLeftOut, updated!.moreTools], [0, false]);
+  } finally {
+    await connectors.dispose();
+  }
+});
+
+test('a server still starting when Edi quits is stopped, not left running', async () => {
+  const { connectors, settled } = manager();
+  connectors.add({ local: notes, name: 'Team Notes' });
+  // Quit at once, before it has come up.
+  await connectors.dispose();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.notEqual(connectors.list()[0]?.status, 'connected');
+  void settled;
+});

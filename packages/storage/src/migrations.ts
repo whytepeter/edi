@@ -341,6 +341,31 @@ export const migrations: readonly { version: number; sql: string }[] = [
     version: 18,
     sql: `ALTER TABLE connectors ADD COLUMN local_json TEXT;`,
   },
+  {
+    // Views (generated interface) join the generated kinds; the CHECK is rebuilt as before.
+    version: 19,
+    sql: `
+      CREATE TABLE artifacts_next (
+        id           TEXT PRIMARY KEY,
+        kind         TEXT    NOT NULL
+                     CHECK (kind IN ('document', 'checklist', 'table', 'diagram', 'view', 'html')),
+        title        TEXT    NOT NULL,
+        content_json TEXT    NOT NULL,
+        path         TEXT    NOT NULL,
+        bytes        INTEGER NOT NULL,
+        created_at   INTEGER NOT NULL,
+        updated_at   INTEGER NOT NULL,
+        pinned_at    INTEGER
+      );
+      INSERT INTO artifacts_next
+        (id, kind, title, content_json, path, bytes, created_at, updated_at, pinned_at)
+      SELECT id, kind, title, content_json, path, bytes, created_at, updated_at, pinned_at
+      FROM artifacts;
+      DROP TABLE artifacts;
+      ALTER TABLE artifacts_next RENAME TO artifacts;
+      CREATE INDEX artifacts_updated ON artifacts (updated_at DESC);
+    `,
+  },
 ];
 
 export const latestVersion = migrations.at(-1)!.version;

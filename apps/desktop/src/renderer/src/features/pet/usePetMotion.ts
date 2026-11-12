@@ -5,6 +5,7 @@ import {
   tiltFor,
   touchAmounts,
   touchSprings,
+  wanderShape,
   type SpringState,
 } from '@edi/contracts';
 
@@ -21,6 +22,11 @@ export interface PetMotion {
   drag(velocityX: number): void;
   /** Let go of a drag, a hold or a cancelled press: everything settles back. */
   settle(): void;
+  /**
+   * A hop while wandering. 'up': Edi stretches and leans the way it is going (1 right, -1
+   * left). 'land': it squashes for a moment and springs back upright.
+   */
+  hop(phase: 'up' | 'land', direction: 1 | -1): void;
 }
 
 const still: PetMotion = {
@@ -30,6 +36,7 @@ const still: PetMotion = {
   lift() {},
   drag() {},
   settle() {},
+  hop() {},
 };
 
 const rest = (): SpringState => ({ position: 0, velocity: 0 });
@@ -145,6 +152,20 @@ export function usePetMotion(target: RefObject<HTMLElement | null>, scale: numbe
         goal.lift = 0;
         goal.tilt = 0;
       }),
+      hop: (phase, direction) => {
+        if (quiet.matches) return;
+        if (phase === 'up') {
+          // Negative squash is a stretch: taller and narrower while it is in the air.
+          goal.squash = -wanderShape.stretch * amount.current;
+          goal.tilt = direction * wanderShape.lean * amount.current;
+        } else {
+          // Back to rest through a squash: the landing gives the spring a push downward.
+          goal.squash = 0;
+          goal.tilt = 0;
+          squash = { ...squash, velocity: wanderShape.landing * amount.current };
+        }
+        run();
+      },
     };
 
     // Turning on Reduce Motion mid-gesture lets everything go back to rest.
@@ -170,6 +191,7 @@ export function usePetMotion(target: RefObject<HTMLElement | null>, scale: numbe
       lift: () => motion.current.lift(),
       drag: velocityX => motion.current.drag(velocityX),
       settle: () => motion.current.settle(),
+      hop: (phase, direction) => motion.current.hop(phase, direction),
     }),
     [],
   );

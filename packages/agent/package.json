@@ -1,0 +1,20 @@
+{
+  "name": "@edi/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@edi/capabilities": "workspace:*",
+    "@edi/contracts": "workspace:*",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "ai": "^7.0.97",
+    "zod": "^4.0.0"
+  }
+}

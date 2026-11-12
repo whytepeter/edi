@@ -2,7 +2,7 @@ import { z } from 'zod';
 import {
   maxMemories,
   memoryKindSchema,
-  refuseToRemember,
+  memoryProblem,
   type Memory,
   type MemoryKind,
 } from '@edi/contracts';
@@ -48,16 +48,13 @@ export function memoryCapabilities(deps: {
     prepare({ text, kind }) {
       if (!deps.enabled())
         throw new Error('The user switched off remembering in Settings → Memory.');
-      const refused = refuseToRemember(text);
-      if (refused) throw new Error(refused);
-      const already = deps
-        .list()
-        .find(memory => memory.text.toLowerCase() === text.trim().toLowerCase());
-      if (already) throw new Error(`Edi already remembers that: “${already.text}”.`);
-      if (deps.list().length >= maxMemories)
+      const kept = deps.list();
+      if (kept.length >= maxMemories)
         throw new Error(
           `Edi already remembers ${maxMemories} things. Ask the user which to drop, then use edi_forget.`,
         );
+      const problem = memoryProblem(text, kept);
+      if (problem) throw new Error(problem);
       return {
         preview: {
           title: 'Remember this',

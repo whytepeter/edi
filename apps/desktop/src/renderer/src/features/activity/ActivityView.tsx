@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Activity, ActivityRun } from '@edi/contracts';
-import { Icon } from '../../components/ui';
+import { Button, Icon } from '../../components/ui';
+import { commandMessage } from '../../lib/command-message';
 import { StepList } from '../../components/StepList';
 import './activity.css';
 import { useAssistantName } from '../../hooks/useAssistantName';
@@ -28,6 +29,7 @@ export function ActivityView({ refreshKey }: { refreshKey: string }) {
   // Outside Electron there is no history to load.
   const [activity, setActivity] = useState<Activity | null>(() => (window.edi ? null : []));
   const [error, setError] = useState('');
+  const [undoing, setUndoing] = useState(false);
   useEffect(() => {
     if (!window.edi) return;
     let alive = true;
@@ -48,6 +50,30 @@ export function ActivityView({ refreshKey }: { refreshKey: string }) {
           <p className="ds-body ds-secondary">
             Every request, and each action {assistant} took or you refused.
           </p>
+          {/* Undo is Edi's own reviewed action, so the button asks Edi: what it will put back
+              is shown for approval before anything moves. */}
+          <div className="activity-undo">
+            <Button
+              size="small"
+              disabled={undoing}
+              onClick={() => {
+                setUndoing(true);
+                setError('');
+                void window.edi
+                  ?.command({
+                    type: 'ask-agent',
+                    prompt: 'Undo the last thing you changed.',
+                  })
+                  .then(() =>
+                    window.edi?.command({ type: 'show-workspace', view: 'conversations' }),
+                  )
+                  .catch(cause => setError(commandMessage(cause, 'Couldn’t ask for that.')))
+                  .finally(() => setUndoing(false));
+              }}
+            >
+              Undo last change…
+            </Button>
+          </div>
         </header>
       )}
       {error && (

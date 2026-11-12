@@ -20,6 +20,8 @@ import {
   type ApprovalRule,
   type PrivacyState,
   type Memory,
+  type BubbleReply,
+  type EarlierMessages,
   type Suggestion,
   type Connector,
   type SkillsState,
@@ -62,6 +64,7 @@ interface IpcDependencies {
   cloudVoices(provider: CloudProviderId): Promise<CloudVoiceOption[]>;
   usage(days: UsagePeriod): Promise<UsageSummary>;
   conversations(query: string): ConversationSummary[];
+  earlierMessages(before: string): EarlierMessages;
   tasks(): Task[];
   schedules(): Schedule[];
   approvalRules(): ApprovalRule[];
@@ -69,6 +72,8 @@ interface IpcDependencies {
   memories(): Memory[];
   /** The quiet offer the bubble is showing, if any. */
   openSuggestion(): Suggestion | null;
+  /** The answer the reply bubble is showing, if any. */
+  openReply(): BubbleReply | null;
   connectors(): Connector[];
   skills(): Promise<SkillsState>;
   composioConfigured(): boolean;
@@ -99,12 +104,14 @@ export function registerIpc({
   cloudVoices,
   usage,
   conversations,
+  earlierMessages,
   tasks,
   schedules,
   approvalRules,
   privacy,
   memories,
   openSuggestion,
+  openReply,
   connectors,
   skills,
   composioConfigured,
@@ -207,6 +214,10 @@ export function registerIpc({
     authorize(callerOf(event), ['workspace']);
     return conversations(z.string().max(200).optional().parse(query) ?? '');
   });
+  ipcMain.handle('edi:conversation:earlier', (event, before: unknown) => {
+    authorize(callerOf(event), ['workspace']);
+    return earlierMessages(z.string().min(1).max(80).parse(before));
+  });
   ipcMain.handle('edi:usage:get', (event, days: unknown) => {
     authorize(callerOf(event), ['workspace']);
     return usage(usagePeriodSchema.parse(days));
@@ -230,6 +241,10 @@ export function registerIpc({
   ipcMain.handle('edi:bubble-suggestion:get', event => {
     authorize(callerOf(event), ['bubble']);
     return openSuggestion();
+  });
+  ipcMain.handle('edi:bubble-reply:get', event => {
+    authorize(callerOf(event), ['bubble']);
+    return openReply();
   });
   ipcMain.handle('edi:characters:get', event => {
     authorize(callerOf(event), ['workspace', 'pet', 'artifact']);

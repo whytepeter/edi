@@ -539,3 +539,264 @@
     monospace;
   white-space: pre-wrap;
 }
+
+/* ---------- View: interface Edi generated for an answer ---------- */
+.view {
+  display: grid;
+  gap: var(--space-3);
+  font: var(--text-body);
+  letter-spacing: var(--tracking-body);
+  color: var(--label);
+}
+.view-heading {
+  margin: var(--space-1) 0 0;
+  font: var(--text-headline);
+  letter-spacing: var(--tracking-headline);
+}
+.view-text {
+  margin: 0;
+  color: var(--label-secondary);
+}
+.view-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--label-tertiary);
+  font: var(--text-footnote);
+}
+.view-divider {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--separator);
+}
+.view-note {
+  margin: 0;
+  color: var(--label-tertiary);
+  font: var(--text-footnote);
+  text-align: center;
+}
+
+/* Figures side by side, each on its own quiet tile. */
+.view-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: var(--space-2);
+}
+.view-stat {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+}
+.view-stat-label {
+  color: var(--label-tertiary);
+  font: var(--text-footnote);
+}
+.view-stat-value {
+  font: 700 22px/1.15 var(--font-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.view-stat-detail {
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+}
+
+.view-progress-top {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+.view-progress-top span:last-child {
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.view-progress-track,
+.view-bar-track {
+  display: block;
+  height: 8px;
+  border-radius: var(--radius-capsule);
+  background: var(--fill);
+  overflow: hidden;
+}
+.view-progress-track i,
+.view-bar-track i {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--accent-fill);
+  transition: width var(--spring-fast) var(--spring);
+}
+
+.view-list ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  list-style: none;
+}
+.view-list li {
+  padding: 9px var(--space-3);
+}
+.view-list li + li {
+  border-top: 1px solid var(--separator);
+}
+
+.view-chart {
+  margin: 0;
+}
+.view-bars {
+  display: grid;
+  gap: var(--space-2);
+}
+.view-bar {
+  display: grid;
+  grid-template-columns: minmax(64px, 30%) 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.view-bar span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-secondary);
+}
+.view-bar span:last-child {
+  min-width: 2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.view-line {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.view-line-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--label-tertiary);
+  font: var(--text-footnote);
+}
+.view-ring {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.view-ring svg {
+  flex: none;
+  width: 104px;
+  height: 104px;
+}
+.view-legend {
+  flex: 1;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.view-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.view-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent-fill);
+}
+.view-legend span:last-child {
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Choices are chips: one tap is the answer. */
+.view-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.view-chip {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    transform var(--press-duration) var(--ease-out),
+    background-color 160ms var(--ease-out);
+}
+.view-chip:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 24%, transparent);
+}
+.view-chip:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+.view-chip:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.view-chip[data-picked] {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+  opacity: 1;
+}
+
+.view-field input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  color: var(--label);
+  font: var(--text-body);
+  outline: none;
+}
+.view-field input:focus {
+  background: var(--fill-hover);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-progress-track i,
+  .view-bar-track i,
+  .view-chip {
+    transition: none;
+  }
+}
+
+/* A checklist item is a button: the whole row ticks it. */
+.artifact-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.artifact-check-error {
+  margin: var(--space-2) 0 0;
+  color: var(--label-secondary);
+  font: var(--text-footnote);
+}

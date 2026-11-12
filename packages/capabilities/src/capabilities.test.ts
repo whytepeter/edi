@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { artifactExport, type ArtifactSummary } from '@edi/contracts';
 import {
+  toArtifactContent,
+  readWorkspaceItem,
+  setChecklistItem,
   CapabilityBroker,
   defineCapability,
   ediSetupCapabilities,
@@ -18,6 +21,7 @@ import {
   type ArtifactStore,
   type Capability,
   type WorkspaceArtifact,
+  type WorkspaceDependencies,
   type ListedNote,
   type NoteStore,
   type ToolCallRecorder,
@@ -852,4 +856,208 @@ test('workspace search includes matching conversations and understands date rang
   assert.equal((await run({ query: 'palette', kind: 'note' })).output.conversations, undefined);
   // Dates come as YYYY-MM-DD; the broker refuses anything else before the tool runs.
   assert.equal(search.input.safeParse({ query: 'x', after: 'last week' }).success, false);
+});
+
+test('a view the model writes is checked block by block, with a reason it can act on', () => {
+  const view = toArtifactContent({
+    kind: 'view',
+    title: 'Trip',
+    blocks: [
+      { type: 'stat', text: 'Total', value: '$952' },
+      { type: 'button', text: 'Book it', ask: 'Book the trip' },
+    ],
+  });
+  assert.equal(view.kind, 'view');
+  assert.throws(
+    () =>
+      toArtifactContent({
+        kind: 'view',
+        title: 'Trip',
+        blocks: [
+          { type: 'stat', text: 'Total', value: '$952' },
+          { type: 'chart', items: ['A', 'B'], values: [1] },
+        ],
+      }),
+    /Block 2: A chart needs `items` \(labels\) and the same number of `values`\./,
+  );
+  assert.throws(() => toArtifactContent({ kind: 'view', title: 'Trip' }), /at least one block/);
+});
+
+test('changes wait their turn within a run, and one run never waits for another', async () => {
+  const order: string[] = [];
+  let release: (() => void) | undefined;
+  const held = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const slow = defineCapability({
+    id: 'files.move',
+    title: 'Move',
+    description: 'Move',
+    effect: 'write',
+    timeoutMs: 5_000,
+    input: z.object({ name: z.string() }).strict(),
+    prepare: ({ name }) => ({
+      preview: { title: 'Move', action: 'Move', summary: name, fields: [] },
+      execute: async () => {
+        order.push(`start ${name}`);
+        if (name === 'a1') await held;
+        order.push(`end ${name}`);
+        return { summary: 'Moved.' };
+      },
+    }),
+  });
+  const broker = new CapabilityBroker([slow], {
+    approvals: { request: async () => 'approved' },
+    recorder: { created() {}, decided() {}, finished() {} },
+  });
+  const signal = new AbortController().signal;
+  const run = (runId: string, name: string) => broker.invoke(runId, 'files_move', { name }, signal);
+
+  const a1 = run('run-a', 'a1');
+  const a2 = run('run-a', 'a2');
+  const b1 = run('run-b', 'b1');
+  await b1;
+  // Run B finished while run A's first change was still going; A's second waited behind it.
+  assert.deepEqual(order, ['start a1', 'start b1', 'end b1']);
+  release!();
+  await Promise.all([a1, a2]);
+  assert.deepEqual(order.slice(3), ['end a1', 'start a2', 'end a2']);
+});
+
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+test('saved content is reopened by id, not shown again as a copy; a checklist can be ticked', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'edi-open-'));
+  try {
+    const stored = new Map<string, WorkspaceArtifact>();
+    const shown: ArtifactSummary[] = [];
+    const deps: WorkspaceDependencies = {
+      directory: () => directory,
+      artifacts: {
+        add: (artifact: WorkspaceArtifact) => void stored.set(artifact.id, artifact),
+        get: (id: string) => stored.get(id) ?? null,
+        list: () => [...stored.values()],
+        update: (change: { id: string } & Partial<WorkspaceArtifact>) => {
+          const record = stored.get(change.id)!;
+          stored.set(change.id, { ...record, ...change });
+        },
+        remove: (id: string) => stored.delete(id),
+      } as unknown as WorkspaceDependencies['artifacts'],
+      notes: {
+        directory: () => join(directory, 'Notes'),
+        store: { get: () => null } as unknown as WorkspaceDependencies['notes']['store'],
+        shown: async () => {},
+      } as unknown as WorkspaceDependencies['notes'],
+      shown: artifact => void shown.push(artifact),
+      now: () => 5,
+    } as WorkspaceDependencies;
+    const tools = workspaceCapabilities(deps);
+    const show = tools[0];
+    // Taken by id (it is last in the list); typed for what it accepts.
+    const open = tools.find(tool => tool.id === 'workspace.open') as unknown as {
+      prepare(
+        input: { id: string },
+        context: { callId: string; runId: string },
+      ): { execute(signal: AbortSignal): Promise<{ summary: string }> };
+    };
+    const context = { callId: uuid(1), runId: uuid(9) };
+    const live = new AbortController().signal;
+
+    const made = await show.prepare(
+      {
+        kind: 'checklist',
+        title: 'Packing',
+        items: [
+          { text: 'Passport', done: false },
+          { text: 'Charger', done: false },
+        ],
+      },
+      context,
+    );
+    await made.execute(live);
+    assert.equal(stored.size, 1);
+
+    // Opening it shows the same item again and stores nothing new.
+    const reopened = await open.prepare({ id: uuid(1) }, { callId: uuid(2), runId: uuid(9) });
+    const outcome = await reopened.execute(live);
+    assert.equal(outcome.summary, 'Opened “Packing”.');
+    assert.equal(stored.size, 1);
+    assert.deepEqual(
+      shown.map(artifact => artifact.id),
+      [uuid(1), uuid(1)],
+    );
+    await assert.rejects(
+      async () => open.prepare({ id: uuid(7) }, context),
+      /nothing in its workspace with that id/,
+    );
+
+    // A tick is kept in the stored list and in its file.
+    const ticked = await setChecklistItem(deps, uuid(1), 1, true);
+    assert.deepEqual(ticked.kind === 'checklist' && ticked.items.map(item => item.done), [
+      false,
+      true,
+    ]);
+    const file = await readFile(join(directory, stored.get(uuid(1))!.path), 'utf8');
+    assert.match(file, /- \[ \] Passport\n- \[x\] Charger/);
+    await assert.rejects(setChecklistItem(deps, uuid(1), 9, true), /no longer on the list/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a generated file edited by hand is read as the person left it, and never written over unkept', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'edi-edits-'));
+  try {
+    const stored = new Map<string, WorkspaceArtifact>();
+    const deps = {
+      directory: () => directory,
+      artifacts: {
+        add: (artifact: WorkspaceArtifact) => void stored.set(artifact.id, artifact),
+        get: (id: string) => stored.get(id) ?? null,
+        list: () => [...stored.values()],
+        update: (change: { id: string } & Partial<WorkspaceArtifact>) => {
+          stored.set(change.id, { ...stored.get(change.id)!, ...change });
+        },
+        remove: (id: string) => stored.delete(id),
+      },
+      notes: { directory: () => join(directory, 'Notes'), store: { get: () => null } },
+      shown: () => {},
+      now: () => 5,
+    } as unknown as WorkspaceDependencies;
+    const tools = workspaceCapabilities(deps);
+    const live = new AbortController().signal;
+    const context = { callId: uuid(1), runId: uuid(9) };
+    await (
+      await tools[0].prepare(
+        { kind: 'document', title: 'Plan', markdown: '# Plan\n\nStep one.' },
+        context,
+      )
+    ).execute(live);
+    const file = join(directory, stored.get(uuid(1))!.path);
+
+    // Untouched, it reads as Edi wrote it and an update keeps no copy.
+    const fresh = await readWorkspaceItem(deps, uuid(1));
+    assert.equal('note' in fresh, false);
+
+    // The person adds a line in another app.
+    await writeFile(file, '# Plan\n\nStep one.\n\nStep two, added by hand.\n');
+    const read = await readWorkspaceItem(deps, uuid(1));
+    assert.match(read.text, /Step two, added by hand\./);
+    assert.match((read as { note?: string }).note ?? '', /edited this file by hand/);
+
+    // An update says so before it is approved, and their version survives beside the new one.
+    const update = tools[3];
+    const prepared = await update.prepare(
+      { id: uuid(1), kind: 'document', title: 'Plan', markdown: '# Plan\n\nRewritten.' },
+      { callId: uuid(2), runId: uuid(9) },
+    );
+    assert.ok(prepared.preview.fields.some(field => field.label === 'Your edits'));
+    const outcome = await prepared.execute(live);
+    assert.match(outcome.summary, /own edits were kept beside it as “plan \(your edits\)\.md”/);
+    assert.equal(await readFile(file, 'utf8'), '# Plan\n\nRewritten.\n');
+    const kept = join(directory, 'Artifacts', 'Reports', 'plan (your edits).md');
+    assert.match(await readFile(kept, 'utf8'), /Step two, added by hand\./);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

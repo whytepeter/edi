@@ -24,6 +24,7 @@ export {
   readWorkspaceItem,
   renameWorkspaceItem,
   searchWorkspace,
+  setChecklistItem,
   toArtifactContent,
   workspaceCapabilities,
   writeWorkspaceArtifact,

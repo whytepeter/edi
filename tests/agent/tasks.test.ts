@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { z } from '../../packages/capabilities/node_modules/zod/index.js';
 import { defineCapability, type Capability } from '../../packages/capabilities/src/index';
 import { createRepositories, openDatabase } from '../../packages/storage/src/index';
+import { taskListSchema } from '../../packages/contracts/src/index';
 import {
   MAX_WRITES_PER_RUN,
   TaskService,
@@ -49,6 +50,7 @@ function harness(capabilities: Capability[] = []) {
   const repositories = createRepositories(openDatabase(':memory:'));
   const workers: FakeWorker[] = [];
   const finished: string[] = [];
+  const limited: string[] = [];
   const credentials = {
     configured: true,
     apiKey: 'test-key-123',
@@ -65,8 +67,9 @@ function harness(capabilities: Capability[] = []) {
       return worker;
     },
     finished: task => finished.push(`${task.title}:${task.status}`),
+    limited: task => limited.push(`${task.title}:${task.status}`),
   });
-  return { repositories, workers, finished, tasks };
+  return { repositories, workers, finished, limited, tasks };
 }
 
 test('a task cut off by a quit can be asked again, and starts afresh', () => {
@@ -455,4 +458,88 @@ test('a run that makes too many changes is stopped for a check', async () => {
   const stopped = tasks.task(task.id);
   assert.equal(stopped?.status, 'failed');
   assert.match(stopped?.error ?? '', new RegExp(`Stopped after ${MAX_WRITES_PER_RUN} changes`));
+});
+
+test('a task that pauses at its cap says so once, and its cap can never pass the most a task may hold', () => {
+  const { tasks, workers, limited, repositories } = harness();
+  const task = tasks.start({ prompt: 'Research', budgetUsd: 30, conversationId: null });
+  workers[0]!.emit(usage(30));
+  assert.equal(tasks.task(task.id)?.status, 'limited');
+  assert.deepEqual(limited, ['Research:limited']);
+  // More usage while it waits does not announce it again.
+  workers[0]!.emit(usage(0.01));
+  assert.deepEqual(limited, ['Research:limited']);
+
+  // "Allow more" doubles the cap; past the limit it stops at the limit, so the list still reads.
+  tasks.raiseBudget(task.id, 30);
+  assert.equal(repositories.tasks.get(task.id)?.budgetUsd, 50);
+  assert.doesNotThrow(() => taskListSchema.parse(tasks.list()));
+  tasks.raiseBudget(task.id, 50);
+  assert.equal(repositories.tasks.get(task.id)?.budgetUsd, 50);
+});
+
+test('one task waiting for a review does not hold up another, and both stop their clocks', async () => {
+  let moved = 0;
+  const move = defineCapability({
+    id: 'files.move',
+    title: 'Move files',
+    description: 'Move',
+    effect: 'write',
+    timeoutMs: 1000,
+    input: z.object({ to: z.string() }).strict(),
+    prepare: ({ to }) => ({
+      preview: { title: 'Move', action: 'Move', summary: `Move to ${to}.`, fields: [] },
+      execute: async () => {
+        moved++;
+        return { summary: 'Moved.' };
+      },
+    }),
+  });
+  const { tasks, workers } = harness([move as Capability]);
+  const first = tasks.start({ prompt: 'Tidy Downloads', budgetUsd: 0.5, conversationId: null });
+  const second = tasks.start({ prompt: 'Tidy Desktop', budgetUsd: 0.5, conversationId: null });
+
+  // The first task asks to move something and nobody answers.
+  workers[0]!.emit({ type: 'tool-call', id: uuid(1), name: 'files_move', input: { to: 'a' } });
+  await settle();
+  assert.equal(tasks.task(first.id)?.status, 'waiting');
+
+  // The second task's change reaches the review line too, instead of sitting behind the first
+  // task's unanswered one with its clock running.
+  workers[1]!.emit({ type: 'tool-call', id: uuid(2), name: 'files_move', input: { to: 'b' } });
+  await settle();
+  assert.equal(tasks.task(second.id)?.status, 'waiting');
+  assert.equal(tasks.currentApproval?.preview.summary, 'Move to a.');
+
+  // Declining the first shows the second, which was prepared and waiting all along.
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'deny');
+  await settle();
+  assert.equal(tasks.task(first.id)?.status, 'running');
+  assert.equal(tasks.currentApproval?.preview.summary, 'Move to b.');
+  tasks.respondToApproval(tasks.currentApproval!.callId, 'approve');
+  await settle();
+  assert.equal(tasks.task(second.id)?.status, 'running');
+  assert.equal(moved, 1);
+});
+
+test('finished tasks can be cleared in one go; work still going is left alone', () => {
+  const { tasks, workers } = harness();
+  const done = tasks.start({ prompt: 'Find roles', budgetUsd: 0.5, conversationId: null });
+  const running = tasks.start({ prompt: 'Tidy Downloads', budgetUsd: 0.5, conversationId: null });
+  const queued = tasks.start({ prompt: 'Plan the week', budgetUsd: 0.5, conversationId: null });
+  workers[0]!.emit({ type: 'text', text: 'Found 3.' });
+  workers[0]!.emit({ type: 'done' });
+  assert.equal(tasks.task(done.id)?.status, 'done');
+
+  assert.equal(tasks.clearFinished(), 1);
+  assert.equal(tasks.task(done.id), undefined);
+  // The queued task took the free slot when the first one ended; both are still there.
+  assert.ok(tasks.task(running.id));
+  assert.ok(tasks.task(queued.id));
+  assert.equal(tasks.clearFinished(), 0);
+
+  // Any ended task can be asked again as a new one; the old one keeps its history.
+  const again = tasks.retry(running.id);
+  assert.notEqual(again.id, running.id);
+  assert.equal(again.prompt, 'Tidy Downloads');
 });

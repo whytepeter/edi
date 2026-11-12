@@ -268,3 +268,24 @@ export function localizeActions(actions: PresentationAction[], origin: { x: numb
     };
   });
 }
+
+/** What the bubble beside the character shows of a reply as it is written. */
+export const bubbleReplySchema = z
+  .object({
+    text: z.string().max(1_200),
+    /** What Edi is doing right now, under the words ("Searching the web"); '' when nothing. */
+    progress: z.string().max(60).default(''),
+    /** The reply is complete; the bubble lingers, then leaves. */
+    done: z.boolean(),
+  })
+  .strict();
+export type BubbleReply = z.infer<typeof bubbleReplySchema>;
+
+/**
+ * A reply as the bubble shows it: no tags, and never more than the bubble can hold. A long
+ * answer keeps its beginning and says there is more, which Open shows in full.
+ */
+export function bubbleReplyText(reply: string): string {
+  const text = presentationText(reply).trim();
+  return text.length > 1_200 ? `${text.slice(0, 1_180).trimEnd()}…` : text;
+}

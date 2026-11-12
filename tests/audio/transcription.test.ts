@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   glossaryWords,
   pcmWave,
+  asksSomething,
   settleTranscript,
   transcribePcm,
   transcriptionPrompt,
@@ -124,4 +125,39 @@ test('an open microphone hearing the room is not a question', () => {
     settleTranscript('How do I set up OAuth for Skaletek?', glossary),
     'How do I set up OAuth for Skaletek?',
   );
+});
+
+test('an open microphone: a murmur on its own starts nothing unless it answers Edi', () => {
+  const glossary = glossaryWords({ name: 'Edi' });
+  // Sounds of listening, not asking: a cough, a murmur, someone agreeing with the television.
+  for (const murmur of ['Okay.', 'Yeah.', 'Hmm.', 'Uh.', 'Oh.', 'So.', 'Mm-hmm.', 'Yeah, okay.'])
+    assert.equal(settleTranscript(murmur, glossary), '', murmur);
+
+  // Edi just asked: a one-word reply is the answer, and is kept.
+  assert.equal(settleTranscript('Yes.', glossary, { answering: true }), 'Yes.');
+  assert.equal(settleTranscript('Okay.', glossary, { answering: true }), 'Okay.');
+
+  // Said to her by name, or with anything real in it, every word is kept.
+  assert.equal(settleTranscript('Okay, Edi.', glossary), 'Okay, Edi.');
+  assert.equal(
+    settleTranscript('Okay, add it to my calendar.', glossary),
+    'Okay, add it to my calendar.',
+  );
+  assert.equal(settleTranscript('Yes please do that', glossary), 'Yes please do that');
+  assert.equal(settleTranscript('What time is it?', glossary), 'What time is it?');
+  // A correction is always heard, whether or not she asked; so is a greeting.
+  assert.equal(settleTranscript('Stop.', glossary), 'Stop.');
+  assert.equal(settleTranscript('No.', glossary), 'No.');
+  assert.equal(settleTranscript('No, no.', glossary), 'No, no.');
+  assert.equal(settleTranscript('Hello?', glossary), 'Hello?');
+});
+
+test('a reply that ends with a question makes the next word an answer', () => {
+  assert.equal(asksSomething('Shall I add it to your calendar?'), true);
+  assert.equal(asksSomething('Want the short version (two lines)?'), true);
+  assert.equal(asksSomething('Did you mean “Monday”?'), true);
+  assert.equal(asksSomething('I added it. Anything else?  '), true);
+  assert.equal(asksSomething('Is it raining? No, it is dry today.'), false);
+  assert.equal(asksSomething('Done.'), false);
+  assert.equal(asksSomething(''), false);
 });

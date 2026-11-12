@@ -1,7 +1,7 @@
 /**
- * Finding connected-app tools that aren't shown to the model up front. Plain word matching over
- * each tool's name, app and description: cheap, local, and good enough for "send an email" →
- * `GMAIL_SEND_EMAIL`.
+ * Finding tools that aren't shown to the model up front (connected-app tools, and the less used
+ * built-in ones on a quick turn). Plain word matching over each tool's name, app and
+ * description: cheap, local, and good enough for "send an email" → `GMAIL_SEND_EMAIL`.
  */
 
 export interface SearchableTool {
@@ -29,12 +29,14 @@ export function findAppTools<T extends SearchableTool>(
 ): T[] {
   const wanted = [...new Set(words(query))];
   if (!wanted.length) return [];
+  const asked = query.toLowerCase();
   return tools
     .map(tool => {
       const name = new Set(words(tool.name));
       const app = new Set(words(tool.app ?? ''));
       const about = new Set(words(tool.description));
-      let score = 0;
+      // A tool asked for by its own name comes first, whatever else the words match.
+      let score = asked.includes(tool.name.toLowerCase()) ? 20 : 0;
       for (const word of wanted) {
         if (name.has(word)) score += 3;
         else if (about.has(word)) score += 1;

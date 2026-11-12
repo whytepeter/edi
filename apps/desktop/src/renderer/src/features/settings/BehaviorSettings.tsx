@@ -1,5 +1,5 @@
 import type { SuggestionLevel } from '@edi/contracts';
-import { GroupedList, GroupedRow, SegmentedControl } from '../../components/ui';
+import { GroupedList, GroupedRow, SegmentedControl, Switch } from '../../components/ui';
 import './settings.css';
 
 /** The control shows these; each stands for one saved level. */
@@ -22,15 +22,19 @@ const detail: Record<SuggestionLevel, string> = {
 };
 
 /**
- * Settings → Behavior: how much Edi says on its own. A suggestion comes from the app in front
+ * Settings → Behavior: how much Edi says and moves on its own. A suggestion comes from the app in front
  * and, in a browser, the site — read on this Mac. No screenshot is taken and no model is asked.
  */
 export function BehaviorSettings({
   suggestions,
   onSuggestions,
+  wander,
+  onWander,
 }: {
   suggestions: SuggestionLevel;
   onSuggestions(level: SuggestionLevel): void;
+  wander: boolean;
+  onWander(enabled: boolean): void;
 }) {
   return (
     <div className="settings-page">
@@ -42,13 +46,27 @@ export function BehaviorSettings({
           icon="sparkles"
           title="What Edi offers on its own"
           detail={detail[suggestions]}
+        />
+        {/* On its own row: beside the label it left the words three to a line. */}
+        <li className="settings-choice">
+          <SegmentedControl<Choice>
+            label="What Edi offers on its own"
+            options={choices}
+            value={choiceOf[suggestions]}
+            onChange={choice => onSuggestions(levelOf[choice])}
+          />
+        </li>
+      </GroupedList>
+      <GroupedList
+        title="Movement"
+        footer="It only ever moves itself, never your pointer or your windows, and it stays still when macOS is set to reduce motion."
+      >
+        <GroupedRow
+          icon="face"
+          title="Wander around the desktop"
+          detail="A few light hops along the screen now and then, when nothing is happening. It stops the moment you talk to it, drag it or open the card."
           control={
-            <SegmentedControl<Choice>
-              label="What Edi offers on its own"
-              options={choices}
-              value={choiceOf[suggestions]}
-              onChange={choice => onSuggestions(levelOf[choice])}
-            />
+            <Switch label="Wander around the desktop" checked={wander} onChange={onWander} />
           }
         />
       </GroupedList>

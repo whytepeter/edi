@@ -16,6 +16,7 @@ import {
   Icon,
   IconButton,
   Menu,
+  TextField,
   type MenuEntry,
 } from '../../components/ui';
 import { commandMessage } from '../../lib/command-message';
@@ -28,6 +29,7 @@ const icon = {
   checklist: 'check',
   table: 'window',
   diagram: 'chart',
+  view: 'sparkles',
   html: 'code',
 } as const;
 const label = {
@@ -36,6 +38,7 @@ const label = {
   checklist: 'Checklist',
   table: 'Table',
   diagram: 'Diagram',
+  view: 'View',
   html: 'Interactive',
 } as const;
 
@@ -100,6 +103,7 @@ export function LibraryView({
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Under the More button when it fits, above it when that fits, else as high as the card allows:
@@ -361,7 +365,12 @@ export function LibraryView({
     );
   }
 
-  const groups = groupLibraryByDate(items ?? [], now);
+  // Filtered by name as the person types; the full list is what stays loaded.
+  const wanted = query.trim().toLowerCase();
+  const shown = wanted
+    ? (items ?? []).filter(item => item.title.toLowerCase().includes(wanted))
+    : (items ?? []);
+  const groups = groupLibraryByDate(shown, now);
   const menuItem = menu && items?.find(item => item.id === menu.id);
 
   return (
@@ -387,6 +396,23 @@ export function LibraryView({
               Everything here is a plain file in Documents › Edi on this Mac.
             </p>
           </header>
+          {/* Worth a box once there is more than a screenful to look through. */}
+          {items.length > 6 && (
+            <TextField
+              label="Search your Library"
+              hideLabel
+              icon="search"
+              placeholder="Search by name"
+              value={query}
+              maxLength={120}
+              onChange={event => setQuery(event.target.value)}
+            />
+          )}
+          {wanted && shown.length === 0 && (
+            <p className="ds-footnote ds-secondary" role="status">
+              Nothing in your Library is called “{query.trim()}”.
+            </p>
+          )}
           {exported && (
             <p role="status" className="library-status">
               <Icon name="check" size={14} />

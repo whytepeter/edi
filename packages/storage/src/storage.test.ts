@@ -780,6 +780,44 @@ test('diagrams are stored like other generated content', () => {
   assert.deepEqual(repos.artifacts.get(uuid(9))?.content, content);
 });
 
+test('views join the generated kinds, and older content (pins included) survives the rebuild', () => {
+  const db = openDatabase(':memory:');
+  const repos = createRepositories(db);
+  // As a database from before views would hold it: a pinned diagram.
+  repos.artifacts.add({
+    id: uuid(7),
+    kind: 'diagram',
+    title: 'Flow',
+    content: { kind: 'diagram', title: 'Flow', mermaid: 'flowchart LR\n  a --> b' },
+    path: 'Artifacts/Diagrams/flow.mmd',
+    bytes: 22,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  db.prepare('UPDATE artifacts SET pinned_at = 5 WHERE id = ?').run(uuid(7));
+  db.exec('PRAGMA user_version = 18');
+  migrate(db);
+  const kept = db.prepare('SELECT kind, pinned_at FROM artifacts WHERE id = ?').get(uuid(7));
+  assert.deepEqual({ ...kept }, { kind: 'diagram', pinned_at: 5 });
+
+  const content = {
+    kind: 'view',
+    title: 'Trip',
+    blocks: [{ type: 'stat', text: 'Total', value: '$952' }],
+  };
+  repos.artifacts.add({
+    id: uuid(8),
+    kind: 'view',
+    title: 'Trip',
+    content,
+    path: 'Artifacts/Views/trip.md',
+    bytes: 40,
+    createdAt: 2,
+    updatedAt: 2,
+  });
+  assert.deepEqual(repos.artifacts.get(uuid(8))?.content, content);
+});
+
 test('artifacts pin, move with a rename, and remember the request that made them', () => {
   const repos = createRepositories(openDatabase(':memory:'));
   repos.runs.start({ ...run(uuid(1)), prompt: 'Plan my launch' });
@@ -852,4 +890,71 @@ test('artifacts pin, move with a rename, and remember the request that made them
       regenerable: true,
     },
   ]);
+});
+
+test('undo looks through changes only, so a day of lookups cannot push a change out of reach', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.runs.start(run(uuid(1)));
+  const call = (id: string, effect: 'read' | 'write', at: number) =>
+    repos.toolCalls.create({
+      id,
+      runId: uuid(1),
+      capability: effect === 'write' ? 'files.move' : 'files.search',
+      title: effect === 'write' ? 'Move files' : 'Search files',
+      effect,
+      input: {},
+      status: 'running',
+      at,
+    });
+  // One change in the morning, then more lookups than the list holds.
+  call(uuid(2), 'write', 1);
+  for (let index = 0; index < 250; index++)
+    call(`00000000-0000-4000-8000-${String(1000 + index).padStart(12, '0')}`, 'read', 10 + index);
+
+  assert.equal(
+    repos.toolCalls.recent(200).some(entry => entry.id === uuid(2)),
+    false,
+    'among everything, the change is no longer in the newest 200',
+  );
+  assert.deepEqual(
+    repos.toolCalls.recent(200, { changes: true }).map(entry => entry.id),
+    [uuid(2)],
+  );
+});
+
+test('a conversation can be read further back than its last few turns, without gaps', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  const thread = 'trip-1';
+  repos.conversations.create({ id: thread, title: 'Trip', at: 1 });
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  for (let n = 1; n <= 25; n++) {
+    repos.runs.start({ ...run(id(n)), prompt: `question ${n}`, startedAt: n, threadId: thread });
+    repos.runs.finish(id(n), { status: 'done', text: `answer ${n}`, error: '', at: n });
+  }
+  // The card keeps the last ten live; the ten before those are fetched behind the oldest shown.
+  const live = repos.runs.thread(10, thread);
+  assert.equal(live[0]?.prompt, 'question 16');
+  const earlier = repos.runs.threadBefore(thread, live[0]!.id, 10);
+  assert.deepEqual(
+    earlier.map(turn => turn.prompt),
+    Array.from({ length: 10 }, (_, index) => `question ${6 + index}`),
+  );
+  // And the rest behind those, down to the first.
+  const first = repos.runs.threadBefore(thread, earlier[0]!.id, 10);
+  assert.deepEqual(
+    first.map(turn => turn.prompt),
+    ['question 1', 'question 2', 'question 3', 'question 4', 'question 5'],
+  );
+  assert.deepEqual(repos.runs.threadBefore(thread, first[0]!.id, 10), []);
+});
+
+test('a conversation keeps the name the person gives it', () => {
+  const repos = createRepositories(openDatabase(':memory:'));
+  repos.conversations.create({ id: 'trip-1', title: 'What should I pack for', at: 1 });
+  repos.conversations.rename('trip-1', '  Lisbon trip  ');
+  assert.equal(repos.conversations.get('trip-1')?.title, 'Lisbon trip');
+  // More questions move it up the list without touching its name.
+  repos.conversations.touch('trip-1', 9);
+  assert.equal(repos.conversations.get('trip-1')?.title, 'Lisbon trip');
+  assert.throws(() => repos.conversations.rename('gone', 'x'), /no longer exists/);
 });

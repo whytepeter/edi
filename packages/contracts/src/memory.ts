@@ -35,6 +35,22 @@ export function refuseToRemember(text: string): string | null {
   return null;
 }
 
+/**
+ * Why a new memory cannot be kept, in words for the person; null when it can. The same rule
+ * whether Edi asks to remember it or the person types it into Settings.
+ */
+export function memoryProblem(text: string, existing: readonly Memory[]): string | null {
+  const line = text.trim();
+  if (!line) return 'Write what Edi should remember.';
+  const refused = refuseToRemember(line);
+  if (refused) return refused;
+  const already = existing.find(memory => memory.text.toLowerCase() === line.toLowerCase());
+  if (already) return `Edi already remembers that: “${already.text}”.`;
+  if (existing.length >= maxMemories)
+    return `Edi already remembers ${maxMemories} things. Remove one first.`;
+  return null;
+}
+
 /** Words too common to say what a question is about. */
 const commonWords = new Set(
   'a an and are as at be but by can do for from have how i in is it me my of on or so that the this to was we what when where which who why will with you your'.split(

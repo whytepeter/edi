@@ -282,6 +282,8 @@ export function WorkspaceCard() {
                 <BehaviorSettings
                   suggestions={settings.suggestions}
                   onSuggestions={level => void send({ type: 'set-suggestions', level })}
+                  wander={settings.wander}
+                  onWander={enabled => void send({ type: 'set-wander', enabled })}
                 />
               )}
               {view === 'settings.activity' && <ActivityView refreshKey={refreshKey} />}

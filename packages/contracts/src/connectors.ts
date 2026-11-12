@@ -103,6 +103,10 @@ export const connectorSchema = z
     status: connectorStatusSchema,
     error: z.string().max(300),
     tools: z.array(connectorToolSchema).max(200),
+    /** Switched-on tools not offered to the model because too many are on across all apps. */
+    toolsLeftOut: z.number().int().min(0).max(10_000).default(0),
+    /** The app has more tools than Edi lists for one app. */
+    moreTools: z.boolean().default(false),
     addedAt: z.number().int().nonnegative(),
   })
   .strict();

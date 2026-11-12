@@ -42,7 +42,19 @@ function asSuggestion(value: unknown): { text: string; label: string } | null {
   return { text: String(offer.text), label: String(action.label) };
 }
 
-/** The bubble can only review the current approval or reveal its full context. */
+/** An answer in words: bounded text, a short progress line, and whether it is complete. */
+function asReply(value: unknown): { text: string; progress: string; done: boolean } | null {
+  if (!value || typeof value !== 'object') return null;
+  const reply = value as Record<string, unknown>;
+  if (typeof reply.text !== 'string' || reply.text.length > 1_200) return null;
+  if (typeof reply.progress !== 'string' || reply.progress.length > 60) return null;
+  return { text: reply.text, progress: reply.progress, done: reply.done === true };
+}
+
+/**
+ * The bubble can review the current approval, show Edi's answer, send a reply to it, and
+ * reveal the full conversation. Nothing else.
+ */
 contextBridge.exposeInMainWorld('ediBubble', {
   async approval() {
     return asApproval(await ipcRenderer.invoke('edi:bubble-approval:get'));
@@ -77,6 +89,32 @@ contextBridge.exposeInMainWorld('ediBubble', {
       throw new Error('Invalid approval response.');
     }
     await ipcRenderer.invoke('edi:command', { type: 'respond-approval', callId, decision });
+  },
+  /** Edi's answer as it is written, for the reply bubble. */
+  async reply() {
+    return asReply(await ipcRenderer.invoke('edi:bubble-reply:get'));
+  },
+  subscribeReply(callback: (reply: { text: string; progress: string; done: boolean }) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const reply = asReply(value);
+      if (reply) callback(reply);
+    };
+    ipcRenderer.on('edi:bubble-reply', listener);
+    return () => ipcRenderer.removeListener('edi:bubble-reply', listener);
+  },
+  /** What the person typed under the answer becomes the next question. */
+  async ask(prompt: string) {
+    const text = typeof prompt === 'string' ? prompt.trim() : '';
+    if (!text || text.length > 8_000) throw new Error('Invalid message.');
+    await ipcRenderer.invoke('edi:command', { type: 'ask-agent', prompt: text });
+  },
+  /** The person is reading or typing: the bubble stays. */
+  async hold() {
+    await ipcRenderer.invoke('edi:command', { type: 'hold-bubble' });
+  },
+  async openLink(url: string) {
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url) || url.length > 2_048) return;
+    await ipcRenderer.invoke('edi:command', { type: 'open-link', url });
   },
   /** Short progress for the thinking bubble ("Searching the web"); plain text only. */
   subscribeText(callback: (text: string) => void) {

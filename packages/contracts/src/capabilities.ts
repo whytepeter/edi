@@ -90,6 +90,13 @@ export const approvalRequestSchema = z
   .strict();
 export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
 
+/**
+ * Actions that are reviewed every single time: “always allow” is not offered for them, and is
+ * ignored if it arrives anyway. Undoing something is its own decision each time.
+ */
+export const reviewedEveryTime: ReadonlySet<string> = new Set(['edi.undo']);
+export const canAlwaysAllow = (capabilityId: string) => !reviewedEveryTime.has(capabilityId);
+
 export const runStatusSchema = z.enum(['running', 'done', 'stopped', 'error', 'interrupted']);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 

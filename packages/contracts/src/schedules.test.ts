@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeWhen, nextRunAt } from './index';
+import { describeWhen, nextRunAt, type Weekday } from './index';
 
 const local = (y: number, m: number, d: number, h = 0, min = 0) =>
   new Date(y, m - 1, d, h, min).getTime();
@@ -54,4 +54,16 @@ test('schedules read naturally', () => {
   );
   assert.equal(describeWhen({ kind: 'every', hours: 1 }), 'Every hour');
   assert.equal(describeWhen({ kind: 'once', at: '2026-09-20T15:00' }), 'Once on Sep 20 at 15:00');
+});
+
+test('a card names chosen days in the fewest words', () => {
+  const on = (days: Weekday[]) =>
+    describeWhen({ kind: 'daily', time: '07:15', days }, { short: true });
+  assert.equal(on(['mon', 'tue', 'wed', 'thu', 'fri', 'sat']), 'Mon–Sat at 07:15');
+  assert.equal(on(['mon', 'wed', 'fri']), 'Mon, Wed, Fri at 07:15');
+  assert.equal(on(['sat', 'sun', 'mon', 'tue']), 'Mon, Tue, Sat, Sun at 07:15');
+  assert.equal(on(['tue', 'wed', 'thu', 'sun']), 'Tue–Thu, Sun at 07:15');
+  // The usual names stay as they are.
+  assert.equal(on(['mon', 'tue', 'wed', 'thu', 'fri']), 'Every weekday at 07:15');
+  assert.equal(describeWhen({ kind: 'every', hours: 4 }, { short: true }), 'Every 4 hours');
 });
