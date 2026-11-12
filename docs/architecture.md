@@ -87,6 +87,8 @@ preload method, then test invalid payloads and unauthorized callers.
 - Foreground-run owner: `apps/desktop/src/main/agent/agent-service.ts`
 - Task and schedule tools: `apps/desktop/src/main/agent/task-tools.ts`
 - What Edi is told about itself each turn: `apps/desktop/src/main/setup-snapshot.ts`
+- The cards under each reply (what that run showed): `apps/desktop/src/main/agent/thread-artifacts.ts`
+- What Settings → Memory may do to what Edi remembers: `apps/desktop/src/main/memory-routes.ts`
 - Tool policy: `packages/capabilities/src/broker.ts`
 
 `@edi/agent` is the brain without a host: `startRun(input, { provider, host, instructions })` runs one

@@ -69,7 +69,6 @@ import {
 import { EncryptedSecretStore } from './connectors/secrets';
 import {
   artifactExport,
-  artifactPreview,
   exportFileName,
   exportFormatLabel,
   exportFormats,
@@ -80,8 +79,6 @@ import {
   connectorCatalog,
   voiceSelectionSchema,
   voiceWordsSchema,
-  memoryProblem,
-  refuseToRemember,
   suggestNow,
   suggestionQuietStartMs,
   type Suggestion,
@@ -142,6 +139,8 @@ import { FileAccessManager } from './platform/file-access';
 import { TaskService } from './agent/task-service';
 import { taskCapabilities } from './agent/task-tools';
 import { buildSetupSnapshot } from './setup-snapshot';
+import { memoryRoutes } from './memory-routes';
+import { DISPLAY_CAPABILITIES, threadArtifacts } from './agent/thread-artifacts';
 import { Scheduler } from './agent/scheduler';
 import { captureDesktopContext } from './context/desktop-context';
 import { randomUUID } from 'node:crypto';
@@ -183,7 +182,6 @@ import { Exporter } from './exports/exporter';
 /** Display tools whose successful calls become artifacts in the conversation. */
 /** The most skills a run is told about (the brain's own limit, `packages/agent` protocol). */
 const MAX_SKILLS_PER_RUN = 60;
-const DISPLAY_CAPABILITIES = ['workspace.show', 'notes.show'] as const;
 /** A shortcut press shorter than this is a tap: it starts (or ends) a hands-free conversation. */
 const TAP_MS = 350;
 /** How long a request waits for an app the person agreed to connect. */
@@ -207,29 +205,6 @@ function moveLegacyNotes(
     store.relocate(legacy, target);
   } catch {
     // A failed move keeps the old folder; the records still point at it.
-  }
-}
-
-/** A stored display call as a conversation card; malformed history is skipped. */
-function summarizeShown(call: { id: string; capability: string; input: unknown; output: unknown }) {
-  try {
-    if (call.capability === 'workspace.show') {
-      const content = toArtifactContent(call.input as Parameters<typeof toArtifactContent>[0]);
-      return {
-        id: call.id,
-        kind: content.kind,
-        title: content.title,
-        preview: artifactPreview(content),
-      } satisfies ArtifactSummary;
-    }
-    const noteId = String((call.input as { id?: unknown }).id ?? '');
-    const title = String((call.output as { title?: unknown } | null)?.title ?? 'Note').slice(
-      0,
-      120,
-    );
-    return { id: call.id, kind: 'note', title, preview: '', noteId } satisfies ArtifactSummary;
-  } catch {
-    return null;
   }
 }
 
@@ -827,34 +802,14 @@ async function start() {
       connectApp,
       createSkill,
     ],
-    threadArtifacts: runIds => {
-      const byRun = new Map<string, ArtifactSummary[]>();
-      for (const call of repositories.toolCalls.shown(DISPLAY_CAPABILITIES, { runIds })) {
-        // Deleted content leaves the conversation too; updated content shows its current title.
-        const record =
-          call.capability === 'workspace.show' ? repositories.artifacts.get(call.id) : null;
-        if (call.capability === 'workspace.show' && !record) continue;
-        const summary = record
-          ? (() => {
-              try {
-                const content = toArtifactContent(
-                  record.content as Parameters<typeof toArtifactContent>[0],
-                );
-                return {
-                  id: record.id,
-                  kind: content.kind,
-                  title: content.title,
-                  preview: artifactPreview(content),
-                } satisfies ArtifactSummary;
-              } catch {
-                return null;
-              }
-            })()
-          : summarizeShown(call);
-        if (summary) byRun.set(call.runId, [...(byRun.get(call.runId) ?? []), summary].slice(-6));
-      }
-      return byRun;
-    },
+    threadArtifacts: runIds =>
+      threadArtifacts(
+        {
+          shown: filter => repositories.toolCalls.shown(DISPLAY_CAPABILITIES, filter),
+          artifact: id => repositories.artifacts.get(id),
+        },
+        runIds,
+      ),
     captureScreens: screensForPrompt,
     screenPermissionRequired: () => permissionPort.current?.require('screen-recording'),
     point: target => pointer.show(target),
@@ -1766,37 +1721,7 @@ async function start() {
         },
         dismiss: () => void closeSuggestion(),
       },
-      memory: {
-        // Typed in Settings: the same checks as when Edi asks to remember something.
-        add: (kind, text) => {
-          const problem = memoryProblem(text, repositories.memories.list());
-          if (problem) throw new Error(problem);
-          const at = Date.now();
-          repositories.memories.add({
-            id: randomUUID(),
-            kind,
-            text: text.trim(),
-            createdAt: at,
-            updatedAt: at,
-          });
-          publishMemories();
-        },
-        edit: (id, text) => {
-          // The same rule as when Edi remembers: no passwords, keys or card numbers.
-          const refused = refuseToRemember(text);
-          if (refused) throw new Error(refused);
-          repositories.memories.update(id, { text, at: Date.now() });
-          publishMemories();
-        },
-        remove: id => {
-          repositories.memories.remove(id);
-          publishMemories();
-        },
-        clear: () => {
-          repositories.memories.clear();
-          publishMemories();
-        },
-      },
+      memory: memoryRoutes(repositories.memories, publishMemories),
       placement,
       petDrag,
       pokes,
